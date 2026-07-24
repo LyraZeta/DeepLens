@@ -4,11 +4,10 @@
 # Licensed under the Apache License, Version 2.0.
 # See LICENSE file in the project root for full license information.
 
-"""Grating DOE parameterization.
+"""光栅 DOE 参数化。
 
-This module implements a linear grating diffractive optical element (DOE).
-A grating introduces a linear phase gradient across the surface, which
-diffracts light into multiple diffraction orders.
+本模块实现线性光栅衍射光学元件（DOE）。光栅在表面引入线性相位梯度，
+使光衍射到多个衍射级次。
 """
 
 import torch
@@ -16,22 +15,19 @@ from .diffractive import DiffractiveSurface
 
 
 class Grating(DiffractiveSurface):
-    """Linear grating diffractive optical element.
+    """线性光栅衍射光学元件。
 
-    A grating introduces a linear phase gradient across the surface, which
-    diffracts light into multiple diffraction orders. The phase profile is
+    光栅在表面引入线性相位梯度，使光衍射到多个衍射级次。相位分布为
 
     $$\\phi(x, y) = \\alpha \\,\\frac{x \\sin\\theta + y \\cos\\theta}{\\text{norm\\_radii}}$$
 
-    where $\\theta$ is the angle from the y-axis to the grating vector,
-    $\\alpha$ is the grating slope (phase-gradient strength), and `norm_radii`
-    normalizes the coordinates.
+    其中 $\\theta$ 是从 y 轴到光栅矢量的夹角，$\\alpha$ 是光栅斜率
+    （相位梯度强度），`norm_radii` 用于归一化坐标。
 
-    Attributes:
-        theta (torch.Tensor): Angle from the y-axis to the grating vector. [rad]
-        alpha (torch.Tensor): Grating slope (phase-gradient strength). [rad]
-        norm_radii (float): Coordinate normalization radius (half the DOE
-            width). [mm]
+    属性：
+        theta (torch.Tensor): 从 y 轴到光栅矢量的夹角。[rad]
+        alpha (torch.Tensor): 光栅斜率（相位梯度强度）。[rad]
+        norm_radii (float): 坐标归一化半径（DOE 宽度的一半）。[mm]
     """
 
     def __init__(
@@ -46,47 +42,46 @@ class Grating(DiffractiveSurface):
         alpha=0.0,
         device="cpu",
     ):
-        """Initialize a grating DOE.
+        """初始化光栅 DOE。
 
-        Args:
-            d (float): Axial position of the DOE plane. [mm]
-            res (tuple or int, optional): Resolution of the DOE as (H, W); an
-                int is expanded to (res, res). [pixel]. Defaults to (2000, 2000).
-            mat (str, optional): Material name of the DOE. Defaults to "fused_silica".
-            wvln0 (float, optional): Design wavelength. [um]. Defaults to 0.55.
-            fab_ps (float, optional): Fabrication pixel size. [mm]. Defaults to 0.001.
-            fab_step (int, optional): Number of fabrication (quantization)
-                levels. Defaults to 16.
-            theta (float, optional): Angle from the y-axis to the grating
-                vector. [rad]. Defaults to 0.0.
-            alpha (float, optional): Grating slope (phase-gradient strength).
-                [rad]. Defaults to 0.0.
-            device (str, optional): Device to place the DOE tensors on. Defaults to "cpu".
+        参数：
+            d (float): DOE 平面的轴向位置。[mm]
+            res (tuple or int, optional): DOE 分辨率，格式为 (H, W)；整数会
+                扩展为 (res, res)。[pixel]。默认值为 (2000, 2000)。
+            mat (str, optional): DOE 的材料名称。默认值为 "fused_silica"。
+            wvln0 (float, optional): 设计波长。[um]。默认值为 0.55。
+            fab_ps (float, optional): 制造像素尺寸。[mm]。默认值为 0.001。
+            fab_step (int, optional): 制造（量化）级数。默认值为 16。
+            theta (float, optional): 从 y 轴到光栅矢量的夹角。[rad]。
+                默认值为 0.0。
+            alpha (float, optional): 光栅斜率（相位梯度强度）。[rad]。
+                默认值为 0.0。
+            device (str, optional): 放置 DOE 张量的设备。默认值为 "cpu"。
         """
         super().__init__(
             d=d, res=res, mat=mat, wvln0=wvln0, fab_ps=fab_ps, fab_step=fab_step, device=device
         )
 
-        # Grating parameters
-        self.theta = torch.tensor(theta)  # angle from y-axis to grating vector
-        self.alpha = torch.tensor(alpha)  # slope of the grating
+        # 光栅参数
+        self.theta = torch.tensor(theta)  # 从 y 轴到光栅矢量的夹角
+        self.alpha = torch.tensor(alpha)  # 光栅斜率
 
-        # Normalization radius (use half of the width)
+        # 归一化半径（使用宽度的一半）
         self.norm_radii = self.w / 2
 
         self.to(device)
 
     @classmethod
     def init_from_dict(cls, doe_dict):
-        """Initialize a grating DOE from a parameter dict.
+        """从参数字典初始化光栅 DOE。
 
-        Args:
-            doe_dict (dict): Dictionary of DOE parameters. Requires keys "d" and
-                "res"; "mat", "wvln0", "fab_ps", "fab_step", "theta", and
-                "alpha" are optional and fall back to defaults.
+        参数：
+            doe_dict (dict): DOE 参数字典。必须包含 "d" 和 "res"；"mat"、
+                "wvln0"、"fab_ps"、"fab_step"、"theta"、"alpha" 为可选键，
+                缺省时使用默认值。
 
-        Returns:
-            grating (Grating): The constructed grating DOE instance.
+        返回：
+            grating (Grating): 构造得到的光栅 DOE 实例。
         """
         return cls(
             d=doe_dict["d"],
@@ -100,21 +95,21 @@ class Grating(DiffractiveSurface):
         )
 
     def phase_func(self):
-        """Compute the raw grating phase profile at the design wavelength.
+        """计算设计波长下的原始光栅相位分布。
 
-        The phase is a linear function of position:
+        相位是位置的线性函数：
 
         $$\\phi(x, y) = \\alpha \\,\\frac{x \\sin\\theta + y \\cos\\theta}{\\text{norm\\_radii}}$$
 
-        Returns:
-            phase (torch.Tensor): Raw, unwrapped phase profile at the design
-                wavelength. [H, W]. [rad]
+        返回：
+            phase (torch.Tensor): 设计波长下未包裹的原始相位分布。
+                [H, W]。[rad]
         """
-        # Normalize coordinates
+        # 归一化坐标
         x_norm = self.x / self.norm_radii
         y_norm = self.y / self.norm_radii
 
-        # Calculate linear phase gradient
+        # 计算线性相位梯度
         phase = self.alpha * (
             x_norm * torch.sin(self.theta) + y_norm * torch.cos(self.theta)
         )
@@ -122,21 +117,19 @@ class Grating(DiffractiveSurface):
         return phase
 
     # =======================================
-    # Optimization
+    # 优化
     # =======================================
     def get_optimizer_params(self, lr=0.001):
-        """Build optimizer parameter groups for the grating parameters.
+        """为光栅参数构建优化器参数组。
 
-        Enables gradients on `theta` and `alpha`. The `alpha` group uses a
-        learning rate scaled by 10x relative to `lr`.
+        启用 `theta` 和 `alpha` 的梯度。`alpha` 参数组使用相对于 `lr`
+        放大 10x 的学习率。
 
-        Args:
-            lr (float, optional): Base learning rate for the grating
-                parameters. Defaults to 0.001.
+        参数：
+            lr (float, optional): 光栅参数的基础学习率。默认值为 0.001。
 
-        Returns:
-            optimizer_params (list): List of parameter-group dicts for the
-                optimizer.
+        返回：
+            optimizer_params (list): 优化器参数组字典的列表。
         """
         self.theta.requires_grad = True
         self.alpha.requires_grad = True
@@ -149,16 +142,15 @@ class Grating(DiffractiveSurface):
         return optimizer_params
 
     # =======================================
-    # IO
+    # 输入输出
     # =======================================
     def surf_dict(self):
-        """Return a serializable dict of the grating surface parameters.
+        """返回可序列化的光栅表面参数字典。
 
-        Extends the base surface dict with the grating-specific `theta`,
-        `alpha`, and `norm_radii` entries.
+        在基础表面字典中加入光栅专用的 `theta`、`alpha` 和 `norm_radii` 项。
 
-        Returns:
-            surf_dict (dict): Dictionary of surface parameters.
+        返回：
+            surf_dict (dict): 表面参数字典。
         """
         surf_dict = super().surf_dict()
         surf_dict["theta"] = round(self.theta.item(), 6)
@@ -167,11 +159,11 @@ class Grating(DiffractiveSurface):
         return surf_dict
 
     def save_ckpt(self, save_path="./grating_doe.pth"):
-        """Save the grating DOE parameters to a checkpoint file.
+        """将光栅 DOE 参数保存到检查点文件。
 
-        Args:
-            save_path (str, optional): Path to write the checkpoint to. Defaults
-                to "./grating_doe.pth".
+        参数：
+            save_path (str, optional): 检查点写入路径。默认值为
+                "./grating_doe.pth"。
         """
         torch.save(
             {
@@ -183,13 +175,13 @@ class Grating(DiffractiveSurface):
         )
 
     def load_ckpt(self, load_path="./grating_doe.pth"):
-        """Load the grating DOE parameters from a checkpoint file.
+        """从检查点文件加载光栅 DOE 参数。
 
-        Restores `theta` and `alpha` onto the current device.
+        将 `theta` 和 `alpha` 恢复到当前设备。
 
-        Args:
-            load_path (str, optional): Path to read the checkpoint from.
-                Defaults to "./grating_doe.pth".
+        参数：
+            load_path (str, optional): 检查点读取路径。默认值为
+                "./grating_doe.pth"。
         """
         ckpt = torch.load(load_path)
         self.theta = ckpt["theta"].to(self.device)

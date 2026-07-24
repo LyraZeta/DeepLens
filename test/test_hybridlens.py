@@ -1,4 +1,4 @@
-"""Tests for deeplens/optics/hybridlens.py — HybridLens."""
+"""deeplens/optics/hybridlens.py 测试——HybridLens。"""
 
 import os
 
@@ -8,34 +8,34 @@ import torch
 
 @pytest.fixture(autouse=True)
 def _restore_default_dtype():
-    """Restore default dtype after each test (HybridLens sets float64 globally)."""
+    """每项测试后恢复默认 dtype（HybridLens 会在全局设置 float64）。"""
     old_dtype = torch.get_default_dtype()
     yield
     torch.set_default_dtype(old_dtype)
 
 
 class TestHybridLensInit:
-    """Tests for HybridLens initialization."""
+    """测试 HybridLens 初始化。"""
 
     def test_init_from_json(self, sample_hybridlens):
-        """HybridLens loads from JSON with geolens and doe."""
+        """HybridLens 应从 JSON 加载 geolens 和 doe。"""
         lens = sample_hybridlens
         assert lens.geolens is not None
         assert lens.doe is not None
         assert len(lens.geolens.surfaces) > 0
 
     def test_device_transfer(self, sample_hybridlens):
-        """to(device) transfers both geolens and doe."""
+        """to(device) 应同时转移 geolens 和 doe。"""
         lens = sample_hybridlens
         lens.to(torch.device("cpu"))
         assert lens.doe.d.device.type == "cpu"
 
 
 class TestHybridLensPSF:
-    """Tests for PSF computation."""
+    """测试 PSF 计算。"""
 
     def test_psf_shape_and_normalization(self, sample_hybridlens):
-        """psf() returns [ks, ks] tensor normalized to ~1."""
+        """psf() 返回归一化至约 1 的 [ks, ks] 张量。"""
         lens = sample_hybridlens
         ks = 64
         old_dtype = torch.get_default_dtype()
@@ -50,29 +50,29 @@ class TestHybridLensPSF:
 
 
 class TestHybridLensUtils:
-    """Tests for utility methods."""
+    """测试实用方法。"""
 
     def test_calc_scale(self, sample_hybridlens):
-        """calc_scale returns a positive float."""
+        """calc_scale 返回正浮点数。"""
         lens = sample_hybridlens
         scale = lens.calc_scale(depth=-10000.0)
         assert isinstance(scale, float)
         assert scale > 0
 
     def test_refocus(self, sample_hybridlens):
-        """refocus changes geolens d_sensor."""
+        """refocus 应改变 geolens d_sensor。"""
         lens = sample_hybridlens
         d_before = lens.geolens.d_sensor.clone()
         lens.refocus(foc_dist=-5000.0)
-        # d_sensor should change after refocus
+        # 重新对焦后 d_sensor 应发生变化
         assert lens.geolens.d_sensor is not None
 
 
 class TestHybridLensIO:
-    """Tests for I/O."""
+    """测试 I/O。"""
 
     def test_write_read_json_roundtrip(self, sample_hybridlens, test_output_dir):
-        """write_lens_json then read_lens_json preserves structure."""
+        """write_lens_json 后再 read_lens_json 应保留结构。"""
         lens = sample_hybridlens
         out_path = os.path.join(test_output_dir, "test_hybridlens_roundtrip.json")
         original_num_surfs = len(lens.geolens.surfaces)
@@ -88,20 +88,20 @@ class TestHybridLensIO:
 
 
 class TestHybridLensOptim:
-    """Tests for optimization helpers."""
+    """测试优化辅助方法。"""
 
     def test_get_optimizer(self, sample_hybridlens):
-        """get_optimizer returns an Adam optimizer."""
+        """get_optimizer 返回 Adam 优化器。"""
         lens = sample_hybridlens
         optimizer = lens.get_optimizer()
         assert isinstance(optimizer, torch.optim.Adam)
 
 
 class TestHybridLensVis:
-    """Smoke test for draw_layout."""
+    """draw_layout 的冒烟测试。"""
 
     def test_draw_layout(self, sample_hybridlens, test_output_dir):
-        """draw_layout produces a file without crashing."""
+        """draw_layout 应生成文件且不崩溃。"""
         lens = sample_hybridlens
         path = os.path.join(test_output_dir, "test_hybridlens_layout.png")
         lens.draw_layout(save_name=path, dpi=100)

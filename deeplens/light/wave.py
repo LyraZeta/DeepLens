@@ -4,11 +4,11 @@
 # Licensed under the Apache License, Version 2.0.
 # See LICENSE file in the project root for full license information.
 
-"""Complex wave field class for diffraction simulation.
+"""用于衍射仿真的复波场类。
 
-This file contains:
-    1. Complex wave field class
-    2. Wave field propagation functions (ASM, Rayleigh Sommerfeld, Fresnel, Fraunhofer, etc.)
+本文件包含：
+    1. 复波场类
+    2. 波场传播函数（ASM、Rayleigh Sommerfeld、Fresnel、Fraunhofer 等）
 """
 
 import math
@@ -23,27 +23,26 @@ from ..base import DeepObj
 
 
 # ===================================
-# Complex wave field
+# 复波场
 # ===================================
 class ComplexWave(DeepObj):
-    """Complex scalar wave field for diffraction simulation.
+    """用于衍射仿真的复标量波场。
 
-    Represents a monochromatic, coherent complex amplitude on a uniform
-    rectangular grid. Propagation methods (band-limited ASM, Fresnel) are
-    implemented as member functions and use `torch.fft` for efficiency.
+    表示均匀矩形网格上的单色相干复振幅。传播方法（带限 ASM、Fresnel）
+    以成员函数实现，并使用 `torch.fft` 提高效率。
 
-    Attributes:
-        u (torch.Tensor): Complex amplitude, shape [1, 1, H, W].
-        wvln (float): Wavelength [µm].
-        k (float): Wave number $2\\pi / (\\lambda \\times 10^{-3})$ [mm⁻¹].
-        phy_size (tuple): Physical aperture size (W, H) [mm].
-        ps (float): Pixel pitch [mm] (square pixels).
-        res (tuple): Grid resolution (H, W) in pixels.
-        x (torch.Tensor): x coordinate grid, shape [H, W] [mm].
-        y (torch.Tensor): y coordinate grid, shape [H, W] [mm].
-        z (torch.Tensor): Axial position grid, shape [H, W] [mm].
-        plain_asm_dist_max (float): Nyquist limit of plain ASM [mm] (reference only).
-        fresnel_dist_min (float): Distance above which single-FFT Fresnel is well-sampled [mm].
+    属性：
+        u (torch.Tensor): 复振幅，形状为 [1, 1, H, W]。
+        wvln (float): 波长 [µm]。
+        k (float): 波数 $2\\pi / (\\lambda \\times 10^{-3})$ [mm⁻¹]。
+        phy_size (tuple): 物理孔径尺寸 (W, H) [mm]。
+        ps (float): 像素间距 [mm]，像素为正方形。
+        res (tuple): 网格分辨率 (H, W)，单位为像素。
+        x (torch.Tensor): x 坐标网格，形状为 [H, W] [mm]。
+        y (torch.Tensor): y 坐标网格，形状为 [H, W] [mm]。
+        z (torch.Tensor): 轴向位置网格，形状为 [H, W] [mm]。
+        plain_asm_dist_max (float): 普通 ASM 的 Nyquist 上限 [mm]，仅供参考。
+        fresnel_dist_min (float): 单 FFT Fresnel 达到良好采样所需的最小距离 [mm]。
     """
 
     def __init__(
@@ -54,22 +53,21 @@ class ComplexWave(DeepObj):
         phy_size=(4.0, 4.0),
         res=(2000, 2000),
     ):
-        """Initialize a complex wave field.
+        """初始化复波场。
 
-        Args:
-            u (torch.Tensor or None, optional): Initial complex amplitude.
-                Accepted shapes: [H, W], [1, H, W], or [1, 1, H, W]. If None,
-                a zero field is created with the given res. Defaults to None.
-            wvln (float, optional): Wavelength [µm]. Defaults to 0.55.
-            z (float, optional): Initial axial position [mm]. Defaults to 0.0.
-            phy_size (tuple, optional): Physical aperture (W, H) [mm].
-                Defaults to (4.0, 4.0).
-            res (tuple, optional): Grid resolution (H, W) [pixels]. Only used
-                when u is None. Defaults to (2000, 2000).
+        参数：
+            u (torch.Tensor or None, optional): 初始复振幅。可接受形状为
+                [H, W]、[1, H, W] 或 [1, 1, H, W]。为 None 时按给定 res
+                创建零场，默认为 None。
+            wvln (float, optional): 波长 [µm]，默认为 0.55。
+            z (float, optional): 初始轴向位置 [mm]，默认为 0.0。
+            phy_size (tuple, optional): 物理孔径 (W, H) [mm]，默认为 (4.0, 4.0)。
+            res (tuple, optional): 网格分辨率 (H, W) [pixels]，仅当 u 为 None
+                时使用，默认为 (2000, 2000)。
 
-        Raises:
-            AssertionError: If the pixel pitch is not square or the wavelength
-                is outside the range (0.1, 10) µm.
+        异常：
+            AssertionError: 当像素间距不是正方形，或波长超出 (0.1, 10) µm
+                范围时抛出。
         """
         if u is not None:
             if not u.dtype == torch.complex128:
@@ -82,7 +80,7 @@ class ComplexWave(DeepObj):
             if not self.u.is_complex():
                 self.u = self.u.to(torch.complex64)
 
-            # [H, W] or [1, H, W] to [1, 1, H, W]
+            # 将 [H, W] 或 [1, H, W] 转换为 [1, 1, H, W]
             if len(u.shape) == 2:
                 self.u = u.unsqueeze(0).unsqueeze(0)
             elif len(self.u.shape) == 3:
@@ -91,34 +89,34 @@ class ComplexWave(DeepObj):
             self.res = self.u.shape[-2:]
 
         else:
-            # Initialize a zero complex wave field
+            # 初始化零复波场
             amp = torch.zeros(res).unsqueeze(0).unsqueeze(0)
             phi = torch.zeros(res).unsqueeze(0).unsqueeze(0)
             self.u = amp + 1j * phi
             self.res = res
 
-        # Wave field parameters
+        # 波场参数
         assert wvln > 0.1 and wvln < 10.0, "Wavelength should be in [um]."
-        self.wvln = wvln  # [um], wavelength
-        self.k = 2 * torch.pi / (self.wvln * 1e-3)  # [mm^-1], wave number
+        self.wvln = wvln  # [um]，波长
+        self.k = 2 * torch.pi / (self.wvln * 1e-3)  # [mm^-1]，波数
 
-        # Physical size and pixel size
-        self.phy_size = phy_size  # [mm], physical size
+        # 物理尺寸和像素尺寸
+        self.phy_size = phy_size  # [mm]，物理尺寸
         px = phy_size[0] / self.res[0]
         py = phy_size[1] / self.res[1]
         assert abs(px - py) <= 1e-9 * max(abs(px), abs(py)) + 1e-12, (
             "Pixel size is not square."
         )
-        self.ps = phy_size[0] / self.res[0]  # [mm], pixel size
+        self.ps = phy_size[0] / self.res[0]  # [mm]，像素尺寸
 
-        # Wave field grid
-        self.x, self.y = self.gen_xy_grid()  # x, y grid
-        self.z = torch.full_like(self.x, z)  # z grid
+        # 波场网格
+        self.x, self.y = self.gen_xy_grid()  # x、y 网格
+        self.z = torch.full_like(self.x, z)  # z 网格
 
-        # Cached reference distances (depend only on wvln, ps, phy_size).
-        # plain_asm_dist_max: Nyquist limit of plain ASM. prop() uses band-limited
-        #   ASM, which stays valid past this, so it is kept only for reference.
-        # fresnel_dist_min: distance above which single-FFT Fresnel is well-sampled.
+        # 缓存参考距离（仅依赖 wvln、ps、phy_size）。
+        # plain_asm_dist_max：普通 ASM 的 Nyquist 上限。prop() 使用带限 ASM，
+        #   超过该上限仍然有效，因此此值仅供参考。
+        # fresnel_dist_min：单 FFT Fresnel 达到良好采样所需的最小距离。
         self.plain_asm_dist_max = Nyquist_ASM_zmax(wvln=self.wvln, ps=self.ps, side_length=self.phy_size[0])
         self.fresnel_dist_min = Fresnel_zmin(wvln=self.wvln, ps=self.ps, side_length=self.phy_size[0])
 
@@ -132,32 +130,31 @@ class ComplexWave(DeepObj):
         res=(2000, 2000),
         valid_r=None,
     ):
-        """Create a spherical wave field on the x0y plane from a point source.
+        """根据点光源在 x0y 平面上创建球面波场。
 
-        The phase is $\\pm k r$ where $r$ is the distance from the source to
-        each grid point; the sign is positive for a diverging wave (source
-        behind the plane, $z_{src} < z$) and negative otherwise. The amplitude
-        is normalized to $r_{min} / r$.
+        相位为 $\\pm k r$，其中 $r$ 是光源到各网格点的距离。对于发散波
+        （光源位于平面后方，$z_{src} < z$）取正号，否则取负号。振幅归一化为
+        $r_{min} / r$。
 
-        Args:
-            point (tuple, optional): Point source position (x, y, z) in object
-                space [mm]. Defaults to (0.0, 0.0, -1000.0).
-            wvln (float, optional): Wavelength [µm]. Defaults to 0.55.
-            z (float, optional): Field z position [mm]. Defaults to 0.0.
-            phy_size (tuple, optional): Physical size (W, H) of the x0y plane
-                [mm]. Defaults to (4.0, 4.0).
-            res (tuple, optional): Grid resolution (H, W) [pixels]. Defaults to
-                (2000, 2000).
-            valid_r (float or None, optional): If set, zero the field outside a
-                circle of this radius [mm], e.g. a lens aperture. Defaults to None.
+        参数：
+            point (tuple, optional): 物方点光源位置 (x, y, z) [mm]，默认为
+                (0.0, 0.0, -1000.0)。
+            wvln (float, optional): 波长 [µm]，默认为 0.55。
+            z (float, optional): 波场 z 位置 [mm]，默认为 0.0。
+            phy_size (tuple, optional): x0y 平面的物理尺寸 (W, H) [mm]，
+                默认为 (4.0, 4.0)。
+            res (tuple, optional): 网格分辨率 (H, W) [pixels]，默认为
+                (2000, 2000)。
+            valid_r (float or None, optional): 设置后，将该半径 [mm] 圆外的
+                波场置零，例如模拟镜头孔径。默认为 None。
 
-        Returns:
-            field (ComplexWave): Complex field on the x0y plane.
+        返回：
+            field (ComplexWave): x0y 平面上的复波场。
         """
         assert wvln > 0.1 and wvln < 10.0, "Wavelength should be in [um]."
-        k = 2 * torch.pi / (wvln * 1e-3)  # [mm^-1], wave number
+        k = 2 * torch.pi / (wvln * 1e-3)  # [mm^-1]，波数
 
-        # Create meshgrid on target plane
+        # 在目标平面上创建网格
         x, y = torch.meshgrid(
             torch.linspace(
                 -0.5 * phy_size[0], 0.5 * phy_size[0], res[0], dtype=torch.float64
@@ -168,9 +165,9 @@ class ComplexWave(DeepObj):
             indexing="xy",
         )
 
-        # Calculate distance to point source, and calculate spherical wave phase
-        # Add EPSILON inside the sqrt so r is never exactly 0 (avoids 1/r blow-up
-        # and r.min()->0 when the source lies on the plane and on a grid node).
+        # 计算到点光源的距离及球面波相位
+        # 在 sqrt 内加入 EPSILON，确保 r 不会恰好为 0；当光源位于平面上的网格
+        # 节点时，可避免 1/r 发散以及 r.min()->0。
         r = torch.sqrt(
             (x - point[0]) ** 2 + (y - point[1]) ** 2 + (z - point[2]) ** 2 + EPSILON
         )
@@ -180,12 +177,12 @@ class ComplexWave(DeepObj):
             phi = -k * r
         u = (r.min() / r) * torch.exp(1j * phi)
 
-        # Apply valid circle if provided, e.g., the aperture of a lens
+        # 若提供有效圆半径，则应用该掩码，例如模拟镜头孔径
         if valid_r is not None:
             mask = (x - point[0]) ** 2 + (y - point[1]) ** 2 < valid_r**2
             u = u * mask
 
-        # Create wave field
+        # 创建波场
         return cls(u=u, wvln=wvln, phy_size=phy_size, res=res, z=z)
 
     @classmethod
@@ -199,41 +196,37 @@ class ComplexWave(DeepObj):
         theta_y=0.0,
         valid_r=None,
     ):
-        """Create a planar wave field on the x0y plane.
+        """在 x0y 平面上创建平面波场。
 
-        With theta_x = theta_y = 0 the result is a uniform unit-amplitude plane
-        wave travelling along +z. Non-zero angles produce a tilted (obliquely
-        incident / off-axis) plane wave whose wavevector makes the given angles
-        with the optical axis; this adds the linear phase ramp
-        $\\exp(i k (x \\sin\\theta_x + y \\sin\\theta_y))$ while the amplitude
-        stays uniform.
+        当 theta_x = theta_y = 0 时，结果是沿 +z 传播的均匀单位振幅平面波。
+        非零角度会生成倾斜（斜入射/离轴）平面波，其波矢与光轴形成给定角度；
+        这会加入线性相位斜坡
+        $\\exp(i k (x \\sin\\theta_x + y \\sin\\theta_y))$，同时振幅保持均匀。
 
-        Args:
-            wvln (float, optional): Wavelength [µm]. Defaults to 0.55.
-            z (float, optional): Field z position [mm]. Defaults to 0.0.
-            phy_size (tuple, optional): Physical size (W, H) of the field [mm].
-                Defaults to (4.0, 4.0).
-            res (tuple, optional): Grid resolution (H, W) [pixels]. Defaults to
-                (2000, 2000).
-            theta_x (float, optional): Tilt angle of the wavevector in the x-z
-                plane [rad]. Defaults to 0.0.
-            theta_y (float, optional): Tilt angle of the wavevector in the y-z
-                plane [rad]. Defaults to 0.0.
-            valid_r (float or None, optional): If set, zero the field outside a
-                circle of this radius [mm]. Defaults to None.
+        参数：
+            wvln (float, optional): 波长 [µm]，默认为 0.55。
+            z (float, optional): 波场 z 位置 [mm]，默认为 0.0。
+            phy_size (tuple, optional): 波场物理尺寸 (W, H) [mm]，默认为
+                (4.0, 4.0)。
+            res (tuple, optional): 网格分辨率 (H, W) [pixels]，默认为
+                (2000, 2000)。
+            theta_x (float, optional): 波矢在 x-z 平面内的倾角 [rad]，默认为 0.0。
+            theta_y (float, optional): 波矢在 y-z 平面内的倾角 [rad]，默认为 0.0。
+            valid_r (float or None, optional): 设置后，将该半径 [mm] 圆外的波场
+                置零，默认为 None。
 
-        Returns:
-            field (ComplexWave): Complex field.
+        返回：
+            field (ComplexWave): 复波场。
         """
         assert wvln > 0.1 and wvln < 10.0, "Wavelength should be in [um]."
 
-        # Create a plane wave field
+        # 创建平面波场
         if theta_x == 0.0 and theta_y == 0.0:
-            # On-axis: uniform unit-amplitude field.
+            # 轴上情况：均匀单位振幅场。
             u = torch.ones(res, dtype=torch.float64) + 0j
         else:
-            # Off-axis: tilted plane wave, i.e. a linear phase ramp.
-            k = 2 * torch.pi / (wvln * 1e-3)  # [mm^-1], wave number
+            # 离轴情况：倾斜平面波，即线性相位斜坡。
+            k = 2 * torch.pi / (wvln * 1e-3)  # [mm^-1]，波数
             x, y = torch.meshgrid(
                 torch.linspace(
                     -0.5 * phy_size[0], 0.5 * phy_size[0], res[0], dtype=torch.float64
@@ -245,7 +238,7 @@ class ComplexWave(DeepObj):
             )
             u = torch.exp(1j * k * (x * math.sin(theta_x) + y * math.sin(theta_y)))
 
-        # Apply valid circle if provided
+        # 若提供有效圆半径，则应用该掩码
         if valid_r is not None:
             x, y = torch.meshgrid(
                 torch.linspace(-0.5 * phy_size[0], 0.5 * phy_size[0], res[0]),
@@ -255,26 +248,25 @@ class ComplexWave(DeepObj):
             mask = (x**2 + y**2) < valid_r**2
             u = u * mask
 
-        # Create wave field
+        # 创建波场
         return cls(u=u, phy_size=phy_size, wvln=wvln, res=res, z=z)
 
     @classmethod
     def image_wave(cls, img, wvln=0.55, z=0.0, phy_size=(4.0, 4.0)):
-        """Initialize a complex wave field from an image.
+        """根据图像初始化复波场。
 
-        The image is interpreted as intensity in range [0, 1]; the field
-        amplitude is its square root and the phase is zero.
+        将图像解释为 [0, 1] 范围内的强度；波场振幅为其平方根，相位为零。
 
-        Args:
-            img (torch.Tensor): Input image, shape [H, W] or [B, C, H, W], data
-                range [0, 1], dtype float32.
-            wvln (float, optional): Wavelength [µm]. Defaults to 0.55.
-            z (float, optional): Field z position [mm]. Defaults to 0.0.
-            phy_size (tuple, optional): Physical size (W, H) of the field [mm].
-                Defaults to (4.0, 4.0).
+        参数：
+            img (torch.Tensor): 输入图像，形状为 [H, W] 或 [B, C, H, W]，
+                数据范围为 [0, 1]，dtype 为 float32。
+            wvln (float, optional): 波长 [µm]，默认为 0.55。
+            z (float, optional): 波场 z 位置 [mm]，默认为 0.0。
+            phy_size (tuple, optional): 波场物理尺寸 (W, H) [mm]，默认为
+                (4.0, 4.0)。
 
-        Returns:
-            field (ComplexWave): Complex field.
+        返回：
+            field (ComplexWave): 复波场。
         """
         assert img.dtype == torch.float32, "Image must be float32."
 
@@ -285,97 +277,93 @@ class ComplexWave(DeepObj):
         return cls(u=u, wvln=wvln, phy_size=phy_size, res=u.shape[-2:], z=z)
 
     # =============================================
-    # Wave propagation
+    # 波场传播
     # =============================================
     def prop(self, prop_dist, n=1.0):
-        """Propagate the field forward by `prop_dist` and update `self`.
+        """将波场向前传播 `prop_dist` 并更新 `self`。
 
-        Selects the diffraction method from the propagation distance: a
-        near-zero distance is a no-op; sub-wavelength distances raise (not
-        implemented); distances up to `fresnel_dist_min` use band-limited ASM;
-        larger distances use single-FFT Fresnel diffraction. The axial grid `z`
-        is advanced by `prop_dist`.
+        根据传播距离选择衍射方法：距离接近零时不做处理；亚波长距离尚未实现并
+        会抛出异常；不超过 `fresnel_dist_min` 时使用带限 ASM；更大距离使用
+        单 FFT Fresnel 衍射。轴向网格 `z` 同步增加 `prop_dist`。
 
-        Args:
-            prop_dist (float): Propagation distance [mm].
-            n (float, optional): Refractive index of the medium. Defaults to 1.0.
+        参数：
+            prop_dist (float): 传播距离 [mm]。
+            n (float, optional): 介质折射率，默认为 1.0。
 
-        Returns:
-            self (ComplexWave): The propagated wave field (for chaining).
+        返回：
+            self (ComplexWave): 传播后的波场，可用于链式调用。
 
-        Raises:
-            Exception: If the propagation distance is in the sub-wavelength
-                range (full-wave methods such as FDTD are not implemented).
+        异常：
+            Exception: 当传播距离处于亚波长范围时抛出，因为 FDTD 等全波方法
+                尚未实现。
 
-        Reference:
+        参考文献：
             [1] Modeling and propagation of near-field diffraction patterns: A more complete approach. Table 1.
             [2] https://github.com/kaanaksit/odak/blob/master/odak/wave/classical.py
             [3] https://spie.org/samples/PM103.pdf
             [4] "Non-approximated Rayleigh Sommerfeld diffraction integral: advantages and disadvantages in the propagation of complex wave fields"
         """
-        # Determine propagation method using cached boundaries
-        wvln_mm = self.wvln * 1e-3  # [um] to [mm]
+        # 使用缓存边界确定传播方法
+        wvln_mm = self.wvln * 1e-3  # [um] 转为 [mm]
 
-        # Wave propagation methods
+        # 波场传播方法
         if prop_dist < DELTA:
-            # Zero distance: do nothing
+            # 零距离：不做处理
             pass
 
         elif prop_dist < wvln_mm:
-            # Sub-wavelength distance: full wave method (e.g., FDTD)
+            # 亚波长距离：需要全波方法，例如 FDTD
             raise Exception(
                 "The propagation distance in sub-wavelength range is not implemented yet. " \
                 "Have to use full wave method (e.g., FDTD)."
             )
 
         elif prop_dist <= self.fresnel_dist_min:
-            # Band-limited ASM (Matsushima & Shimobaba 2009): rigorous angular
-            # spectrum with a band-limit that suppresses aliasing. Valid across
-            # the near and intermediate fields, so it covers the former gap
-            # between the Nyquist-ASM and Fresnel regimes.
+            # 带限 ASM（Matsushima 与 Shimobaba，2009）：采用严格角谱传播，并通过
+            # 带宽限制抑制混叠。它在近场和中间场均有效，因此覆盖了原先
+            # Nyquist-ASM 与 Fresnel 适用区间之间的空隙。
             self.u = BandLimitedASM(self.u, z=prop_dist, wvln=self.wvln, ps=self.ps, n=n)
 
         else:
-            # Fresnel diffraction (far field)
+            # Fresnel 衍射（远场）
             self.u = FresnelDiffraction(self.u, z=prop_dist, wvln=self.wvln, ps=self.ps, n=n)
         
-        # Update z grid
+        # 更新 z 网格
         self.z += prop_dist
         return self
 
     def prop_to(self, z, n=1):
-        """Propagate the field to the absolute plane `z` and update `self`.
+        """将波场传播至绝对平面 `z` 并更新 `self`。
 
-        Computes the relative distance from the current axial position and
-        delegates to `prop`.
+        根据当前轴向位置计算相对距离，并委托给 `prop`。
 
-        Args:
-            z (float): Destination plane z coordinate [mm].
-            n (float, optional): Refractive index of the medium. Defaults to 1.
+        参数：
+            z (float): 目标平面的 z 坐标 [mm]。
+            n (float, optional): 介质折射率，默认为 1。
 
-        Returns:
-            self (ComplexWave): The propagated wave field (for chaining).
+        返回：
+            self (ComplexWave): 传播后的波场，可用于链式调用。
         """
-        # Use float() instead of .item() to avoid GPU-CPU sync on CUDA tensors
-        # (self.z is a full grid but all values are identical; [0,0] is representative)
+        # 使用 float() 而不是 .item()，以避免 CUDA 张量发生 GPU-CPU 同步
+        # （self.z 是完整网格但所有值相同，因此 [0,0] 具有代表性）
         prop_dist = float(z) - float(self.z[0, 0])
         self.prop(prop_dist, n=n)
         return self
 
     # =============================================
-    # Helper functions
+    # 辅助函数
     # =============================================
     def gen_xy_grid(self):
-        """Generate the x and y coordinate grids, shape [H, W].
+        """生成形状为 [H, W] 的 x、y 坐标网格。
 
-        x runs along the width (res[1] columns, extent phy_size[0]) and y along
-        the height (res[0] rows, extent phy_size[1]), consistent with
-        `point_wave` / `plane_wave`. With indexing="xy" the outputs have shape
-        (len(y_1d), len(x_1d)) = (H, W).
+        x 沿宽度方向变化（res[1] 列，范围 phy_size[0]），y 沿高度方向变化
+        （res[0] 行，范围 phy_size[1]），与 `point_wave` / `plane_wave` 一致。
+        使用 indexing="xy" 时，输出形状为
+        (len(y_1d), len(x_1d)) = (H, W)。
 
-        Returns:
-            x (torch.Tensor): x coordinate grid, shape [H, W] [mm].
-            y (torch.Tensor): y coordinate grid, shape [H, W] [mm].
+        返回：
+            x (torch.Tensor): x 坐标网格，形状为 [H, W] [mm]。
+            y (torch.Tensor): y 坐标网格，形状为 [H, W] [mm]。
         """
         x, y = torch.meshgrid(
             torch.linspace(-0.5 * self.phy_size[0], 0.5 * self.phy_size[0], self.res[1]),
@@ -385,11 +373,11 @@ class ComplexWave(DeepObj):
         return x, y
 
     def gen_freq_grid(self):
-        """Generate the spatial-frequency grids, shape [H, W].
+        """生成形状为 [H, W] 的空间频率网格。
 
-        Returns:
-            fx (torch.Tensor): x-frequency grid, shape [H, W] [mm⁻¹].
-            fy (torch.Tensor): y-frequency grid, shape [H, W] [mm⁻¹].
+        返回：
+            fx (torch.Tensor): x 方向频率网格，形状为 [H, W] [mm⁻¹]。
+            fy (torch.Tensor): y 方向频率网格，形状为 [H, W] [mm⁻¹]。
         """
         x, y = self.gen_xy_grid()
         fx = x / (self.ps * self.phy_size[0])
@@ -397,16 +385,16 @@ class ComplexWave(DeepObj):
         return fx, fy
 
     # =============================================
-    # Wave field I/O
+    # 波场输入/输出
     # =============================================
     def load(self, filepath):
-        """Load a wave field from file (only `.npz` is supported).
+        """从文件加载波场，目前仅支持 `.npz`。
 
-        Args:
-            filepath (str): Path to the file to load.
+        参数：
+            filepath (str): 待加载文件的路径。
 
-        Raises:
-            Exception: If the file format is not supported.
+        异常：
+            Exception: 当文件格式不受支持时抛出。
         """
         if filepath.endswith(".npz"):
             self.load_npz(filepath)
@@ -414,10 +402,10 @@ class ComplexWave(DeepObj):
             raise Exception("Unimplemented file format.")
 
     def load_npz(self, filepath):
-        """Load the complex wave field and grids from a `.npz` file.
+        """从 `.npz` 文件加载复波场和网格。
 
-        Args:
-            filepath (str): Path to the `.npz` file.
+        参数：
+            filepath (str): `.npz` 文件路径。
         """
         data = np.load(filepath)
         self.u = torch.from_numpy(data["u"])
@@ -428,13 +416,13 @@ class ComplexWave(DeepObj):
         self.res = self.u.shape[-2:]
 
     def save(self, filepath="./wavefield.npz"):
-        """Save the complex wave field to file (only `.npz` is supported).
+        """将复波场保存到文件，目前仅支持 `.npz`。
 
-        Args:
-            filepath (str, optional): Output path. Defaults to "./wavefield.npz".
+        参数：
+            filepath (str, optional): 输出路径，默认为 "./wavefield.npz"。
 
-        Raises:
-            Exception: If the file format is not supported.
+        异常：
+            Exception: 当文件格式不受支持时抛出。
         """
         if filepath.endswith(".npz"):
             self.save_npz(filepath)
@@ -442,18 +430,16 @@ class ComplexWave(DeepObj):
             raise Exception("Unimplemented file format.")
 
     def save_npz(self, filepath="./wavefield.npz"):
-        """Save the field to a `.npz` file plus intensity/amplitude/phase PNGs.
+        """将波场保存为 `.npz` 文件及强度/振幅/相位 PNG 图像。
 
-        Writes `u`, `x`, `y`, `wvln`, and `phy_size` to the `.npz` archive, and
-        additionally saves normalized intensity, amplitude, and phase images
-        next to it.
+        将 `u`、`x`、`y`、`wvln` 和 `phy_size` 写入 `.npz` 归档，并在同一
+        位置额外保存归一化的强度、振幅和相位图像。
 
-        Args:
-            filepath (str, optional): Output `.npz` path. Defaults to
-                "./wavefield.npz".
+        参数：
+            filepath (str, optional): 输出 `.npz` 路径，默认为 "./wavefield.npz"。
         """
         from torchvision.utils import save_image
-        # Save data
+        # 保存数据
         np.savez_compressed(
             filepath,
             u=self.u.cpu().numpy(),
@@ -463,36 +449,34 @@ class ComplexWave(DeepObj):
             phy_size=np.array(self.phy_size),
         )
 
-        # Save intensity, amplitude, and phase images
+        # 保存强度、振幅和相位图像
         u = self.u.cpu()
         save_image(u.abs() ** 2, f"{filepath[:-4]}_intensity.png", normalize=True)
         save_image(u.abs(), f"{filepath[:-4]}_amp.png", normalize=True)
         save_image(u.angle(), f"{filepath[:-4]}_phase.png", normalize=True)
 
     def save_image(self, save_name=None, data="irr"):
-        """Render the field to an image (alias of `show`).
+        """将波场渲染为图像，是 `show` 的别名。
 
-        Args:
-            save_name (str or None, optional): Output image path; if None, plot
-                with matplotlib instead. Defaults to None.
-            data (str, optional): Quantity to visualize, one of "irr", "amp",
-                "phi"/"phase", "real", "imag". Defaults to "irr".
+        参数：
+            save_name (str or None, optional): 输出图像路径；为 None 时改用
+                matplotlib 绘图，默认为 None。
+            data (str, optional): 要可视化的量，可为 "irr"、"amp"、
+                "phi"/"phase"、"real" 或 "imag"，默认为 "irr"。
         """
         return self.show(save_name=save_name, data=data)
 
     def show(self, save_name=None, data="irr"):
-        """Render the field as an image, either saved to disk or plotted.
+        """将波场渲染为图像，可保存到磁盘或直接绘制。
 
-        Args:
-            save_name (str or None, optional): Output image path; if None, the
-                field is shown with matplotlib. Defaults to None.
-            data (str, optional): Quantity to visualize: "irr" (intensity),
-                "amp" (amplitude), "phi"/"phase", "real", or "imag". Defaults
-                to "irr".
+        参数：
+            save_name (str or None, optional): 输出图像路径；为 None 时使用
+                matplotlib 显示波场，默认为 None。
+            data (str, optional): 要可视化的量："irr"（强度）、"amp"（振幅）、
+                "phi"/"phase"、"real" 或 "imag"，默认为 "irr"。
 
-        Raises:
-            Exception: If `data` is unrecognized or the field shape is
-                unsupported.
+        异常：
+            Exception: 当 `data` 无法识别或波场形状不受支持时抛出。
         """
         from torchvision.utils import save_image
         cmap = "gray"
@@ -566,15 +550,15 @@ class ComplexWave(DeepObj):
             raise Exception("Unsupported complex field shape.")
 
     def pad(self, Hpad, Wpad):
-        """Zero-pad the field and expand its physical size accordingly.
+        """对波场进行零填充，并相应扩展物理尺寸。
 
-        Pads `Hpad` pixels on the top and bottom and `Wpad` pixels on the left
-        and right, then updates `res`, `phy_size`, and the coordinate grids so
-        the pixel pitch stays constant. Modifies `self` in place.
+        在上下各填充 `Hpad` 个像素，在左右各填充 `Wpad` 个像素，然后更新
+        `res`、`phy_size` 和坐标网格，使像素间距保持不变。该操作原地修改
+        `self`。
 
-        Args:
-            Hpad (int): Number of pixels to pad on the top and bottom.
-            Wpad (int): Number of pixels to pad on the left and right.
+        参数：
+            Hpad (int): 上下两侧各自填充的像素数。
+            Wpad (int): 左右两侧各自填充的像素数。
         """
         self.u = F.pad(self.u, (Hpad, Hpad, Wpad, Wpad), mode="constant", value=0)
 
@@ -588,10 +572,10 @@ class ComplexWave(DeepObj):
         self.z = torch.full_like(self.x, float(self.z[0, 0]))
 
     def flip(self):
-        """Flip the field and its grids horizontally and vertically.
+        """沿水平和垂直方向翻转波场及其网格。
 
-        Returns:
-            self (ComplexWave): The flipped wave field (for chaining).
+        返回：
+            self (ComplexWave): 翻转后的波场，可用于链式调用。
         """
         self.u = torch.flip(self.u, [-1, -2])
         self.x = torch.flip(self.x, [-1, -2])
@@ -601,37 +585,35 @@ class ComplexWave(DeepObj):
 
 
 # ===================================
-# Diffraction functions
+# 衍射函数
 # ===================================
 def AngularSpectrumMethod(u, z, wvln, ps, n=1.0, padding=True):
-    """Propagate a field by the (plain) angular spectrum method.
+    """使用普通角谱法传播波场。
 
-    Multiplies the field spectrum by the transfer function
-    $\\exp(i k z \\sqrt{1 - \\lambda^2 (f_x^2 + f_y^2)})$ and inverse-transforms.
-    Valid only in the near field; it aliases beyond the Nyquist limit (see
-    `BandLimitedASM`).
+    将波场频谱乘以传递函数
+    $\\exp(i k z \\sqrt{1 - \\lambda^2 (f_x^2 + f_y^2)})$，再进行逆变换。
+    该方法仅在近场有效；超过 Nyquist 上限后会产生混叠，参见 `BandLimitedASM`。
 
-    Args:
-        u (torch.Tensor): Complex field, shape [H, W] or [B, 1, H, W].
-        z (float): Propagation distance [mm].
-        wvln (float): Wavelength [µm].
-        ps (float): Pixel size [mm].
-        n (float, optional): Refractive index. Defaults to 1.0.
-        padding (bool, optional): Zero-pad to half the size on each side before
-            the FFT. Defaults to True.
+    参数：
+        u (torch.Tensor): 复波场，形状为 [H, W] 或 [B, 1, H, W]。
+        z (float): 传播距离 [mm]。
+        wvln (float): 波长 [µm]。
+        ps (float): 像素尺寸 [mm]。
+        n (float, optional): 折射率，默认为 1.0。
+        padding (bool, optional): FFT 前在各侧进行半尺寸零填充，默认为 True。
 
-    Returns:
-        u (torch.Tensor): Propagated complex field, same shape as input.
+    返回：
+        u (torch.Tensor): 传播后的复波场，形状与输入相同。
 
-    Reference:
+    参考资料：
         [1] https://github.com/kaanaksit/odak/blob/master/odak/wave/classical.py#L293
         [2] https://blog.csdn.net/zhenpixiaoyang/article/details/111569495
     """
     assert wvln > 0.1 and wvln < 10.0, "wvln unit should be [um]."
-    wvln_mm = wvln * 1e-3 / n # [um] to [mm]
+    wvln_mm = wvln * 1e-3 / n # [um] 转为 [mm]
     k = 2 * torch.pi / wvln_mm  # [mm]-1
 
-    # Shape
+    # 形状
     if len(u.shape) == 2:
         Horg, Worg = u.shape
     elif len(u.shape) == 4:
@@ -639,7 +621,7 @@ def AngularSpectrumMethod(u, z, wvln, ps, n=1.0, padding=True):
         if isinstance(z, torch.Tensor):
             z = z.unsqueeze(0).unsqueeze(0)
 
-    # Padding
+    # 填充
     if padding:
         Wpad, Hpad = Worg // 2, Horg // 2
         Wimg, Himg = Worg + 2 * Wpad, Horg + 2 * Hpad
@@ -647,8 +629,8 @@ def AngularSpectrumMethod(u, z, wvln, ps, n=1.0, padding=True):
     else:
         Wimg, Himg = Worg, Horg
 
-    # Propagation with angular spectrum method
-    # Compute fx²+fy² via outer sum of 1D arrays (avoids meshgrid allocation)
+    # 使用角谱法传播
+    # 通过一维数组的外和计算 fx²+fy²，避免分配 meshgrid
     real_dtype = u.real.dtype
     fx_1d = torch.fft.fftfreq(Wimg, d=ps, device=u.device, dtype=real_dtype)
     fy_1d = torch.fft.fftfreq(Himg, d=ps, device=u.device, dtype=real_dtype)
@@ -657,13 +639,13 @@ def AngularSpectrumMethod(u, z, wvln, ps, n=1.0, padding=True):
     complex_dtype = torch.complex128 if radicand.dtype == torch.float64 else torch.complex64
     square_root = torch.sqrt(radicand.to(complex_dtype))
 
-    # H is defined on the unshifted frequency grid to match fft2(u)
+    # H 定义在未移位的频率网格上，以匹配 fft2(u)
     H = torch.exp(1j * k * z * square_root)
 
     # https://pytorch.org/docs/stable/generated/torch.fft.fftshift.html#torch.fft.fftshift
     u = ifft2(fft2(u) * H)
 
-    # Remove padding
+    # 移除填充
     if padding:
         u = u[..., Hpad:-Hpad, Wpad:-Wpad]
 
@@ -671,45 +653,38 @@ def AngularSpectrumMethod(u, z, wvln, ps, n=1.0, padding=True):
 
 
 def BandLimitedASM(u, z, wvln, ps, n=1.0, padding=True):
-    """Band-limited angular spectrum method.
+    """带限角谱法。
 
-    Standard ASM aliases when the propagation distance is large enough that the
-    transfer function oscillates faster in frequency than the grid can sample,
-    producing ghost-lattice replicas. This variant applies the Matsushima &
-    Shimobaba band-limit: frequencies whose transfer-function fringe would be
-    undersampled on the current grid are zeroed. The near-field (well-sampled)
-    regime is left unchanged, so this is a drop-in replacement for
-    `AngularSpectrumMethod` that additionally stays valid across the
-    intermediate field.
+    当传播距离足够大，使传递函数在频域中的振荡快于网格采样能力时，标准 ASM
+    会发生混叠并产生幽灵晶格副本。本变体应用 Matsushima 与 Shimobaba 的带宽
+    限制：将当前网格无法充分采样其传递函数条纹的频率置零。近场良好采样区域
+    保持不变，因此它可直接替代 `AngularSpectrumMethod`，并在中间场仍然有效。
 
-    The band-limit only suppresses aliasing of the propagation kernel `H`. It
-    assumes the input field `u` is already Nyquist-sampled: if `u`'s local
-    fringe rate exceeds `1 / (2 * ps)` (steep spherical phase, large tilt, or a
-    high-NA lens/DOE phase), it is aliased before propagation and the output is
-    silently wrong.
+    带宽限制仅抑制传播核 `H` 的混叠，并假设输入波场 `u` 已满足 Nyquist 采样。
+    如果 `u` 的局部条纹频率超过 `1 / (2 * ps)`（例如陡峭球面相位、大倾角或
+    高 NA 镜头/DOE 相位），它会在传播前就发生混叠，输出将无提示地出错。
 
-    Args:
-        u (torch.Tensor): Complex field, shape [H, W] or [B, 1, H, W].
-        z (float): Propagation distance [mm].
-        wvln (float): Wavelength [µm].
-        ps (float): Pixel size [mm].
-        n (float, optional): Refractive index. Defaults to 1.0.
-        padding (bool, optional): Zero-pad to half the size on each side before
-            the FFT. Defaults to True.
+    参数：
+        u (torch.Tensor): 复波场，形状为 [H, W] 或 [B, 1, H, W]。
+        z (float): 传播距离 [mm]。
+        wvln (float): 波长 [µm]。
+        ps (float): 像素尺寸 [mm]。
+        n (float, optional): 折射率，默认为 1.0。
+        padding (bool, optional): FFT 前在各侧进行半尺寸零填充，默认为 True。
 
-    Returns:
-        u (torch.Tensor): Propagated complex field, same shape as input.
+    返回：
+        u (torch.Tensor): 传播后的复波场，形状与输入相同。
 
-    Reference:
+    参考文献：
         [1] K. Matsushima and T. Shimobaba, "Band-Limited Angular Spectrum
             Method for Numerical Simulation of Free-Space Propagation in Far
             and Near Fields," Optics Express 17(22), 19662-19673, 2009.
     """
     assert wvln > 0.1 and wvln < 10.0, "wvln unit should be [um]."
-    wvln_mm = wvln * 1e-3 / n  # [um] to [mm]
+    wvln_mm = wvln * 1e-3 / n  # [um] 转为 [mm]
     k = 2 * torch.pi / wvln_mm  # [mm]-1
 
-    # Shape
+    # 形状
     if len(u.shape) == 2:
         Horg, Worg = u.shape
     elif len(u.shape) == 4:
@@ -717,7 +692,7 @@ def BandLimitedASM(u, z, wvln, ps, n=1.0, padding=True):
         if isinstance(z, torch.Tensor):
             z = z.unsqueeze(0).unsqueeze(0)
 
-    # Padding
+    # 填充
     if padding:
         Wpad, Hpad = Worg // 2, Horg // 2
         Wimg, Himg = Worg + 2 * Wpad, Horg + 2 * Hpad
@@ -725,7 +700,7 @@ def BandLimitedASM(u, z, wvln, ps, n=1.0, padding=True):
     else:
         Wimg, Himg = Worg, Horg
 
-    # Angular-spectrum transfer function on the unshifted frequency grid.
+    # 未移位频率网格上的角谱传递函数。
     real_dtype = u.real.dtype
     fx_1d = torch.fft.fftfreq(Wimg, d=ps, device=u.device, dtype=real_dtype)
     fy_1d = torch.fft.fftfreq(Himg, d=ps, device=u.device, dtype=real_dtype)
@@ -735,11 +710,11 @@ def BandLimitedASM(u, z, wvln, ps, n=1.0, padding=True):
     square_root = torch.sqrt(radicand.to(complex_dtype))
     H = torch.exp(1j * k * z * square_root)
 
-    # Band-limit (Matsushima & Shimobaba 2009): zero the frequencies whose
-    # transfer-function fringe would be undersampled. The limiting frequency is
-    # f_limit = 1 / (lambda * sqrt((2 * df * z)^2 + 1)), with df = 1 / (N * ps)
-    # the frequency sampling interval. Below this limit the window is all-ones,
-    # so short-distance propagation matches the standard ASM exactly.
+    # 带宽限制（Matsushima 与 Shimobaba，2009）：将传递函数条纹采样不足的频率
+    # 置零。限制频率为
+    # f_limit = 1 / (lambda * sqrt((2 * df * z)^2 + 1))，其中 df = 1 / (N * ps)
+    # 其中 df 是频率采样间隔。在该上限以下窗口全为 1，因此短距离传播与标准
+    # ASM 完全一致。
     z_abs = abs(float(z)) if not torch.is_tensor(z) else float(torch.as_tensor(z).abs().max())
     dfx = 1.0 / (Wimg * ps)
     dfy = 1.0 / (Himg * ps)
@@ -750,7 +725,7 @@ def BandLimitedASM(u, z, wvln, ps, n=1.0, padding=True):
 
     u = ifft2(fft2(u) * H)
 
-    # Remove padding
+    # 移除填充
     if padding:
         u = u[..., Hpad:-Hpad, Wpad:-Wpad]
 
@@ -758,53 +733,49 @@ def BandLimitedASM(u, z, wvln, ps, n=1.0, padding=True):
 
 
 def ScalableASM(u, z, wvln, ps, n=1.0, padding=True):
-    """Scalable angular spectrum method (not yet implemented).
+    """可缩放角谱法，尚未实现。
 
-    Intended to support propagation where the destination pixel pitch differs
-    from the source pixel pitch. Currently a placeholder that returns None.
+    计划用于目标像素间距与源像素间距不同的传播。目前仅为返回 None 的占位实现。
 
-    Args:
-        u (torch.Tensor): Complex field, shape [H, W] or [B, 1, H, W].
-        z (float): Propagation distance [mm].
-        wvln (float): Wavelength [µm].
-        ps (float): Pixel size [mm].
-        n (float, optional): Refractive index. Defaults to 1.0.
-        padding (bool, optional): Zero-pad before the FFT. Defaults to True.
+    参数：
+        u (torch.Tensor): 复波场，形状为 [H, W] 或 [B, 1, H, W]。
+        z (float): 传播距离 [mm]。
+        wvln (float): 波长 [µm]。
+        ps (float): 像素尺寸 [mm]。
+        n (float, optional): 折射率，默认为 1.0。
+        padding (bool, optional): FFT 前进行零填充，默认为 True。
 
-    Reference:
+    参考文献：
         [1] Scalable angular spectrum propagation. Optica 2023.
     """
     pass
 
 
 def FresnelDiffraction(u, z, wvln, ps, n=1.0, padding=True, TF=None):
-    """Propagate a field by single-FFT Fresnel diffraction.
+    """使用单 FFT Fresnel 衍射传播波场。
 
-    Uses either the transfer-function (TF) or impulse-response (IR) form. When
-    `TF` is None the form is chosen automatically: TF for short distances
-    (well-sampled in frequency) and IR otherwise.
+    可采用传递函数（TF）或脉冲响应（IR）形式。当 `TF` 为 None 时自动选择：
+    短距离且频域采样良好时使用 TF，否则使用 IR。
 
-    Args:
-        u (torch.Tensor): Complex field, shape [H, W] or [B, C, H, W].
-        z (float): Propagation distance [mm].
-        wvln (float): Wavelength [µm].
-        ps (float): Pixel size [mm].
-        n (float, optional): Refractive index. Defaults to 1.0.
-        padding (bool, optional): Zero-pad to half the size on each side before
-            the FFT. Defaults to True.
-        TF (bool or None, optional): If True use the transfer-function form, if
-            False the impulse-response form; if None choose automatically from
-            the sampling condition. Defaults to None.
+    参数：
+        u (torch.Tensor): 复波场，形状为 [H, W] 或 [B, C, H, W]。
+        z (float): 传播距离 [mm]。
+        wvln (float): 波长 [µm]。
+        ps (float): 像素尺寸 [mm]。
+        n (float, optional): 折射率，默认为 1.0。
+        padding (bool, optional): FFT 前在各侧进行半尺寸零填充，默认为 True。
+        TF (bool or None, optional): 为 True 时使用传递函数形式，为 False 时
+            使用脉冲响应形式；为 None 时根据采样条件自动选择。默认为 None。
 
-    Returns:
-        u (torch.Tensor): Propagated complex field, same shape as input.
+    返回：
+        u (torch.Tensor): 传播后的复波场，形状与输入相同。
 
-    Reference:
+    参考资料：
         [1] Computational fourier optics : a MATLAB tutorial. Chapter 5, section 5.1
         [2] https://qiweb.tudelft.nl/aoi/wavefielddiffraction/wavefielddiffraction.html
         [3] https://github.com/nkotsianas/fourier-propagation/blob/master/FTFP.m
     """
-    # Padding. Unpack the last two dims as (H, W) for both [H, W] and [B, C, H, W].
+    # 填充。对 [H, W] 和 [B, C, H, W] 均将最后两维解包为 (H, W)。
     if padding:
         Horg, Worg = u.shape[-2], u.shape[-1]
         Hpad, Wpad = Horg // 2, Worg // 2
@@ -813,12 +784,12 @@ def FresnelDiffraction(u, z, wvln, ps, n=1.0, padding=True, TF=None):
         Hpad = Wpad = 0
     Himg, Wimg = u.shape[-2], u.shape[-1]
 
-    # Wave field parameters in medium
+    # 介质中的波场参数
     assert wvln > 0.1 and wvln < 10.0, "wvln should be in [um]."
-    wvln_mm = wvln / n * 1e-3  # [um] to [mm]
+    wvln_mm = wvln / n * 1e-3  # [um] 转为 [mm]
     k = 2 * torch.pi / wvln_mm
 
-    # TF or IR method
+    # TF 或 IR 方法
     if TF is None:
         if ps > wvln_mm * abs(z) / (Wimg * ps):
             TF = True
@@ -826,30 +797,30 @@ def FresnelDiffraction(u, z, wvln, ps, n=1.0, padding=True, TF=None):
             TF = False
 
     if TF:
-        # Frequency grids: fx over width (Wimg), fy over height (Himg) -> [H, W].
+        # 频率网格：fx 沿宽度 Wimg，fy 沿高度 Himg，得到 [H, W]。
         fx_1d = torch.linspace(-0.5 / ps, 0.5 / ps, Wimg, device=u.device)
         fy_1d = torch.linspace(0.5 / ps, -0.5 / ps, Himg, device=u.device)
         fx, fy = torch.meshgrid(fx_1d, fy_1d, indexing="xy")
         H = torch.exp(-1j * torch.pi * wvln_mm * z * (fx**2 + fy**2))
         H = fftshift(H)
     else:
-        # Spatial grids: x over width (Wimg), y over height (Himg) -> [H, W].
+        # 空间网格：x 沿宽度 Wimg，y 沿高度 Himg，得到 [H, W]。
         x_1d = torch.linspace(-0.5 * Wimg * ps, 0.5 * Wimg * ps, Wimg, device=u.device)
         y_1d = torch.linspace(0.5 * Himg * ps, -0.5 * Himg * ps, Himg, device=u.device)
         x, y = torch.meshgrid(x_1d, y_1d, indexing="xy")
         h_amp = 1 / (1j * wvln_mm * z)
-        # exp(i k z) is a Python complex scalar; build with math (torch.exp
-        # rejects a non-tensor complex argument).
+        # exp(i k z) 是 Python 复标量，应使用 math 构造，因为 torch.exp
+        # 不接受非张量复数参数。
         h_const_phase = complex(math.cos(k * z), math.sin(k * z))
         h_phase = torch.exp(1j * torch.pi / (wvln_mm * z) * (x**2 + y**2))
         h = h_const_phase * h_amp * h_phase
         H = fft2(fftshift(h)) * ps**2
 
-    # Fourier transformation
+    # Fourier 变换
     # https://pytorch.org/docs/stable/generated/torch.fft.fftshift.html#torch.fft.fftshift
     u = ifftshift(ifft2(fft2(fftshift(u)) * H))
 
-    # Remove padding (H axis by Hpad, W axis by Wpad)
+    # 移除填充：H 轴去除 Hpad，W 轴去除 Wpad
     if padding:
         u = u[..., Hpad:-Hpad, Wpad:-Wpad]
 
@@ -857,27 +828,26 @@ def FresnelDiffraction(u, z, wvln, ps, n=1.0, padding=True, TF=None):
 
 
 def FraunhoferDiffraction(u, z, wvln, ps, n=1.0, padding=True):
-    """Propagate a field by single-FFT Fraunhofer (far-field) diffraction.
+    """使用单 FFT Fraunhofer（远场）衍射传播波场。
 
-    The output grid has side length $L_2 = \\lambda z / ps$, so the output
-    pixel pitch differs from the input pitch.
+    输出网格的边长为 $L_2 = \\lambda z / ps$，因此输出像素间距与输入不同。
 
-    Args:
-        u (torch.Tensor): Complex field, shape [H, W] or [B, 1, H, W].
-        z (float): Propagation distance [mm].
-        wvln (float): Wavelength [µm].
-        ps (float): Pixel size [mm].
-        n (float, optional): Refractive index. Defaults to 1.0.
-        padding (bool, optional): Zero-pad by a quarter of the size on each side
-            before the FFT. Defaults to True.
+    参数：
+        u (torch.Tensor): 复波场，形状为 [H, W] 或 [B, 1, H, W]。
+        z (float): 传播距离 [mm]。
+        wvln (float): 波长 [µm]。
+        ps (float): 像素尺寸 [mm]。
+        n (float, optional): 折射率，默认为 1.0。
+        padding (bool, optional): FFT 前在各侧进行四分之一尺寸的零填充，
+            默认为 True。
 
-    Returns:
-        u (torch.Tensor): Propagated complex field, same shape as input.
+    返回：
+        u (torch.Tensor): 传播后的复波场，形状与输入相同。
 
-    Reference:
+    参考资料：
         [1] Computational fourier optics : a MATLAB tutorial. Chapter 5, section 5.5.
     """
-    # Padding. Unpack the last two dims as (H, W) for both [H, W] and [B, C, H, W].
+    # 填充。对 [H, W] 和 [B, C, H, W] 均将最后两维解包为 (H, W)。
     if padding:
         Horg, Worg = u.shape[-2], u.shape[-1]
         Hpad, Wpad = Horg // 4, Worg // 4
@@ -886,11 +856,11 @@ def FraunhoferDiffraction(u, z, wvln, ps, n=1.0, padding=True):
         Hpad = Wpad = 0
     Himg, Wimg = u.shape[-2], u.shape[-1]
 
-    # side length
-    wvln_mm = wvln / n * 1e-3  # [um] to [mm]
+    # 边长
+    wvln_mm = wvln / n * 1e-3  # [um] 转为 [mm]
     k = 2 * torch.pi / wvln_mm
 
-    # Compute x, y, fx, fy
+    # 计算 x、y、fx、fy
     L2 = wvln_mm * z / ps
     x2, y2 = torch.meshgrid(
         torch.linspace(-L2 / 2, L2 / 2, Wimg, device=u.device),
@@ -898,16 +868,16 @@ def FraunhoferDiffraction(u, z, wvln, ps, n=1.0, padding=True):
         indexing="xy",
     )
 
-    # Shorter propagation will not affect final result. The constant phase
-    # exp(i k z) is a Python complex scalar (k, z are floats), so build it with
-    # math rather than torch.exp (which rejects a non-tensor complex argument).
+    # 更短的传播不会影响最终结果。常数相位 exp(i k z) 是 Python 复标量
+    # （k、z 为 float），因此使用 math 构造，而不使用拒绝非张量复数参数的
+    # torch.exp。
     h_amp = 1 / (1j * wvln_mm * z)
     h_const_phase = complex(math.cos(k * z), math.sin(k * z))
     h_phase = torch.exp(1j * torch.pi / (wvln_mm * z) * (x2**2 + y2**2))
     h = h_amp * h_const_phase * h_phase
     u = h * ps**2 * ifftshift(fft2(fftshift(u)))
 
-    # Remove padding
+    # 移除填充
     if padding:
         u = u[..., Hpad:-Hpad, Wpad:-Wpad]
 
@@ -915,31 +885,30 @@ def FraunhoferDiffraction(u, z, wvln, ps, n=1.0, padding=True):
 
 
 def RayleighSommerfeld(u, z, wvln, ps, n=1.0, memory_saving=True):
-    """Propagate a field by Rayleigh-Sommerfeld diffraction.
+    """使用 Rayleigh-Sommerfeld 衍射传播波场。
 
-    Builds the input-plane coordinate grid (cell-centered, x over the W extent,
-    y over the H extent) and integrates over it for every output point. This is
-    differentiable but too expensive to use for optimization; it serves as a
-    ground-truth reference.
+    构建输入平面坐标网格（单元中心采样，x 覆盖 W 范围，y 覆盖 H 范围），并为
+    每个输出点在其上积分。该过程可微，但计算代价过高，不适合优化，仅作为
+    真值参考。
 
-    Args:
-        u (torch.Tensor): Complex field, shape [B, 1, H, W].
-        z (float): Propagation distance [mm].
-        wvln (float): Wavelength [µm].
-        ps (float): Pixel size [mm].
-        n (float, optional): Refractive index. Defaults to 1.0.
-        memory_saving (bool, optional): Integrate in small output patches to
-            reduce peak memory. Defaults to True.
+    参数：
+        u (torch.Tensor): 复波场，形状为 [B, 1, H, W]。
+        z (float): 传播距离 [mm]。
+        wvln (float): 波长 [µm]。
+        ps (float): 像素尺寸 [mm]。
+        n (float, optional): 折射率，默认为 1.0。
+        memory_saving (bool, optional): 在较小输出分块中积分，以降低峰值内存，
+            默认为 True。
 
-    Returns:
-        u2 (torch.Tensor): Propagated complex field, same shape as input.
+    返回：
+        u2 (torch.Tensor): 传播后的复波场，形状与输入相同。
     """
     _, _, H, W = u.shape
     x, y = torch.meshgrid(
         torch.linspace(
             -0.5 * W * ps + 0.5 * ps, 0.5 * W * ps - 0.5 * ps, W, device=u.device
         ),
-        # y axis spans the H extent (not W); using W gave wrong y for non-square fields.
+        # y 轴覆盖 H 范围而不是 W；对非方形波场使用 W 会得到错误的 y。
         torch.linspace(
             0.5 * H * ps - 0.5 * ps, -0.5 * H * ps + 0.5 * ps, H, device=u.device
         ),
@@ -969,47 +938,45 @@ def RayleighSommerfeld(u, z, wvln, ps, n=1.0, memory_saving=True):
 def RayleighSommerfeldIntegral(
     u1, x1, y1, z, wvln, x2=None, y2=None, n=1.0, memory_saving=False
 ):
-    """Compute the discrete Rayleigh-Sommerfeld diffraction integral.
+    """计算离散 Rayleigh-Sommerfeld 衍射积分。
 
-    Brute-force integration with no paraxial or far-field approximation, used
-    as a ground-truth reference. If output coordinates are omitted, the output
-    plane uses the same grid as the input plane.
+    使用不含近轴或远场近似的暴力积分，作为真值参考。若省略输出坐标，则输出
+    平面采用与输入平面相同的网格。
 
-    Args:
-        u1 (torch.Tensor): Complex amplitude of the input field, shape [H1, W1].
-        x1 (torch.Tensor): x coordinate of the input field [mm], shape [H1, W1].
-        y1 (torch.Tensor): y coordinate of the input field [mm], shape [H1, W1].
-        z (float): Propagation distance [mm].
-        wvln (float): Wavelength [µm].
-        x2 (torch.Tensor or None, optional): x coordinate of the output field
-            [mm], shape [H2, W2]. Defaults to x1 if None.
-        y2 (torch.Tensor or None, optional): y coordinate of the output field
-            [mm], shape [H2, W2]. Defaults to y1 if None.
-        n (float, optional): Refractive index. Defaults to 1.0.
-        memory_saving (bool, optional): Integrate in small output patches to
-            reduce peak memory. Defaults to False.
+    参数：
+        u1 (torch.Tensor): 输入波场复振幅，形状为 [H1, W1]。
+        x1 (torch.Tensor): 输入波场的 x 坐标 [mm]，形状为 [H1, W1]。
+        y1 (torch.Tensor): 输入波场的 y 坐标 [mm]，形状为 [H1, W1]。
+        z (float): 传播距离 [mm]。
+        wvln (float): 波长 [µm]。
+        x2 (torch.Tensor or None, optional): 输出波场的 x 坐标 [mm]，形状为
+            [H2, W2]；为 None 时默认为 x1。
+        y2 (torch.Tensor or None, optional): 输出波场的 y 坐标 [mm]，形状为
+            [H2, W2]；为 None 时默认为 y1。
+        n (float, optional): 折射率，默认为 1.0。
+        memory_saving (bool, optional): 在较小输出分块中积分，以降低峰值内存，
+            默认为 False。
 
-    Returns:
-        u2 (torch.Tensor): Complex amplitude of the output field, shape [H2, W2].
+    返回：
+        u2 (torch.Tensor): 输出波场复振幅，形状为 [H2, W2]。
 
-    Raises:
-        AssertionError: If the propagation distance is below the Nyquist
-            minimum for the given grid.
+    异常：
+        AssertionError: 当传播距离低于给定网格的 Nyquist 最小值时抛出。
 
-    Reference:
+    参考资料：
         [1] Modeling and propagation of near-field diffraction patterns: A more complete approach. Eq (9).
         [2] https://www.mathworks.com/matlabcentral/fileexchange/75049-complete-rayleigh-sommerfeld-model-version-2
     """
-    # Parameters
+    # 参数
     assert wvln > 0.1 and wvln < 10.0, "wvln unit should be [um]."
-    wvln_mm = wvln * 1e-3  # [um] to [mm]
-    k = n * 2 * torch.pi / wvln_mm  # wave number [mm]-1
+    wvln_mm = wvln * 1e-3  # [um] 转为 [mm]
+    k = n * 2 * torch.pi / wvln_mm  # 波数 [mm]-1
     if x2 is None:
         x2 = x1.clone()
     if y2 is None:
         y2 = y1.clone()
 
-    # Nyquist sampling criterion
+    # Nyquist 采样准则
     max_side_dist = max(abs(x1.max() - x2.min()), abs(x2.max() - x1.min()))
     ps = (x1.max() - x1.min()) / x1.shape[-1]
     zmin = Fresnel_zmin(
@@ -1019,17 +986,17 @@ def RayleighSommerfeldIntegral(
         f"Propagation distance is too short, minimum distance is {zmin} mm."
     )
 
-    # Rayleigh-Sommerfeld diffraction integral
+    # Rayleigh-Sommerfeld 衍射积分
     if not memory_saving:
-        # Naive computation
+        # 朴素计算
 
-        # Broadcast to [H1, W1, H2, W2] via unsqueeze (no data copy)
+        # 通过 unsqueeze 广播至 [H1, W1, H2, W2]，不复制数据
         x1_b = x1.unsqueeze(-1).unsqueeze(-1)  # [H1, W1, 1, 1]
         y1_b = y1.unsqueeze(-1).unsqueeze(-1)  # [H1, W1, 1, 1]
         u1_b = u1.unsqueeze(-1).unsqueeze(-1)  # [H1, W1, 1, 1]
 
-        # Rayleigh-Sommerfeld diffraction integral
-        r2 = (x2 - x1_b) ** 2 + (y2 - y1_b) ** 2 + z**2  # shape of [H1, W1, H2, W2]
+        # Rayleigh-Sommerfeld 衍射积分
+        r2 = (x2 - x1_b) ** 2 + (y2 - y1_b) ** 2 + z**2  # 形状为 [H1, W1, H2, W2]
         r = torch.sqrt(r2)
         obliq = z / r
 
@@ -1040,33 +1007,33 @@ def RayleighSommerfeldIntegral(
         u2 = u2 / (1j * wvln_mm)
 
     else:
-        # Patch computation
+        # 分块计算
         u2 = torch.zeros_like(u1) + 0j
 
-        # Broadcast to [H1, W1, 1, 1] via unsqueeze (no data copy)
+        # 通过 unsqueeze 广播至 [H1, W1, 1, 1]，不复制数据
         patch_size = 4
         x1_b = x1.unsqueeze(-1).unsqueeze(-1)  # [H1, W1, 1, 1]
         y1_b = y1.unsqueeze(-1).unsqueeze(-1)  # [H1, W1, 1, 1]
         u1_b = u1.unsqueeze(-1).unsqueeze(-1)  # [H1, W1, 1, 1]
 
-        # Patch computation
+        # 分块计算
         from tqdm import tqdm
         for i in tqdm(range(0, x2.shape[0], patch_size)):
             for j in range(0, x2.shape[1], patch_size):
-                # Target patch
+                # 目标分块
                 x2_patch = x2[i : i + patch_size, j : j + patch_size]
                 y2_patch = y2[i : i + patch_size, j : j + patch_size]
                 r2 = (x2_patch - x1_b) ** 2 + (y2_patch - y1_b) ** 2 + z**2
                 r = torch.sqrt(r2)
                 obliq = z / r
 
-                # Shape of [patch_size, patch_size]
+                # 形状为 [patch_size, patch_size]
                 u2_patch = torch.sum(
                     u1_b * obliq / r * torch.exp(1j * k * r),
                     (0, 1),
                 )
 
-                # Assign to output field
+                # 写入输出波场
                 u2[i : i + patch_size, j : j + patch_size] = u2_patch
 
         u2 = u2 / (1j * wvln_mm)
@@ -1075,43 +1042,41 @@ def RayleighSommerfeldIntegral(
 
 
 # ==============================
-# Helper functions
+# 辅助函数
 # ==============================
 def Nyquist_ASM_zmax(wvln, ps, side_length, n=1.0):
-    """Compute the max ASM propagation distance from the Nyquist criterion.
+    """根据 Nyquist 准则计算 ASM 最大传播距离。
 
-    Returns $z_{max} = L \\cdot ps \\cdot n / \\lambda$, the largest distance for
-    which the plain angular spectrum transfer function is sampled without
-    aliasing on the current grid.
+    返回 $z_{max} = L \\cdot ps \\cdot n / \\lambda$，即普通角谱传递函数在
+    当前网格上无混叠采样时允许的最大距离。
 
-    Args:
-        wvln (float): Wavelength [µm].
-        ps (float): Pixel size [mm].
-        side_length (float): Side length of the field [mm].
-        n (float, optional): Refractive index. Defaults to 1.0.
+    参数：
+        wvln (float): 波长 [µm]。
+        ps (float): 像素尺寸 [mm]。
+        side_length (float): 波场边长 [mm]。
+        n (float, optional): 折射率，默认为 1.0。
 
-    Returns:
-        zmax (float): Maximum well-sampled ASM propagation distance [mm].
+    返回：
+        zmax (float): ASM 良好采样的最大传播距离 [mm]。
     """
     wvln_mm = wvln * 1e-3
     zmax = side_length * ps * n / wvln_mm
     return zmax
 
 def Fresnel_zmin(wvln, ps, side_length, n=1.0):
-    """Compute the min Fresnel propagation distance from the Nyquist criterion.
+    """根据 Nyquist 准则计算 Fresnel 最小传播距离。
 
-    Returns $z_{min} = L \\cdot n / \\lambda$, the shortest distance for which
-    single-FFT Fresnel diffraction is well-sampled on the current grid. The
-    `ps` argument is accepted for interface symmetry but is not used.
+    返回 $z_{min} = L \\cdot n / \\lambda$，即单 FFT Fresnel 衍射在当前网格上
+    达到良好采样所需的最短距离。`ps` 参数仅为保持接口对称而接收，不会使用。
 
-    Args:
-        wvln (float): Wavelength [µm].
-        ps (float): Pixel size [mm] (unused).
-        side_length (float): Side length of the field [mm].
-        n (float, optional): Refractive index. Defaults to 1.0.
+    参数：
+        wvln (float): 波长 [µm]。
+        ps (float): 像素尺寸 [mm]，未使用。
+        side_length (float): 波场边长 [mm]。
+        n (float, optional): 折射率，默认为 1.0。
 
-    Returns:
-        zmin (float): Minimum well-sampled Fresnel propagation distance [mm].
+    返回：
+        zmin (float): Fresnel 良好采样的最小传播距离 [mm]。
     """
     wvln_mm = wvln * 1e-3
     zmin = float(np.sqrt(side_length**2) / (wvln_mm / n))

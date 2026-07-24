@@ -1,4 +1,4 @@
-"""Binary2 phase on a plane substrate."""
+"""平面基底上的 Binary2 相位面。"""
 
 import torch
 
@@ -7,25 +7,25 @@ from .phase import Phase
 
 
 class Binary2Phase(Phase):
-    """Zemax BINARY_2 phase profile on a flat substrate.
+    """平面基底上的 Zemax BINARY_2 相位分布。
 
-    Parameterizes the diffractive phase as an even radial polynomial in the
-    normalized radius $\\rho = r / r_\\text{norm}$:
+    使用归一化半径 $\\rho = r / r_\\text{norm}$ 的偶次径向多项式
+    参数化衍射相位：
 
     $$\\phi(\\rho) = \\sum_{i=1}^{6} a_{2i}\\,\\rho^{2i}$$
 
-    where the coefficients `order2`..`order12` are stored in radians [rad].
-    The phase is evaluated with Horner's method and wrapped to $[0, 2\\pi)$.
+    系数 `order2` 至 `order12` 以弧度 [rad] 存储。相位通过霍纳法计算，
+    并折返到 $[0, 2\\pi)$。
 
-    Attributes:
-        order2 (torch.Tensor): Coefficient of $\\rho^2$, scalar [rad].
-        order4 (torch.Tensor): Coefficient of $\\rho^4$, scalar [rad].
-        order6 (torch.Tensor): Coefficient of $\\rho^6$, scalar [rad].
-        order8 (torch.Tensor): Coefficient of $\\rho^8$, scalar [rad].
-        order10 (torch.Tensor): Coefficient of $\\rho^{10}$, scalar [rad].
-        order12 (torch.Tensor): Coefficient of $\\rho^{12}$, scalar [rad].
-        param_model (str): Parameterization tag, always "binary2".
-        norm_radii (float): Normalization radius $r_\\text{norm}$ [mm].
+    属性：
+        order2 (torch.Tensor): $\\rho^2$ 的标量系数 [rad]。
+        order4 (torch.Tensor): $\\rho^4$ 的标量系数 [rad]。
+        order6 (torch.Tensor): $\\rho^6$ 的标量系数 [rad]。
+        order8 (torch.Tensor): $\\rho^8$ 的标量系数 [rad]。
+        order10 (torch.Tensor): $\\rho^{10}$ 的标量系数 [rad]。
+        order12 (torch.Tensor): $\\rho^{12}$ 的标量系数 [rad]。
+        param_model (str): 参数化标签，始终为 "binary2"。
+        norm_radii (float): 归一化半径 $r_\\text{norm}$ [mm]。
     """
 
     def __init__(
@@ -45,24 +45,23 @@ class Binary2Phase(Phase):
         is_square=True,
         device="cpu",
     ):
-        """Initialize a Binary2 phase surface.
+        """初始化 Binary2 相位面。
 
-        Args:
-            r (float): Aperture radius (half-diameter) [mm].
-            d (float): Axial position of the surface in global coordinates [mm].
-            order2 (float, optional): Coefficient of $\\rho^2$ [rad]. Defaults to 0.0.
-            order4 (float, optional): Coefficient of $\\rho^4$ [rad]. Defaults to 0.0.
-            order6 (float, optional): Coefficient of $\\rho^6$ [rad]. Defaults to 0.0.
-            order8 (float, optional): Coefficient of $\\rho^8$ [rad]. Defaults to 0.0.
-            order10 (float, optional): Coefficient of $\\rho^{10}$ [rad]. Defaults to 0.0.
-            order12 (float, optional): Coefficient of $\\rho^{12}$ [rad]. Defaults to 0.0.
-            norm_radii (float or None, optional): Normalization radius for the polynomial [mm].
-                Defaults to None, in which case `r` is used.
-            mat2 (str, optional): Material after the surface. Defaults to "air".
-            pos_xy (tuple, optional): Lateral (x, y) offset of the surface center [mm]. Defaults to (0.0, 0.0).
-            vec_local (tuple, optional): Local surface normal direction. Defaults to (0.0, 0.0, 1.0).
-            is_square (bool, optional): If True, use a square aperture; otherwise circular. Defaults to True.
-            device (str, optional): Torch device. Defaults to "cpu".
+        参数：
+            r (float): 孔径半径（半直径）[mm]。
+            d (float): 表面在全局坐标中的轴向位置 [mm]。
+            order2 (float, optional): $\\rho^2$ 的系数 [rad]，默认为 0.0。
+            order4 (float, optional): $\\rho^4$ 的系数 [rad]，默认为 0.0。
+            order6 (float, optional): $\\rho^6$ 的系数 [rad]，默认为 0.0。
+            order8 (float, optional): $\\rho^8$ 的系数 [rad]，默认为 0.0。
+            order10 (float, optional): $\\rho^{10}$ 的系数 [rad]，默认为 0.0。
+            order12 (float, optional): $\\rho^{12}$ 的系数 [rad]，默认为 0.0。
+            norm_radii (float or None, optional): 多项式归一化半径 [mm]；为 None 时使用 `r`。
+            mat2 (str, optional): 表面之后的材料，默认为 "air"。
+            pos_xy (tuple, optional): 表面中心的横向 (x, y) 偏移 [mm]，默认为 (0.0, 0.0)。
+            vec_local (tuple, optional): 局部表面法线方向，默认为 (0.0, 0.0, 1.0)。
+            is_square (bool, optional): 为 True 时使用方形孔径，否则使用圆形孔径；默认为 True。
+            device (str, optional): Torch 设备，默认为 "cpu"。
         """
         super().__init__(
             r=r,
@@ -75,7 +74,7 @@ class Binary2Phase(Phase):
             device=device,
         )
 
-        # Initialize polynomial coefficients
+        # 初始化多项式系数
         self.order2 = torch.tensor(order2)
         self.order4 = torch.tensor(order4)
         self.order6 = torch.tensor(order6)
@@ -88,15 +87,14 @@ class Binary2Phase(Phase):
 
     @classmethod
     def init_from_dict(cls, surf_dict):
-        """Construct a Binary2 phase surface from a parameter dictionary.
+        """根据参数字典构造 Binary2 相位面。
 
-        Args:
-            surf_dict (dict): Surface parameters. Requires keys "r" and "d";
-                optionally "order2".."order12", "norm_radii", "mat2", and
-                "is_square".
+        参数：
+            surf_dict (dict): 表面参数。必须包含 "r" 和 "d"，还可包含
+                "order2" 至 "order12"、"norm_radii"、"mat2" 和 "is_square"。
 
-        Returns:
-            obj (Binary2Phase): The constructed phase surface.
+        返回：
+            obj (Binary2Phase): 构造得到的相位面。
         """
         mat2 = surf_dict.get("mat2", "air")
         norm_radii = surf_dict.get("norm_radii", None)
@@ -117,23 +115,23 @@ class Binary2Phase(Phase):
         return obj
 
     def phi(self, x, y):
-        """Compute the reference phase at the design wavelength.
+        """计算设计波长下的参考相位。
 
-        Evaluates the even radial polynomial in normalized radius via Horner's
-        method and wraps the result to $[0, 2\\pi)$ with `torch.remainder`.
+        使用霍纳法计算归一化半径的偶次径向多项式，并通过
+        `torch.remainder` 将结果折返到 $[0, 2\\pi)$。
 
-        Args:
-            x (torch.Tensor): X coordinates [mm], any shape.
-            y (torch.Tensor): Y coordinates [mm], same shape as `x`.
+        参数：
+            x (torch.Tensor): X 坐标 [mm]，形状不限。
+            y (torch.Tensor): Y 坐标 [mm]，形状与 `x` 相同。
 
-        Returns:
-            phi (torch.Tensor): Phase values [rad] wrapped to $[0, 2\\pi)$, same shape as `x`.
+        返回：
+            phi (torch.Tensor): 折返到 $[0, 2\\pi)$ 的相位值 [rad]，形状与 `x` 相同。
         """
         x_norm = x / self.norm_radii
         y_norm = y / self.norm_radii
         r2 = x_norm * x_norm + y_norm * y_norm + EPSILON
 
-        # Horner's method: r2*(o2 + r2*(o4 + r2*(o6 + r2*(o8 + r2*(o10 + r2*o12)))))
+        # 霍纳法：r2*(o2 + r2*(o4 + r2*(o6 + r2*(o8 + r2*(o10 + r2*o12)))))
         phi = r2 * (
             self.order2
             + r2 * (self.order4 + r2 * (self.order6 + r2 * (self.order8 + r2 * (self.order10 + r2 * self.order12))))
@@ -143,25 +141,24 @@ class Binary2Phase(Phase):
         return phi
 
     def dphi_dxy(self, x, y):
-        """Compute the lateral phase gradient at the given points.
+        """计算给定点处的横向相位梯度。
 
-        Differentiates the (unwrapped) phase polynomial and applies the chain
-        rule through the normalized radius.
+        对未折返的相位多项式求导，并通过归一化半径应用链式法则。
 
-        Args:
-            x (torch.Tensor): X coordinates [mm], any shape.
-            y (torch.Tensor): Y coordinates [mm], same shape as `x`.
+        参数：
+            x (torch.Tensor): X 坐标 [mm]，形状不限。
+            y (torch.Tensor): Y 坐标 [mm]，形状与 `x` 相同。
 
-        Returns:
-            dphidx (torch.Tensor): Partial derivative $\\partial\\phi/\\partial x$ [rad/mm], same shape as `x`.
-            dphidy (torch.Tensor): Partial derivative $\\partial\\phi/\\partial y$ [rad/mm], same shape as `x`.
+        返回：
+            dphidx (torch.Tensor): 偏导数 $\\partial\\phi/\\partial x$ [rad/mm]，形状与 `x` 相同。
+            dphidy (torch.Tensor): 偏导数 $\\partial\\phi/\\partial y$ [rad/mm]，形状与 `x` 相同。
         """
         x_norm = x / self.norm_radii
         y_norm = y / self.norm_radii
         r2 = x_norm * x_norm + y_norm * y_norm + EPSILON
 
-        # d/dr2 of polynomial, then chain rule: dphi/dx = dphi/dr2 * 2*x_norm / norm_radii
-        # Horner's: o2 + r2*(2*o4 + r2*(3*o6 + r2*(4*o8 + r2*(5*o10 + r2*6*o12))))
+        # 先对多项式求 d/dr2，再用链式法则：dphi/dx = dphi/dr2 * 2*x_norm / norm_radii
+        # 霍纳形式：o2 + r2*(2*o4 + r2*(3*o6 + r2*(4*o8 + r2*(5*o10 + r2*6*o12))))
         dphidr2 = (
             self.order2
             + r2 * (2 * self.order4 + r2 * (3 * self.order6 + r2 * (4 * self.order8 + r2 * (5 * self.order10 + r2 * 6 * self.order12))))
@@ -172,29 +169,28 @@ class Binary2Phase(Phase):
         return dphidx, dphidy
 
     def get_optimizer_params(self, lrs=[1e-4, 1e-2], optim_mat=False):
-        """Build optimizer parameter groups for the phase surface.
+        """构建相位面的优化器参数组。
 
-        Enables gradients on the axial position `d` and the six polynomial
-        coefficients, grouping `d` with the first learning rate and all
-        coefficients with the second.
+        为轴向位置 `d` 和六个多项式系数启用梯度；`d` 使用第一个学习率，
+        所有系数使用第二个学习率。
 
-        Args:
-            lrs (list, optional): Learning rates ``[lr_position, lr_coeffs]``. Defaults to [1e-4, 1e-2].
-            optim_mat (bool, optional): Must be False; materials are not optimized for phase surfaces. Defaults to False.
+        参数：
+            lrs (list, optional): 学习率 ``[lr_position, lr_coeffs]``，默认为 [1e-4, 1e-2]。
+            optim_mat (bool, optional): 必须为 False；相位面不优化材料，默认为 False。
 
-        Returns:
-            params (list): List of parameter-group dicts for a torch optimizer.
+        返回：
+            params (list): 供 torch 优化器使用的参数组字典列表。
 
-        Raises:
-            AssertionError: If `optim_mat` is True.
+        异常：
+            AssertionError: `optim_mat` 为 True 时抛出。
         """
         params = []
 
-        # Optimize position
+        # 优化位置
         self.d.requires_grad = True
         params.append({"params": [self.d], "lr": lrs[0]})
 
-        # Optimize polynomial coefficients
+        # 优化多项式系数
         self.order2.requires_grad = True
         self.order4.requires_grad = True
         self.order6.requires_grad = True
@@ -208,7 +204,7 @@ class Binary2Phase(Phase):
         params.append({"params": [self.order10], "lr": lrs[1]})
         params.append({"params": [self.order12], "lr": lrs[1]})
 
-        # We do not optimize material parameters for phase surface.
+        # 相位面不优化材料参数。
         assert optim_mat is False, (
             "Material parameters are not optimized for phase surface."
         )
@@ -216,10 +212,10 @@ class Binary2Phase(Phase):
         return params
 
     def save_ckpt(self, save_path="./binary2_doe.pth"):
-        """Save the Binary2 phase coefficients to disk.
+        """将 Binary2 相位系数保存到磁盘。
 
-        Args:
-            save_path (str, optional): Output checkpoint path. Defaults to "./binary2_doe.pth".
+        参数：
+            save_path (str, optional): 输出检查点路径，默认为 "./binary2_doe.pth"。
         """
         torch.save(
             {
@@ -235,10 +231,10 @@ class Binary2Phase(Phase):
         )
 
     def load_ckpt(self, load_path="./binary2_doe.pth"):
-        """Load Binary2 phase coefficients from disk onto the surface device.
+        """从磁盘加载 Binary2 相位系数，并放到表面所在设备。
 
-        Args:
-            load_path (str, optional): Checkpoint path to load. Defaults to "./binary2_doe.pth".
+        参数：
+            load_path (str, optional): 要加载的检查点路径，默认为 "./binary2_doe.pth"。
         """
         ckpt = torch.load(load_path)
         self.param_model = ckpt["param_model"]
@@ -250,18 +246,17 @@ class Binary2Phase(Phase):
         self.order12 = ckpt["order12"].to(self.device)
 
     def zmx_str(self, surf_idx, d_next):
-        """Return the Zemax BINARY_2 surface block as a string.
+        """以字符串形式返回 Zemax BINARY_2 表面数据块。
 
-        PARM 1-8 are set to zero (flat substrate, no aspheric sag) so that
-        Zemax interprets the XDAT entries purely as phase polynomial
-        coefficients.
+        将 PARM 1-8 设为零（平面基底且无非球面矢高），使 Zemax 将 XDAT
+        条目仅解释为相位多项式系数。
 
-        Args:
-            surf_idx (int): Surface index used in the SURF header.
-            d_next (torch.Tensor): Distance to the next surface [mm], scalar tensor (read via `.item()`).
+        参数：
+            surf_idx (int): SURF 头中使用的表面索引。
+            d_next (torch.Tensor): 到下一表面的距离 [mm]，通过 `.item()` 读取的标量张量。
 
-        Returns:
-            zmx_str (str): Multi-line Zemax surface description.
+        返回：
+            zmx_str (str): 多行 Zemax 表面描述。
         """
         coeffs = [
             self.order2.item(),
@@ -273,7 +268,7 @@ class Binary2Phase(Phase):
         ]
         n_terms = len(coeffs)
 
-        # Build XDAT block: term count, norm radius, then coefficients
+        # 构建 XDAT 数据块：项数、归一化半径，然后是各系数
         xdat_str = f"    XDAT 1 {n_terms} 0 0\n"
         xdat_str += f"    XDAT 2 {self.norm_radii} 0 0\n"
         for j, coeff in enumerate(coeffs, start=3):
@@ -296,12 +291,11 @@ class Binary2Phase(Phase):
         return zmx_str
 
     def surf_dict(self):
-        """Return a serializable dictionary of the surface parameters.
+        """返回可序列化的表面参数字典。
 
-        Returns:
-            surf_dict (dict): Surface parameters including type, radius `r` [mm],
-                polynomial coefficients (rounded), `norm_radii` [mm], position `d` [mm],
-                and material name.
+        返回：
+            surf_dict (dict): 表面参数，包括类型、半径 `r` [mm]、舍入后的多项式系数、
+                `norm_radii` [mm]、位置 `d` [mm] 和材料名称。
         """
         surf_dict = {
             "type": self.__class__.__name__,

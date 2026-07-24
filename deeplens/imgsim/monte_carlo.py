@@ -4,7 +4,7 @@
 # Licensed under the Apache License, Version 2.0.
 # See LICENSE file in the project root for full license information.
 
-"""Forward and backward Monte-Carlo integral functions."""
+"""前向与反向 Monte-Carlo 积分函数。"""
 
 import torch
 import torch.nn.functional as F
@@ -13,31 +13,27 @@ from ..config import EPSILON
 
 
 def forward_integral(ray, ps, ks, pointc=None, interpolate=True):
-    """Differentiable Monte-Carlo integral over a ray bundle onto a pixel grid.
+    """将光线束积分到像素网格上的可微 Monte-Carlo 积分。
 
-    Bins ray hit positions into a `ks` x `ks` grid centred on `pointc` (or the
-    valid-ray centroid when `pointc` is None). In coherent mode the complex
-    amplitude `sqrt(|dz|) * exp(i * phase)` is accumulated; in incoherent mode
-    unit intensity is accumulated. All `N` field points scatter into their own
-    output slices in batched `index_put_(accumulate=True)` calls.
+    将光线命中位置分配到以 `pointc` 为中心的 `ks` x `ks` 网格中；当 `pointc`
+    为 None 时使用有效光线质心。相干模式下累加复振幅
+    `sqrt(|dz|) * exp(i * phase)`，非相干模式下累加单位强度。所有 `N` 个视场点
+    通过批量 `index_put_(accumulate=True)` 调用散射到各自的输出切片。
 
-    Args:
-        ray (Ray): Traced ray bundle with origin `ray.o` of shape
-            [N, spp, 3] (or [spp, 3] for a single field point).
-        ps (float): Pixel size [mm].
-        ks (int): Output grid size in pixels (square).
-        pointc (torch.Tensor or None, optional): Reference centre [mm] for each
-            field point, shape [N, 2]. If None, the valid-ray centroid is used.
-            Defaults to None.
-        interpolate (bool, optional): If True, each ray splits its contribution
-            across the four surrounding pixels via bilinear weights. If False,
-            each ray is hard-binned into the floor pixel (faster, no gradient
-            w.r.t. in-pixel position). Defaults to True.
+    参数：
+        ray (Ray): 已追迹光线束，原点 `ray.o` 的形状为 [N, spp, 3]；单个视场点
+            时为 [spp, 3]。
+        ps (float): 像素尺寸 [mm]。
+        ks (int): 方形输出网格的像素尺寸。
+        pointc (torch.Tensor or None, optional): 各视场点的参考中心 [mm]，形状为
+            [N, 2]。为 None 时使用有效光线质心，默认为 None。
+        interpolate (bool, optional): 为 True 时，每条光线通过双线性权重将贡献
+            分配给周围四个像素；为 False 时，将光线硬分配至向下取整的像素，
+            速度更快但像素内位置没有梯度。默认为 True。
 
-    Returns:
-        grid (torch.Tensor): Accumulated field, shape [N, ks, ks] (or [ks, ks]
-            for a single input point). Dtype is complex when `ray.is_coherent`
-            is True, otherwise float.
+    返回：
+        grid (torch.Tensor): 累积波场，形状为 [N, ks, ks]；单个输入点时为
+            [ks, ks]。当 `ray.is_coherent` 为 True 时 dtype 为复数，否则为浮点数。
     """
     if ray.o.ndim == 2:
         single_point = True
@@ -50,14 +46,14 @@ def forward_integral(ray, ps, ks, pointc=None, interpolate=True):
     N, spp = valid.shape
     device = valid.device
 
-    # Centre the grid on pointc (or the valid-ray centroid).
+    # 将网格中心放在 pointc；若未提供，则使用有效光线质心。
     if pointc is None:
         pointc = (points * valid.unsqueeze(-1)).sum(-2) / valid.unsqueeze(-1).sum(
             -2
         ).add(EPSILON)
     points_shift = points - pointc.unsqueeze(-2)    # [N, spp, 2]
 
-    # Reject points that fall outside the grid window.
+    # 剔除落在网格窗口之外的点。
     field_max = (ks / 2 - 0.5) * ps
     in_window = (
         (points_shift[..., 0].abs() < (field_max - 0.001 * ps))
@@ -65,9 +61,9 @@ def forward_integral(ray, ps, ks, pointc=None, interpolate=True):
     )
     valid = valid * in_window.to(valid.dtype)
 
-    # Per-ray intensity (real) or complex amplitude.
+    # 每条光线的强度（实数）或复振幅。
     if ray.is_coherent:
-        # Add EPSILON: sqrt'(0) is infinite -> NaN gradient for steep rays (dz~0).
+        # 加入 EPSILON：sqrt'(0) 为无穷大，会使陡峭光线（dz~0）产生 NaN 梯度。
         amp = torch.sqrt(ray.d[..., 2].abs() + EPSILON)  # sqrt(|dz|)
         opl = ray.opl.squeeze(-1)                       # [N, spp]
         opl_min = opl.min(dim=-1, keepdim=True).values
@@ -77,8 +73,8 @@ def forward_integral(ray, ps, ks, pointc=None, interpolate=True):
     else:
         value = torch.ones_like(valid)
 
-    # Fractional pixel indices: y up -> row down, x right -> col right.
-    # Pixel centres lie on an integer grid in [0, ks-1].
+    # 小数像素索引：y 向上对应行向下，x 向右对应列向右。
+    # 像素中心位于 [0, ks-1] 范围的整数网格上。
     norm_row = (field_max - points_shift[..., 1]) / (2 * field_max)
     norm_col = (points_shift[..., 0] + field_max) / (2 * field_max)
     pix_row = norm_row * (ks - 1)
@@ -91,9 +87,8 @@ def forward_integral(ray, ps, ks, pointc=None, interpolate=True):
 
     masked_value = valid * value
 
-    # Batched scatter: all N field points accumulate simultaneously via a
-    # batch-aware ``index_put_``, which does support per-batch accumulation
-    # when the index tuple carries a batch dimension.
+    # 批量散射：所有 N 个视场点通过支持批次的 ``index_put_`` 同时累加；当索引
+    # 元组带有批次维度时，该方法支持逐批次累加。
     batch_idx = torch.arange(N, device=device).unsqueeze(-1).expand(N, spp)
     grid = torch.zeros(N, ks, ks, dtype=value.dtype, device=device)
     if interpolate:
@@ -110,7 +105,7 @@ def forward_integral(ray, ps, ks, pointc=None, interpolate=True):
 
     if single_point:
         grid = grid.squeeze(0)
-        ray = ray.squeeze(0)    # restore caller's ray shape (unsqueeze mutates)
+        ray = ray.squeeze(0)    # 恢复调用方的光线形状，因为 unsqueeze 会原地修改
 
     return grid
 
@@ -122,65 +117,57 @@ def backward_integral(
     energy_correction=None,
     vignetting=False,
 ):
-    """Backward Monte-Carlo integration for ray-tracing-based rendering.
+    """用于光线追迹渲染的反向 Monte-Carlo 积分。
 
-    Sample an input image at each ray's hit position and average over the
-    samples-per-pixel (spp) axis to render the output. The input image is
-    always replicate-padded by one pixel on each side so that rays landing
-    within half a pixel of the edge can still be bilinearly sampled without
-    silently truncating.
+    在每条光线的命中位置采样输入图像，并沿每像素采样数（spp）轴求平均以渲染
+    输出。输入图像始终在各侧复制填充一个像素，使落在边缘半个像素范围内的
+    光线仍可进行双线性采样，而不会被无提示截断。
 
-    Args:
-        ray (Ray): Ray object. Shape of `ray.o` is [h, w, spp, 3], with
-            positions in [mm].
-        img_obj (torch.Tensor): Source image, shape [B, C, H, W]. Spatial size
-            H, W is read from this tensor.
-        ps (float): Pixel size [mm].
-        interpolate (bool, optional): If True, bilinearly sample the four
-            surrounding pixels; if False, nearest-pixel sampling. Defaults to
-            True.
-        energy_correction (torch.Tensor or None, optional): Per-ray weight
-            tensor of shape [h, w, spp, 1] (e.g. `ray.en`). When supplied, it
-            is used as an importance weight; under the default (non-vignetting)
-            mode it enters both numerator and denominator, yielding a proper
-            weighted Monte-Carlo mean. Under vignetting it scales only the
-            numerator (fixed denominator). Defaults to None (uniform weights).
-        vignetting (bool, optional): If True, divide by a fixed denominator
-            (`torch.numel(ray.is_valid)`) instead of the sum of weights; pixels
-            hit by few or attenuated rays therefore appear dimmer (mechanical
-            vignetting). Defaults to False.
+    参数：
+        ray (Ray): 光线对象，`ray.o` 形状为 [h, w, spp, 3]，位置单位为 [mm]。
+        img_obj (torch.Tensor): 源图像，形状为 [B, C, H, W]，空间尺寸 H、W
+            从该张量读取。
+        ps (float): 像素尺寸 [mm]。
+        interpolate (bool, optional): 为 True 时对周围四个像素进行双线性采样；
+            为 False 时采用最近像素采样。默认为 True。
+        energy_correction (torch.Tensor or None, optional): 逐光线权重张量，形状为
+            [h, w, spp, 1]，例如 `ray.en`。提供时将其作为重要性权重；默认的非
+            渐晕模式下，它同时进入分子和分母，从而得到正确的加权 Monte-Carlo
+            均值；渐晕模式下仅缩放分子，分母固定。默认为 None，即均匀权重。
+        vignetting (bool, optional): 为 True 时除以固定分母
+            `torch.numel(ray.is_valid)`，而不是权重总和；命中光线较少或衰减较强
+            的像素会更暗，从而表现机械渐晕。默认为 False。
 
-    Returns:
-        output (torch.Tensor): Rendered image, shape [B, C, h, w].
+    返回：
+        output (torch.Tensor): 渲染图像，形状为 [B, C, h, w]。
 
-    Raises:
-        Exception: If `ray.is_coherent` is True (coherent backward integral is
-            not supported).
+    异常：
+        Exception: 当 `ray.is_coherent` 为 True 时抛出，因为不支持相干反向积分。
     """
     assert len(img_obj.shape) == 4
     H, W = img_obj.shape[-2:]
-    p = ray.o[..., :2]  # shape [h, w, spp, 2]
+    p = ray.o[..., :2]  # 形状为 [h, w, spp, 2]
     img_obj = F.pad(img_obj, (1, 1, 1, 1), "replicate")
 
-    # Convert ray positions to uv coordinates
+    # 将光线位置转换为 uv 坐标
     u = torch.clamp(W / 2 + p[..., 0] / ps, min=-0.99, max=W - 0.01)
     v = torch.clamp(H / 2 + p[..., 1] / ps, min=0.01, max=H + 0.99)
 
-    # (idx_i, idx_j) denotes left-top pixel (reference); indices don't carry gradients.
-    # (idx + 1 because we did padding)
+    # (idx_i, idx_j) 表示左上角参考像素；索引不携带梯度。
+    # 因为进行了填充，所以索引需要加 1。
     idx_i = H - v.ceil().long() + 1
     idx_j = u.floor().long() + 1
 
-    # Gradients are stored in interpolation weight parameters
+    # 梯度保存在插值权重参数中
     w_i = v - v.floor().long()
     w_j = u.ceil().long() - u
 
     if ray.is_coherent:
         raise Exception("Backward coherent integral needs to be checked.")
 
-    # Monte-Carlo integration over the spp axis (last dim).
+    # 沿 spp 轴（最后一维）进行 Monte-Carlo 积分。
     if interpolate:
-        # Bilinear splatting
+        # 双线性散射
         # img_obj [B, C, H+2, W+2], idx_i/idx_j [h, w, spp] -> out_img [B, C, h, w, spp]
         out_img = img_obj[..., idx_i, idx_j] * w_i * w_j
         out_img += img_obj[..., idx_i + 1, idx_j] * (1 - w_i) * w_j
@@ -189,12 +176,12 @@ def backward_integral(
     else:
         out_img = img_obj[..., idx_i, idx_j]
 
-    # Extra per-ray energy correction factor (e.g. for non-uniform ray sampling).
+    # 额外的逐光线能量校正因子，例如用于非均匀光线采样。
     weight = ray.is_valid
     if energy_correction is not None:
         weight = weight * energy_correction.squeeze(-1)
 
-    # Normalize by the sum of weights (or fixed denominator if vignetting) to get the Monte-Carlo mean.
+    # 以权重总和归一化；渐晕模式使用固定分母，从而得到 Monte-Carlo 均值。
     if vignetting:
         output = torch.sum(out_img * weight, -1) / torch.numel(ray.is_valid)
     else:
@@ -211,65 +198,62 @@ def assign_points_to_pixels(
     value,
     interpolate=True,
 ):
-    """Scatter point samples onto a `ks` x `ks` pixel grid.
+    """将点样本散射到 `ks` x `ks` 像素网格上。
 
-    Bins each point's `value` (intensity or complex amplitude) into the grid
-    spanned by `x_range` x `y_range` using `index_put_(accumulate=True)`.
-    Supports both incoherent and coherent ray tracing. Handles a single point
-    source only, constrained by the advanced-indexing scatter.
+    使用 `index_put_(accumulate=True)`，将每个点的 `value`（强度或复振幅）
+    分配到 `x_range` x `y_range` 覆盖的网格中。支持非相干和相干光线追迹。
+    受高级索引散射方式限制，目前仅处理单个点光源。
 
-    Args:
-        points (torch.Tensor): Sample positions [mm], shape [spp, 2] as (x, y).
-        mask (torch.Tensor): Validity mask, shape [spp].
-        ks (int): Output grid size in pixels (square).
-        x_range (tuple): Grid extent (x_min, x_max) [mm].
-        y_range (tuple): Grid extent (y_min, y_max) [mm].
-        value (torch.Tensor): Per-point value to accumulate (intensity or
-            complex amplitude), shape [spp].
-        interpolate (bool, optional): If True, split each point across the four
-            surrounding pixels via bilinear weights; if False, hard-bin into the
-            floor pixel. Defaults to True.
+    参数：
+        points (torch.Tensor): 样本位置 [mm]，以 (x, y) 表示，形状为 [spp, 2]。
+        mask (torch.Tensor): 有效性掩码，形状为 [spp]。
+        ks (int): 方形输出网格的像素尺寸。
+        x_range (tuple): 网格 x 范围 (x_min, x_max) [mm]。
+        y_range (tuple): 网格 y 范围 (y_min, y_max) [mm]。
+        value (torch.Tensor): 每个点要累加的值（强度或复振幅），形状为 [spp]。
+        interpolate (bool, optional): 为 True 时通过双线性权重将每个点分配到
+            周围四个像素；为 False 时硬分配到向下取整的像素。默认为 True。
 
-    Returns:
-        grid (torch.Tensor): Accumulated intensity or complex amplitude, shape
-            [ks, ks]. Dtype matches `value`.
+    返回：
+        grid (torch.Tensor): 累积强度或复振幅，形状为 [ks, ks]，dtype 与
+            `value` 一致。
     """
-    # Parameters
+    # 参数
     device = points.device
     x_min, x_max = x_range
     y_min, y_max = y_range
 
-    # Normalize points to the range [0, 1] (direct computation, no intermediate allocation)
+    # 将点归一化至 [0, 1]，直接计算且不分配中间张量
     norm_0 = (points[:, 1] - y_max) / (y_min - y_max)
     norm_1 = (points[:, 0] - x_min) / (x_max - x_min)
 
-    # Check if points are within valid range
+    # 检查点是否处于有效范围内
     valid_points = (norm_0 >= 0) & (norm_0 <= 1) & (norm_1 >= 0) & (norm_1 <= 1)
     mask = mask * valid_points
 
     if interpolate:
-        # Compute float pixel indices
+        # 计算浮点像素索引
         pix_0 = norm_0 * (ks - 1)
         pix_1 = norm_1 * (ks - 1)
         pix_0_floor = pix_0.floor()
         pix_1_floor = pix_1.floor()
 
-        # Bilinear weights
+        # 双线性权重
         w_b = pix_0 - pix_0_floor
         w_r = pix_1 - pix_1_floor
         w_b_1 = 1 - w_b
         w_r_1 = 1 - w_r
 
-        # Pixel indices for 4 corners (clamped)
+        # 四个角点的像素索引，并限制在有效范围内
         r0 = pix_0_floor.long().clamp(0, ks - 1)
         c0 = pix_1_floor.long().clamp(0, ks - 1)
         r1 = (r0 + 1).clamp(0, ks - 1)
         c1 = (c0 + 1).clamp(0, ks - 1)
 
-        # Pre-compute masked value once
+        # 预先计算一次应用掩码后的值
         masked_value = mask * value
 
-        # Use advanced indexing to increment the count for each corresponding pixel
+        # 使用高级索引累加各对应像素的计数
         grid = torch.zeros(ks, ks, dtype=value.dtype, device=device)
         grid.index_put_((r0, c0), w_b_1 * w_r_1 * masked_value, accumulate=True)
         grid.index_put_((r0, c1), w_b_1 * w_r * masked_value, accumulate=True)

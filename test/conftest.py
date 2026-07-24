@@ -1,5 +1,5 @@
 """
-Shared pytest fixtures for DeepLens test suite.
+DeepLens 测试套件共享的 pytest fixture。
 """
 
 import copy
@@ -9,16 +9,16 @@ import sys
 import pytest
 import torch
 
-# Add deeplens to path
+# 将 deeplens 添加到路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 # =============================================================================
-# Device fixtures
+# 设备 fixture
 # =============================================================================
 @pytest.fixture(scope="session")
 def device():
-    """Return CUDA device if available, otherwise CPU."""
+    """若 CUDA 可用则返回 CUDA 设备，否则返回 CPU。"""
     if torch.cuda.is_available():
         return torch.device("cuda")
     else:
@@ -27,24 +27,24 @@ def device():
 
 @pytest.fixture(scope="session")
 def device_cpu():
-    """Return CPU device."""
+    """返回 CPU 设备。"""
     return torch.device("cpu")
 
 
 @pytest.fixture(scope="session")
 def device_auto():
-    """Return CUDA if available, otherwise CPU (for tests that should run on either)."""
+    """若 CUDA 可用则返回 CUDA，否则返回 CPU（用于可在任一设备运行的测试）。"""
     if torch.cuda.is_available():
         return torch.device("cuda")
     return torch.device("cpu")
 
 
 # =============================================================================
-# Lens fixtures
+# 镜头 fixture
 # =============================================================================
 @pytest.fixture(scope="function")
 def sample_singlet_lens(_sample_singlet_lens_cached, device_auto):
-    """Load a simple singlet lens for testing."""
+    """加载用于测试的简单单透镜。"""
     lens = copy.deepcopy(_sample_singlet_lens_cached)
     lens.to(device_auto)
     return lens
@@ -52,7 +52,7 @@ def sample_singlet_lens(_sample_singlet_lens_cached, device_auto):
 
 @pytest.fixture(scope="session")
 def _sample_singlet_lens_cached():
-    """Session-cached singlet lens template."""
+    """会话级缓存的单透镜模板。"""
     from deeplens import GeoLens
 
     lens_path = os.path.join(
@@ -64,7 +64,7 @@ def _sample_singlet_lens_cached():
 
 @pytest.fixture(scope="function")
 def sample_cellphone_lens(_sample_cellphone_lens_cached, device_auto):
-    """Load a cellphone lens with aspheric surfaces for testing."""
+    """加载用于测试、包含非球面的手机镜头。"""
     lens = copy.deepcopy(_sample_cellphone_lens_cached)
     lens.to(device_auto)
     return lens
@@ -72,7 +72,7 @@ def sample_cellphone_lens(_sample_cellphone_lens_cached, device_auto):
 
 @pytest.fixture(scope="session")
 def _sample_cellphone_lens_cached():
-    """Session-cached cellphone lens template."""
+    """会话级缓存的手机镜头模板。"""
     from deeplens import GeoLens
 
     lens_path = os.path.join(
@@ -84,7 +84,7 @@ def _sample_cellphone_lens_cached():
 
 @pytest.fixture(scope="function")
 def sample_camera_lens(_sample_camera_lens_cached, device_auto):
-    """Load a camera lens for testing."""
+    """加载用于测试的相机镜头。"""
     lens = copy.deepcopy(_sample_camera_lens_cached)
     lens.to(device_auto)
     return lens
@@ -92,7 +92,7 @@ def sample_camera_lens(_sample_camera_lens_cached, device_auto):
 
 @pytest.fixture(scope="session")
 def _sample_camera_lens_cached():
-    """Session-cached camera lens template."""
+    """会话级缓存的相机镜头模板。"""
     from deeplens import GeoLens
 
     lens_path = os.path.join(
@@ -103,12 +103,12 @@ def _sample_camera_lens_cached():
 
 
 # =============================================================================
-# Image fixtures
+# 图像 fixture
 # =============================================================================
 @pytest.fixture(scope="function")
 def sample_image(device_auto):
-    """Create a simple test image tensor [B, C, H, W]."""
-    # Create a gradient image for testing
+    """创建简单的测试图像张量 [B, C, H, W]。"""
+    # 创建用于测试的渐变图像
     H, W = 256, 256
     x = torch.linspace(0, 1, W, device=device_auto)
     y = torch.linspace(0, 1, H, device=device_auto)
@@ -121,18 +121,18 @@ def sample_image(device_auto):
 
 @pytest.fixture(scope="function")
 def sample_image_small(device_auto):
-    """Create a small test image tensor for fast tests."""
+    """创建用于快速测试的小型图像张量。"""
     H, W = 64, 64
     img = torch.rand(1, 3, H, W, device=device_auto)
     return img
 
 
 # =============================================================================
-# Ray fixtures
+# 光线 fixture
 # =============================================================================
 @pytest.fixture(scope="function")
 def sample_ray(device_auto):
-    """Create a sample ray for testing."""
+    """创建用于测试的样例光线。"""
     from deeplens.light import Ray
 
     o = torch.tensor([[0.0, 0.0, -100.0]], device=device_auto)
@@ -143,10 +143,10 @@ def sample_ray(device_auto):
 
 @pytest.fixture(scope="function")
 def sample_rays_batch(device_auto):
-    """Create a batch of rays for testing."""
+    """创建一批用于测试的光线。"""
     from deeplens.light import Ray
 
-    # Create 100 rays in a grid pattern
+    # 以网格模式创建 100 条光线
     n = 10
     x = torch.linspace(-1, 1, n, device=device_auto)
     y = torch.linspace(-1, 1, n, device=device_auto)
@@ -161,34 +161,34 @@ def sample_rays_batch(device_auto):
 
 
 # =============================================================================
-# Path helpers
+# 路径辅助函数
 # =============================================================================
 @pytest.fixture(scope="session")
 def project_root():
-    """Return the project root directory."""
+    """返回项目根目录。"""
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 @pytest.fixture(scope="session")
 def lenses_dir(project_root):
-    """Return the lenses dataset directory."""
+    """返回镜头数据集目录。"""
     return os.path.join(project_root, "datasets/lenses")
 
 
 @pytest.fixture(scope="session")
 def test_output_dir(project_root):
-    """Return a directory for test outputs."""
+    """返回测试输出目录。"""
     output_dir = os.path.join(project_root, "test/test_outputs")
     os.makedirs(output_dir, exist_ok=True)
     return output_dir
 
 
 # =============================================================================
-# HybridLens / DiffractiveLens fixtures
+# HybridLens / DiffractiveLens 测试夹具
 # =============================================================================
 @pytest.fixture(scope="function")
 def sample_hybridlens(_sample_hybridlens_cached, device_auto):
-    """Load hybrid lens for testing."""
+    """加载用于测试的混合镜头。"""
     lens = copy.deepcopy(_sample_hybridlens_cached)
     lens.to(device_auto)
     return lens
@@ -196,7 +196,7 @@ def sample_hybridlens(_sample_hybridlens_cached, device_auto):
 
 @pytest.fixture(scope="session")
 def _sample_hybridlens_cached():
-    """Session-cached hybrid lens template."""
+    """会话级缓存的混合镜头模板。"""
     from deeplens import HybridLens
 
     lens_path = os.path.join(
@@ -212,7 +212,7 @@ def _sample_hybridlens_cached():
 
 @pytest.fixture(scope="function")
 def sample_diffraclens():
-    """Create a diffractive lens for testing."""
+    """创建用于测试的衍射镜头。"""
     from deeplens import DiffractiveLens
     from deeplens.diffractive_surface import Fresnel
 
@@ -224,7 +224,7 @@ def sample_diffraclens():
     lens.sensor_size = (4.0, 4.0)
     lens.sensor_res = (500, 500)
     lens.pixel_size = lens.sensor_size[0] / lens.sensor_res[0]
-    # Move surfaces to the lens device (may be CUDA)
+    # 将表面移动到镜头所在设备（可能为 CUDA）
     lens.surfaces[0].to(lens.device)
     torch.set_default_dtype(old_dtype)
     return lens

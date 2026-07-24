@@ -4,24 +4,24 @@
 # Licensed under the Apache License, Version 2.0.
 # See LICENSE file in the project root for full license information.
 
-"""PSF computation methods for geometric lens systems.
+"""几何透镜系统的 PSF 计算方法。
 
-Supports three PSF models:
-    1. Geometric PSF (``psf_geometric``): incoherent intensity ray tracing — fast and differentiable.
-    2. Exit-pupil PSF (``psf_pupil_prop`` / ``psf_coherent``): coherent ray tracing to exit pupil,
-       then Angular Spectrum Method (ASM) free-space propagation — accurate and differentiable.
-    3. Huygens PSF (``psf_huygens``): coherent ray tracing to exit pupil, then Huygens-Fresnel
-       integration — accurate but not differentiable.
+支持三种 PSF 模型：
+    1. 几何 PSF（``psf_geometric``）：非相干强度光线追迹——速度快且可微。
+    2. 出瞳 PSF（``psf_pupil_prop`` / ``psf_coherent``）：相干追迹到出瞳，
+       再以角谱法 (ASM) 进行自由空间传播——精确且可微。
+    3. 惠更斯 PSF（``psf_huygens``）：相干追迹到出瞳，再进行惠更斯-菲涅耳
+       积分——精确但不可微。
 
-Functions:
-    - psf(): Dispatcher selecting between geometric, coherent, and Huygens models.
-    - psf_geometric(): Incoherent geometric PSF via ray binning.
-    - psf_coherent(): Alias for psf_pupil_prop.
-    - psf_pupil_prop(): Exit-pupil diffraction PSF via coherent tracing + ASM.
-    - pupil_field(): Complex wavefront at the exit pupil plane.
-    - psf_huygens(): Huygens-Fresnel PSF via secondary point source integration.
-    - psf_map(): Geometric PSF map across the field of view.
-    - psf_center(): Reference PSF centre via chief ray or pinhole projection.
+函数：
+    - psf()：在几何、相干和惠更斯模型之间分派。
+    - psf_geometric()：通过光线分箱计算非相干几何 PSF。
+    - psf_coherent()：psf_pupil_prop 的别名。
+    - psf_pupil_prop()：通过相干追迹 + ASM 计算出瞳衍射 PSF。
+    - pupil_field()：计算出瞳平面的复波前。
+    - psf_huygens()：通过次级点光源积分计算惠更斯-菲涅耳 PSF。
+    - psf_map()：计算整个视场的几何 PSF 图。
+    - psf_center()：通过主光线或针孔投影计算参考 PSF 中心。
 """
 
 import torch
@@ -40,50 +40,48 @@ from ..utils import diff_float
 
 
 class GeoLensPSF:
-    """Mixin providing PSF computation for `GeoLens`.
+    """为 `GeoLens` 提供 PSF 计算的混入类。
 
-    Exposes three PSF models through a single `psf` dispatcher: incoherent
-    geometric ray tracing, coherent exit-pupil diffraction (ASM propagation),
-    and Huygens-Fresnel integration. The geometric and coherent models are
-    differentiable; Huygens is not. This class is not instantiated directly;
-    it is mixed into `GeoLens`.
+    通过统一的 `psf` 分派器提供三种 PSF 模型：非相干几何光线追迹、
+    相干出瞳衍射（ASM 传播）和惠更斯-菲涅耳积分。几何模型与相干模型
+    可微，惠更斯模型不可微。本类不单独实例化，而是混入 `GeoLens`。
     """
 
     # ====================================================================================
-    # PSF
-    # We support three types of PSF:
-    #   1. Geometric PSF (`psf`): incoherent intensity ray tracing
-    #   2. Exit-pupil PSF (`psf_pupil_prop` / `psf_coherent`): coherent ray tracing to exit pupil, then free-space propagation with ASM
-    #   3. Huygens PSF (`psf_huygens`): coherent ray tracing to exit pupil, then Huygens-Fresnel integration
+    # 点扩散函数（PSF）
+# 支持三种 PSF：
+#   1. 几何 PSF（`psf`）：非相干强度光线追迹
+#   2. 出瞳 PSF（`psf_pupil_prop` / `psf_coherent`）：相干追迹到出瞳，再使用 ASM 进行自由空间传播
+#   3. 惠更斯 PSF（`psf_huygens`）：相干追迹到出瞳，再进行惠更斯-菲涅耳积分
     # ====================================================================================
     def psf(self, points, wvln=None, ks=PSF_KS, **kwargs):
-        """Compute the Point Spread Function (PSF) for given point sources.
+        """计算给定点光源的点扩散函数 (PSF)。
 
-        Dispatches to one of three PSF models:
-            - geometric: incoherent intensity ray tracing (fast, differentiable).
-            - coherent: coherent tracing to exit pupil + ASM propagation (accurate, differentiable, single point).
-            - huygens: Huygens-Fresnel integration (accurate, not differentiable, single point).
+        分派到以下三种 PSF 模型之一：
+            - geometric：非相干强度光线追迹（快速、可微）。
+            - coherent：相干追迹到出瞳 + ASM 传播（精确、可微、单点）。
+            - huygens：惠更斯-菲涅耳积分（精确、不可微、单点）。
 
-        Args:
-            points (torch.Tensor): Normalized point source positions. Shape [N, 3]
-                with x, y in [-1, 1] and z in [-Inf, 0]. The coherent and huygens
-                models accept only a single point ([3] or [1, 3]).
-            wvln (float, optional): Wavelength in µm. When None (default), falls
-                back to `self.primary_wvln`.
-            ks (int, optional): Output kernel size in pixels. Defaults to PSF_KS.
-            **kwargs: Model-specific options:
-                spp (int): Rays sampled per source. If None, uses the
-                model-specific default (SPP_PSF / SPP_COHERENT).
-                recenter (bool): If True (default), center the PSF on the chief
-                ray; otherwise on the pinhole projection.
-                model (str): One of 'geometric' (default), 'coherent', 'huygens'.
+        参数：
+            points (torch.Tensor)：归一化点光源位置。Shape [N, 3]，其中 x、y
+                位于 [-1, 1]，z 位于 [-Inf, 0]。coherent 和 huygens 模型
+                仅接受单个点（[3] 或 [1, 3]）。
+            wvln (float, optional)：波长，单位为 µm。为 None（默认）时回退到
+                `self.primary_wvln`。
+            ks (int, optional)：输出核的像素尺寸。默认值为 PSF_KS。
+            **kwargs：模型专用选项：
+                spp (int)：每个光源的采样光线数。为 None 时使用对应模型的
+                默认值（SPP_PSF / SPP_COHERENT）。
+                recenter (bool)：为 True（默认）时以主光线为 PSF 中心，
+                否则以针孔投影为中心。
+                model (str)：'geometric'（默认）、'coherent'、'huygens' 之一。
 
-        Returns:
-            psf (torch.Tensor): PSF normalized to sum to 1. Shape [ks, ks] for a
-                single point, or [N, ks, ks] for the geometric model with N points.
+        返回：
+            psf (torch.Tensor)：总和归一化为 1 的 PSF。单点时 shape 为
+                [ks, ks]；几何模型输入 N 个点时为 [N, ks, ks]。
 
-        Raises:
-            ValueError: If `model` is not one of the supported names.
+        异常：
+            ValueError：`model` 不在支持的名称中时抛出。
         """
         wvln = self.primary_wvln if wvln is None else wvln
         spp = kwargs.get("spp", None)
@@ -104,27 +102,26 @@ class GeoLensPSF:
     def psf_geometric(
         self, points, ks=PSF_KS, wvln=None, spp=SPP_PSF, recenter=True
     ):
-        """Compute the single-wavelength geometric PSF by incoherent ray binning.
+        """通过非相干光线分箱计算单波长几何 PSF。
 
-        Samples rays from each object point, traces them incoherently to the
-        sensor, and bins the hit positions into a `ks × ks` intensity kernel.
-        This model is fast and differentiable.
+        从各物点采样光线，以非相干方式追迹到传感器，并将命中位置分箱到
+        `ks × ks` 强度核中。该模型速度快且可微。
 
-        Args:
-            points (torch.Tensor): Normalized point source positions. Shape [N, 3]
-                with x, y in [-1, 1] and z in [-Inf, 0].
-            ks (int, optional): Output kernel size in pixels. Defaults to PSF_KS.
-            wvln (float, optional): Wavelength in µm. When None (default), falls
-                back to `self.primary_wvln`.
-            spp (int, optional): Rays sampled per source. Defaults to SPP_PSF.
-            recenter (bool, optional): If True (default), center on the chief ray;
-                otherwise on the pinhole projection.
+        参数：
+            points (torch.Tensor)：归一化点光源位置。Shape [N, 3]，其中 x、y
+                位于 [-1, 1]，z 位于 [-Inf, 0]。
+            ks (int, optional)：输出核的像素尺寸。默认值为 PSF_KS。
+            wvln (float, optional)：波长，单位为 µm。为 None（默认）时回退到
+                `self.primary_wvln`。
+            spp (int, optional)：每个光源的采样光线数。默认值为 SPP_PSF。
+            recenter (bool, optional)：为 True（默认）时以主光线为中心，
+                否则以针孔投影为中心。
 
-        Returns:
-            psf (torch.Tensor): PSF normalized to sum to 1. Shape [ks, ks] for a
-                single point, or [N, ks, ks] for N points.
+        返回：
+            psf (torch.Tensor)：总和归一化为 1 的 PSF。单点时 shape 为
+                [ks, ks]，N 个点时为 [N, ks, ks]。
 
-        Reference:
+        参考：
             [1] https://optics.ansys.com/hc/en-us/articles/42661723066515-What-is-a-Point-Spread-Function
         """
         wvln = self.primary_wvln if wvln is None else wvln
@@ -132,7 +129,7 @@ class GeoLensPSF:
         pixel_size = self.pixel_size
         device = self.device
 
-        # Points shape of [N, 3]
+        # 点的 shape 为 [N, 3]
         if not torch.is_tensor(points):
             points = torch.tensor(points, device=device)
 
@@ -142,7 +139,7 @@ class GeoLensPSF:
         else:
             single_point = False
 
-        # Sample rays. Ray position in the object space by perspective projection
+        # 采样光线；通过透视投影确定物方光线位置
         depth = points[:, 2]
         scale = self.calc_scale(depth)
         point_obj_x = points[..., 0] * scale * sensor_w / 2
@@ -150,20 +147,20 @@ class GeoLensPSF:
         point_obj = torch.stack([point_obj_x, point_obj_y, points[..., 2]], dim=-1)
         ray = self.sample_from_points(points=point_obj, num_rays=spp, wvln=wvln)
 
-        # Trace rays to sensor plane (incoherent)
+        # 将光线以非相干方式追迹到传感器平面
         ray.is_coherent = False
         ray = self.trace2sensor(ray)
 
-        # Calculate PSF center, shape [N, 2]
+        # 计算 PSF 中心，shape [N, 2]
         if recenter:
             pointc = self.psf_center(point_obj, method="chief_ray")
         else:
             pointc = self.psf_center(point_obj, method="pinhole")
 
-        # Monte Carlo integration
+        # 蒙特卡洛积分
         psf = forward_integral(ray.flip_xy(), ps=pixel_size, ks=ks, pointc=pointc)
 
-        # Intensity normalization
+        # 强度归一化
         psf = psf / (torch.sum(psf, dim=(-2, -1), keepdim=True) + EPSILON)
 
         if single_point:
@@ -174,23 +171,22 @@ class GeoLensPSF:
     def psf_coherent(
         self, points, ks=PSF_KS, wvln=None, spp=SPP_COHERENT, recenter=True
     ):
-        """Compute the coherent exit-pupil PSF (alias for `psf_pupil_prop`).
+        """计算相干出瞳 PSF（`psf_pupil_prop` 的别名）。
 
-        Traces coherent rays to the exit pupil and propagates the wavefront to
-        the sensor with the Angular Spectrum Method (ASM). See `psf_pupil_prop`
-        for full argument and return documentation.
+        将相干光线追迹到出瞳，并使用角谱法 (ASM) 将波前传播到传感器。
+        完整参数和返回值说明请参阅 `psf_pupil_prop`。
 
-        Args:
-            points (torch.Tensor): Single normalized point source [3] or [1, 3]
-                with x, y in [-1, 1] and z in [-Inf, 0].
-            ks (int, optional): Output kernel size in pixels. Defaults to PSF_KS.
-            wvln (float, optional): Wavelength in µm. When None (default), falls
-                back to `self.primary_wvln`.
-            spp (int, optional): Rays sampled. Defaults to SPP_COHERENT.
-            recenter (bool, optional): If True (default), center on the chief ray.
+        参数：
+            points (torch.Tensor)：单个归一化点光源 [3] 或 [1, 3]，其中 x、y
+                位于 [-1, 1]，z 位于 [-Inf, 0]。
+            ks (int, optional)：输出核的像素尺寸。默认值为 PSF_KS。
+            wvln (float, optional)：波长，单位为 µm。为 None（默认）时回退到
+                `self.primary_wvln`。
+            spp (int, optional)：采样光线数。默认值为 SPP_COHERENT。
+            recenter (bool, optional)：为 True（默认）时以主光线为中心。
 
-        Returns:
-            psf (torch.Tensor): PSF normalized to sum to 1. Shape [ks, ks].
+        返回：
+            psf (torch.Tensor)：总和归一化为 1 的 PSF。Shape [ks, ks]。
         """
         wvln = self.primary_wvln if wvln is None else wvln
         return self.psf_pupil_prop(points, ks=ks, wvln=wvln, spp=spp, recenter=recenter)
@@ -198,57 +194,54 @@ class GeoLensPSF:
     def psf_pupil_prop(
         self, points, ks=PSF_KS, wvln=None, spp=SPP_COHERENT, recenter=True
     ):
-        """Compute the single-point monochromatic PSF via the exit-pupil diffraction model.
+        """通过出瞳衍射模型计算单点单色 PSF。
 
-        Steps:
-            1. Compute the complex wavefront at the exit-pupil plane by coherent ray tracing.
-            2. Propagate to the sensor plane with the Angular Spectrum Method (ASM)
-               and take the intensity as the PSF. This function is differentiable.
+        步骤：
+            1. 通过相干光线追迹计算出瞳平面的复波前。
+            2. 使用角谱法 (ASM) 传播到传感器平面，并将强度作为 PSF。
+               本函数可微。
 
-        Args:
-            points (torch.Tensor or list): Single normalized point source [3] or
-                [1, 3] with x, y in [-1, 1] and z in [-Inf, 0].
-            ks (int, optional): Size of the output PSF patch in pixels. If None,
-                the full propagated intensity field is returned uncropped.
-                Defaults to PSF_KS.
-            wvln (float, optional): Wavelength in µm. When None (default), falls
-                back to `self.primary_wvln`.
-            spp (int, optional): Number of rays to sample. Defaults to SPP_COHERENT.
-            recenter (bool, optional): If True (default), center on the chief ray;
-                otherwise on the pinhole projection.
+        参数：
+            points (torch.Tensor or list)：单个归一化点光源 [3] 或 [1, 3]，
+                其中 x、y 位于 [-1, 1]，z 位于 [-Inf, 0]。
+            ks (int, optional)：输出 PSF 图块的像素尺寸。为 None 时返回未经
+                裁剪的完整传播强度场。默认值为 PSF_KS。
+            wvln (float, optional)：波长，单位为 µm。为 None（默认）时回退到
+                `self.primary_wvln`。
+            spp (int, optional)：采样光线数。默认值为 SPP_COHERENT。
+            recenter (bool, optional)：为 True（默认）时以主光线为中心，
+                否则以针孔投影为中心。
 
-        Returns:
-            psf (torch.Tensor): PSF normalized to sum to 1. Shape [ks, ks] when
-                `ks` is given, or the full uncropped intensity field of shape
-                [1, 1, 2H, 2H] (twice the exit-pupil grid after zero-padding)
-                when `ks` is None.
+        返回：
+            psf (torch.Tensor)：总和归一化为 1 的 PSF。指定 `ks` 时 shape
+                为 [ks, ks]；`ks` 为 None 时返回 shape 为 [1, 1, 2H, 2H]
+                的完整未裁剪强度场（零填充后为出瞳网格的两倍）。
 
-        Reference:
+        参考：
             [1] "End-to-End Hybrid Refractive-Diffractive Lens Design with Differentiable Ray-Wave Model", SIGGRAPH Asia 2024.
 
-        Note:
-            Similar to the ZEMAX FFT PSF, but free-space propagation uses the
-            Angular Spectrum Method (ASM) instead of a single FFT. ASM is more
-            accurate because the FFT approach assumes a far-field condition
-            (e.g., chief ray perpendicular to the image plane).
+        说明：
+            与 ZEMAX FFT PSF 类似，但自由空间传播使用角谱法 (ASM)，而非
+            单次 FFT。ASM 更精确，因为 FFT 方法假设满足远场条件
+            （例如主光线垂直于像面）。
         """
         wvln = self.primary_wvln if wvln is None else wvln
-        # Pupil field by coherent ray tracing
+        # 通过相干光线追迹计算瞳面场
         wavefront, psfc = self.pupil_field(
             points=points, wvln=wvln, spp=spp, recenter=recenter
         )
 
-        # Propagate to sensor plane and get intensity
+        # 传播到传感器平面并获得强度
         pupilz, pupilr = self.get_exit_pupil()
         h, w = wavefront.shape
-        # Manually pad wave field
+        # 手动填充波场
         wavefront = F.pad(
             wavefront.unsqueeze(0).unsqueeze(0),
             [h // 2, h // 2, w // 2, w // 2],
             mode="constant",
             value=0,
         )
-        # Free-space propagation using Angular Spectrum Method (ASM)
+        # 使用角谱法 (ASM) 进行自由空间传播
         sensor_field = AngularSpectrumMethod(
             wavefront,
             z=self.d_sensor - pupilz,
@@ -256,16 +249,16 @@ class GeoLensPSF:
             ps=self.pixel_size,
             padding=False,
         )
-        # Get intensity
+        # 获取强度
         psf_inten = sensor_field.abs() ** 2
 
-        # Calculate PSF center
+        # 计算 PSF 中心
         h, w = psf_inten.shape[-2:]
-        # consider both interplation and padding
+            # 同时考虑插值和填充
         psfc_idx_i = ((2 - psfc[1]) * h / 4).round().long()
         psfc_idx_j = ((2 + psfc[0]) * w / 4).round().long()
 
-        # Crop valid PSF region and normalize
+            # 裁剪有效 PSF 区域并归一化
         if ks is not None:
             psf_inten_pad = (
                 F.pad(
@@ -283,35 +276,33 @@ class GeoLensPSF:
         else:
             psf = psf_inten
 
-        # Intensity normalization, shape of [ks, ks] or [h, w]
+        # 强度归一化，shape 为 [ks, ks] 或 [h, w]
         psf = psf / (torch.sum(psf, dim=(-2, -1), keepdim=True) + EPSILON)
 
         return diff_float(psf)
 
     def pupil_field(self, points, wvln=None, spp=SPP_COHERENT, recenter=True):
-        """Compute the complex wavefront at the exit-pupil plane by coherent ray tracing.
+        """通过相干光线追迹计算出瞳平面的复波前。
 
-        The wavefront is xy-flipped for subsequent PSF calculation and binned at
-        the sensor pixel size onto a square `[H, H]` grid (H = sensor height in
-        pixels). This function is differentiable.
+        为后续 PSF 计算对波前进行 xy 翻转，并以传感器像素尺寸将其分箱到
+        方形 `[H, H]` 网格（H = 传感器像素高度）。本函数可微。
 
-        Args:
-            points (torch.Tensor or list): Single normalized point source [3] or
-                [1, 3] with x, y in [-1, 1] and z in [-Inf, 0].
-            wvln (float, optional): Wavelength in µm. When None (default), falls
-                back to `self.primary_wvln`.
-            spp (int, optional): Number of rays to sample. Must be at least
-                1,000,000 for accurate coherent simulation. Defaults to SPP_COHERENT.
-            recenter (bool, optional): If True (default), center on the chief ray;
-                otherwise on the pinhole projection.
+        参数：
+            points (torch.Tensor or list)：单个归一化点光源 [3] 或 [1, 3]，
+                其中 x、y 位于 [-1, 1]，z 位于 [-Inf, 0]。
+            wvln (float, optional)：波长，单位为 µm。为 None（默认）时回退到
+                `self.primary_wvln`。
+            spp (int, optional)：采样光线数。精确相干仿真至少需要
+                1,000,000 条光线。默认值为 SPP_COHERENT。
+            recenter (bool, optional)：为 True（默认）时以主光线为中心，
+                否则以针孔投影为中心。
 
-        Returns:
-            wavefront (torch.Tensor): Complex wavefront at the exit pupil, binned
-                at pixel size. Shape [H, H].
-            psf_center (list): Normalized PSF center [x, y] on the sensor in [-1, 1].
+        返回：
+            wavefront (torch.Tensor)：出瞳处按像素尺寸分箱的复波前。Shape [H, H]。
+            psf_center (list)：传感器上位于 [-1, 1] 的归一化 PSF 中心 [x, y]。
 
-        Note:
-            Default dtype must be torch.float64 for accurate phase calculation.
+        说明：
+            为准确计算相位，默认 dtype 必须为 torch.float64。
         """
         wvln = self.primary_wvln if wvln is None else wvln
         assert spp >= 1_000_000, (
@@ -339,26 +330,26 @@ class GeoLensPSF:
             "Only one point is supported for pupil field calculation."
         )
 
-        # Ray origin in the object space
+        # 物方光线原点
         scale = self.calc_scale(points[:, 2].item())
         point_obj_x = points[:, 0] * scale * sensor_w / 2
         point_obj_y = points[:, 1] * scale * sensor_h / 2
         points_obj = torch.stack([point_obj_x, point_obj_y, points[:, 2]], dim=-1)
 
-        # Ray center determined by chief ray
-        # Shape of [N, 2], un-normalized physical coordinates
+        # 由主光线确定光线中心
+        # Shape 为 [N, 2]，未归一化物理坐标
         if recenter:
             pointc = self.psf_center(points_obj, method="chief_ray")
         else:
             pointc = self.psf_center(points_obj, method="pinhole")
 
-        # Ray-tracing to exit_pupil
+        # 光线追迹到 exit_pupil
         ray = self.sample_from_points(points=points_obj, num_rays=spp, wvln=wvln)
         ray.is_coherent = True
         ray = self.trace2exit_pupil(ray)
 
-        # Calculate complex field (same physical size and resolution as the sensor)
-        # Complex field is flipped here for further PSF calculation
+        # 计算复场（物理尺寸和分辨率与传感器相同）
+        # 在此翻转复场，以便后续计算 PSF
         pointc_ref = torch.zeros_like(points[:, :2])  # [N, 2]
         wavefront = forward_integral(
             ray.flip_xy(),
@@ -368,7 +359,7 @@ class GeoLensPSF:
         )
         wavefront = wavefront.squeeze(0)  # [H, H]
 
-        # PSF center (on the sensor plane).
+        # PSF 中心（位于传感器平面）。
         pointc = pointc[0, :]
         psf_center = [
             pointc[0] / sensor_w * 2,
@@ -380,36 +371,34 @@ class GeoLensPSF:
     def psf_huygens(
         self, points, ks=PSF_KS, wvln=None, spp=SPP_COHERENT, recenter=True
     ):
-        """Compute the single-wavelength Huygens PSF by spherical-wave integration.
+        """通过球面波积分计算单波长惠更斯 PSF。
 
-        Not differentiable, due to the heavy computational cost.
+        由于计算开销很大，本函数不可微。
 
-        Steps:
-            1. Trace coherent rays to the exit-pupil plane.
-            2. Treat every ray as a secondary point source emitting a spherical
-               wave, and coherently sum these waves over the PSF pixel grid. Each
-               contribution uses the Huygens-Fresnel obliquity factor
-               $0.5 (1 + \\cos\\theta)$ and $1/r$ spherical-wave amplitude decay.
+        步骤：
+            1. 将相干光线追迹到出瞳平面。
+            2. 将每条光线视为发射球面波的次级点光源，并在 PSF 像素网格上
+               相干叠加这些波。每项贡献采用惠更斯-菲涅耳倾斜因子
+               $0.5 (1 + \\cos\\theta)$ 和 $1/r$ 球面波振幅衰减。
 
-        Args:
-            points (torch.Tensor): Single normalized point source [3] or [1, 3]
-                with x, y in [-1, 1] and z in [-Inf, 0].
-            ks (int, optional): Output kernel size in pixels. Defaults to PSF_KS.
-            wvln (float, optional): Wavelength in µm. When None (default), falls
-                back to `self.primary_wvln`.
-            spp (int, optional): Rays sampled. Defaults to SPP_COHERENT.
-            recenter (bool, optional): If True (default), center on the chief ray;
-                otherwise on the pinhole projection.
+        参数：
+            points (torch.Tensor)：单个归一化点光源 [3] 或 [1, 3]，其中 x、y
+                位于 [-1, 1]，z 位于 [-Inf, 0]。
+            ks (int, optional)：输出核的像素尺寸。默认值为 PSF_KS。
+            wvln (float, optional)：波长，单位为 µm。为 None（默认）时回退到
+                `self.primary_wvln`。
+            spp (int, optional)：采样光线数。默认值为 SPP_COHERENT。
+            recenter (bool, optional)：为 True（默认）时以主光线为中心，
+                否则以针孔投影为中心。
 
-        Returns:
-            psf (torch.Tensor): PSF normalized to sum to 1. Shape [ks, ks].
+        返回：
+            psf (torch.Tensor)：总和归一化为 1 的 PSF。Shape [ks, ks]。
 
-        Reference:
+        参考：
             [1] "Optical Aberrations Correction in Postprocessing Using Imaging Simulation", TOG 2021.
 
-        Note:
-            Different from the ZEMAX Huygens PSF, which traces rays to the image
-            plane and performs plane-wave integration.
+        说明：
+            与 ZEMAX 惠更斯 PSF 不同，后者将光线追迹到像面并进行平面波积分。
         """
         wvln = self.primary_wvln if wvln is None else wvln
         assert torch.get_default_dtype() == torch.float64, (
@@ -419,9 +408,9 @@ class GeoLensPSF:
         sensor_w, sensor_h = self.sensor_size
         pixel_size = self.pixel_size
         device = self.device
-        wvln_mm = wvln * 1e-3  # Convert wavelength to mm
+        wvln_mm = wvln * 1e-3  # 将波长转换为 mm
 
-        # Points shape of [N, 3]
+        # 点的 shape 为 [N, 3]
         if not torch.is_tensor(points):
             points = torch.tensor(points, device=device)
 
@@ -435,7 +424,7 @@ class GeoLensPSF:
                 f"Points must be of shape [3] or [1, 3], got {points.shape}."
             )
 
-        # Sample rays from object point
+        # 从物点采样光线
         depth = points[:, 2]
         scale = self.calc_scale(depth)
         point_obj_x = points[..., 0] * scale * sensor_w / 2
@@ -443,19 +432,19 @@ class GeoLensPSF:
         point_obj = torch.stack([point_obj_x, point_obj_y, points[..., 2]], dim=-1)
         ray = self.sample_from_points(points=point_obj, num_rays=spp, wvln=wvln)
 
-        # Trace rays coherently through the lens to exit pupil
+        # 将光线以相干方式穿过透镜追迹到出瞳
         ray.is_coherent = True
         ray = self.trace2exit_pupil(ray)
 
-        # Calculate PSF center (not flipped here)
+        # 计算 PSF 中心（此处不翻转）
         if recenter:
             pointc = -self.psf_center(point_obj, method="chief_ray")
         else:
             pointc = -self.psf_center(point_obj, method="pinhole")
 
-        # Build PSF pixel coordinates (sensor plane at z = d_sensor)
+        # 构建 PSF 像素坐标（传感器平面位于 z = d_sensor）
         sensor_z = self.d_sensor.item()
-        psf_half_size = (ks / 2) * pixel_size  # Physical half-size of PSF region
+        psf_half_size = (ks / 2) * pixel_size  # PSF 区域的物理半尺寸
         x_coords = torch.linspace(
             -psf_half_size + pixel_size / 2,
             psf_half_size - pixel_size / 2,
@@ -470,65 +459,65 @@ class GeoLensPSF:
         )
         psf_x, psf_y = torch.meshgrid(
             pointc[0, 0] + x_coords, pointc[0, 1] + y_coords, indexing="xy"
-        )  # [ks, ks] each
+        )  # 各为 [ks, ks]
 
-        # Get valid rays only
+        # 仅保留有效光线
         valid_mask = ray.is_valid > 0
         valid_pos = ray.o[valid_mask]  # [num_valid, 3]
         valid_dir = ray.d[valid_mask]  # [num_valid, 3]
         valid_opl = ray.opl[valid_mask]  # [num_valid]
         num_valid = valid_pos.shape[0]
 
-        # Huygens integration: sum spherical waves from each secondary source
+        # 惠更斯积分：叠加各次级光源发出的球面波
         psf_complex = torch.zeros(ks, ks, dtype=torch.complex128, device=device)
         opl_min = valid_opl.min()
 
-        # Compute distance from each secondary source to each pixel
-        batch_size = min(num_valid, 10_000)  # Process rays in batches
+        # 计算各次级光源到各像素的距离
+        batch_size = min(num_valid, 10_000)  # 分批处理光线
         for batch_start in range(0, num_valid, batch_size):
             batch_end = min(batch_start + batch_size, num_valid)
 
-            # Batch ray data
+            # 当前批次的光线数据
             batch_pos = valid_pos[batch_start:batch_end]  # [batch, 3]
             batch_dir = valid_dir[batch_start:batch_end]  # [batch, 3]
             batch_opl = valid_opl[batch_start:batch_end].squeeze(-1)  # [batch]
 
-            # Distance from each secondary source to each pixel
+            # 各次级光源到各像素的距离
             # batch_pos: [batch, 3], psf_x: [ks, ks]
             dx = psf_x.unsqueeze(-1) - batch_pos[:, 0]  # [ks, ks, batch]
             dy = psf_y.unsqueeze(-1) - batch_pos[:, 1]  # [ks, ks, batch]
             dz = sensor_z - batch_pos[:, 2]  # [batch]
 
-            # Distance r from secondary source to pixel
+            # 次级光源到像素的距离 r
             r = torch.sqrt(dx**2 + dy**2 + dz**2)  # [ks, ks, batch]
 
-            # Obliquity factor: cos(theta) where theta is angle from normal
-            # Using ray direction at exit pupil (dz component)
+            # 倾斜因子：cos(theta)，其中 theta 为相对于法线的夹角
+            # 使用出瞳处光线方向的 dz 分量
             obliq = torch.abs(batch_dir[:, 2])  # [batch]
-            amp = 0.5 * (1.0 + obliq)  # Huygens–Fresnel obliquity factor
+            amp = 0.5 * (1.0 + obliq)  # 惠更斯-菲涅耳倾斜因子
 
-            # Total optical path = OPL through lens + distance to pixel
+            # 总光程 = 穿过透镜的 OPL + 到像素的距离
             total_opl = batch_opl + r  # [ks, ks, batch]
 
-            # Phase relative to reference
+            # 相对于参考的相位
             phase = torch.fmod((total_opl - opl_min) / wvln_mm, 1.0) * (
                 2 * torch.pi
             )  # [ks, ks, batch]
 
-            # Complex amplitude: A * exp(i * phase) / r (spherical wave decay)
-            # We use 1/r for spherical wave amplitude decay
+            # 复振幅：A * exp(i * phase) / r（球面波衰减）
+            # 球面波振幅采用 1/r 衰减
             complex_amp = (amp / r) * torch.exp(1j * phase)  # [ks, ks, batch]
 
-            # Sum contributions from this batch
+            # 累加当前批次的贡献
             psf_complex += complex_amp.sum(dim=-1)  # [ks, ks]
 
-        # Convert complex field to intensity
+        # 将复场转换为强度
         psf = psf_complex.abs() ** 2
 
-        # Intensity normalization
+        # 强度归一化
         psf = psf / (torch.sum(psf, dim=(-2, -1), keepdim=True) + EPSILON)
 
-        # Flip PSF
+        # 翻转 PSF
         psf = torch.flip(psf, [-2, -1])
 
         if single_point:
@@ -545,24 +534,23 @@ class GeoLensPSF:
         wvln=None,
         recenter=True,
     ):
-        """Compute the geometric PSF map across the field of view at a given depth.
+        """计算给定深度处整个视场的几何 PSF 图。
 
-        Overrides the base `Lens` method to improve efficiency by tracing all
-        field points in parallel.
+        覆盖基类 `Lens` 的方法，通过并行追迹所有视场点提高效率。
 
-        Args:
-            depth (float, optional): Object plane depth [mm]. When None (default),
-                falls back to `self.obj_depth`.
-            grid (int or tuple, optional): Grid size (grid_w, grid_h); an int is
-                broadcast to a square grid. Defaults to (7, 7).
-            ks (int, optional): Output kernel size in pixels. Defaults to PSF_KS.
-            spp (int, optional): Rays sampled per source. Defaults to SPP_PSF.
-            wvln (float, optional): Wavelength in µm. When None (default), falls
-                back to `self.primary_wvln`.
-            recenter (bool, optional): If True (default), center on the chief ray.
+        参数：
+            depth (float, optional)：物面深度 [mm]。为 None（默认）时回退到
+                `self.obj_depth`。
+            grid (int or tuple, optional)：网格尺寸 (grid_w, grid_h)；int 会扩展
+                为方形网格。默认值为 (7, 7)。
+            ks (int, optional)：输出核的像素尺寸。默认值为 PSF_KS。
+            spp (int, optional)：每个光源的采样光线数。默认值为 SPP_PSF。
+            wvln (float, optional)：波长，单位为 µm。为 None（默认）时回退到
+                `self.primary_wvln`。
+            recenter (bool, optional)：为 True（默认）时以主光线为中心。
 
-        Returns:
-            psf_map (torch.Tensor): PSF map. Shape [grid_h, grid_w, 1, ks, ks].
+        返回：
+            psf_map (torch.Tensor)：PSF 图。Shape [grid_h, grid_w, 1, ks, ks]。
         """
         wvln = self.primary_wvln if wvln is None else wvln
         depth = self.obj_depth if depth is None else depth
@@ -579,39 +567,37 @@ class GeoLensPSF:
 
     @torch.no_grad()
     def psf_center(self, points_obj, method="chief_ray"):
-        """Compute the reference PSF center on the sensor for a given point source.
+        """计算给定点光源在传感器上的参考 PSF 中心。
 
-        With method "chief_ray" it traces a half-aperture ray bundle and takes
-        the negated sensor centroid (falling back to "pinhole" if no ray is
-        valid); with "pinhole" it uses an ideal perspective projection (no
-        distortion). Both methods return a center whose sign matches the
-        original object point.
+        方法为 "chief_ray" 时追迹半孔径光束并取传感器质心的相反数
+        （无有效光线时回退到 "pinhole"）；方法为 "pinhole" 时采用无畸变的
+        理想透视投影。两种方法返回的中心符号均与原始物点一致。
 
-        Args:
-            points_obj (torch.Tensor): Un-normalized object-plane point(s), shape
-                [..., 3] [mm], spanning [-Inf, Inf] x [-Inf, Inf] x [-Inf, 0].
-            method (str, optional): "chief_ray" or "pinhole". Defaults to "chief_ray".
+        参数：
+            points_obj (torch.Tensor)：未归一化物面点，shape [..., 3] [mm]，
+                范围为 [-Inf, Inf] x [-Inf, Inf] x [-Inf, 0]。
+            method (str, optional)："chief_ray" 或 "pinhole"。默认值为 "chief_ray"。
 
-        Returns:
-            psf_center (torch.Tensor): Un-normalized PSF center on the sensor
-                plane [mm], shape [..., 2].
+        返回：
+            psf_center (torch.Tensor)：传感器平面上的未归一化 PSF 中心 [mm]，
+                shape [..., 2]。
 
-        Raises:
-            ValueError: If `method` is neither "chief_ray" nor "pinhole".
+        异常：
+            ValueError：`method` 既不是 "chief_ray" 也不是 "pinhole" 时抛出。
         """
         if method == "chief_ray":
-            # Shrink the pupil and calculate centroid ray as the chief ray
+        # 缩小瞳孔，并将质心光线作为主光线
             ray = self.sample_from_points(points_obj, scale_pupil=0.5, num_rays=SPP_CALC)
             ray = self.trace2sensor(ray)
             if ray.is_valid.any():
                 psf_center = ray.centroid()
                 psf_center = -psf_center[..., :2]  # shape [..., 2]
             else:
-                # Fallback to pinhole when chief ray fails (can happen during optimization)
+            # 主光线失败时回退到针孔模型（优化期间可能发生）
                 return self.psf_center(points_obj, method="pinhole")
 
         elif method == "pinhole":
-            # Pinhole camera perspective projection, distortion not considered
+            # 针孔相机透视投影，不考虑畸变
             if points_obj[..., 2].min().abs() < 100:
                 print(
                     "Point source is too close, pinhole model may be inaccurate for PSF center calculation."

@@ -1,23 +1,20 @@
-"""Mirror surface."""
+"""反射镜表面。"""
 
 from .base import Surface
 from .plane import Plane
 
 
 class Mirror(Plane):
-    """Planar mirror surface.
+    """平面反射镜表面。
 
-    A flat surface that reflects incident rays via specular reflection rather
-    than refracting them, so the medium is unchanged and `mat2` defaults to
-    `"air"`. Inherits the planar geometry from `Plane` but defaults to a square
-    aperture.
+    平坦表面通过镜面反射而非折射来改变入射光线方向，因此介质不变，`mat2`
+    默认值为 `"air"`。继承 `Plane` 的平面几何结构，但默认使用方形孔径。
 
-    Attributes:
-        r (float): Aperture radius [mm]. For a square aperture this is the
-            circumscribed-circle radius (half-diagonal).
-        d (torch.Tensor): Axial position of the mirror vertex [mm].
-        mat2 (Material): Material on the far side of the mirror.
-        is_square (bool): Whether the aperture is square.
+    属性：
+        r (float): 孔径半径 [mm]。对于方形孔径，该值为外接圆半径（半对角线）。
+        d (torch.Tensor): 反射镜顶点的轴向位置 [mm]。
+        mat2 (Material): 反射镜远侧的材料。
+        is_square (bool): 孔径是否为方形。
     """
 
     def __init__(
@@ -30,21 +27,19 @@ class Mirror(Plane):
         is_square=True,
         device="cpu",
     ):
-        """Initialize a planar mirror surface.
+        """初始化平面反射镜表面。
 
-        Args:
-            r (float): Aperture radius [mm]. For a square aperture this is the
-                circumscribed-circle radius (half-diagonal), so the side length
-                is r * sqrt(2).
-            d (float): Axial position of the mirror vertex [mm].
-            mat2 (str or Material, optional): Material on the far side of the
-                mirror. Defaults to "air".
-            pos_xy (list[float], optional): Lateral offset [x, y] [mm].
-                Defaults to [0.0, 0.0].
-            vec_local (list[float], optional): Local surface normal direction.
-                Defaults to [0.0, 0.0, 1.0] (on-axis).
-            is_square (bool, optional): Use a square aperture. Defaults to True.
-            device (str, optional): Compute device. Defaults to "cpu".
+        参数：
+            r (float): 孔径半径 [mm]。对于方形孔径，该值为外接圆半径
+                （半对角线），因此边长为 r * sqrt(2)。
+            d (float): 反射镜顶点的轴向位置 [mm]。
+            mat2 (str or Material, optional): 反射镜远侧的材料。默认值为 "air"。
+            pos_xy (list[float], optional): 横向偏移 [x, y] [mm]。
+                默认值为 [0.0, 0.0]。
+            vec_local (list[float], optional): 局部表面法线方向。
+                默认值为 [0.0, 0.0, 1.0]（轴上）。
+            is_square (bool, optional): 使用方形孔径。默认值为 True。
+            device (str, optional): 计算设备。默认值为 "cpu"。
         """
         Surface.__init__(
             self,
@@ -59,34 +54,31 @@ class Mirror(Plane):
 
     @classmethod
     def init_from_dict(cls, surf_dict):
-        """Construct a `Mirror` from a surface-parameter dict.
+        """从表面参数字典构造 `Mirror`。
 
-        Args:
-            surf_dict (dict): Surface parameters; reads keys "r", "d", and
-                "mat2".
+        参数：
+            surf_dict (dict): 表面参数；读取键 "r"、"d" 和 "mat2"。
 
-        Returns:
-            mirror (Mirror): The constructed mirror surface.
+        返回：
+            mirror (Mirror): 构造得到的反射镜表面。
         """
         return cls(surf_dict["r"], surf_dict["d"], surf_dict["mat2"])
 
     def ray_reaction(self, ray, n1=None, n2=None):
-        """Compute the output ray after intersection and reflection.
+        """计算求交和反射后的输出光线。
 
-        Transforms the ray to the local mirror frame, solves the ray-plane
-        intersection, applies specular reflection, then transforms back to
-        global coordinates.
+        将光线变换到反射镜局部坐标系，求解光线与平面的交点，施加镜面反射，
+        再变换回全局坐标系。
 
-        Args:
-            ray (Ray): Incident ray bundle.
-            n1 (float, optional): Incident-medium index, accepted only for API
-                compatibility with the base surface interface and unused.
-                Defaults to None.
-            n2 (float, optional): Transmission-medium index, accepted only for
-                API compatibility and unused. Defaults to None.
+        参数：
+            ray (Ray): 入射光线束。
+            n1 (float, optional): 入射介质折射率，仅为兼容基础表面 API 而接收，
+                未使用。默认值为 None。
+            n2 (float, optional): 透射介质折射率，仅为兼容 API 而接收，
+                未使用。默认值为 None。
 
-        Returns:
-            ray (Ray): Updated ray bundle after reflection.
+        返回：
+            ray (Ray): 反射后更新的光线束。
         """
         ray = self.to_local_coord(ray)
         ray = self.intersect(ray)
@@ -95,15 +87,14 @@ class Mirror(Plane):
         return ray
 
     # =========================================
-    # IO
+    # 输入输出
     # =========================================
     def surf_dict(self):
-        """Return mirror parameters as a serializable dict.
+        """以可序列化字典形式返回反射镜参数。
 
-        Returns:
-            surf_dict (dict): Parameters with keys "type", "r", "d" (rounded to
-                4 decimals), "mat2" (material name), and informational
-                "(mat2_n)"/"(mat2_V)".
+        返回：
+            surf_dict (dict): 包含 "type"、"r"、保留 4 位小数的 "d"、
+                材料名称 "mat2"，以及信息项 "(mat2_n)"/"(mat2_V)" 的参数。
         """
         surf_dict = {
             "type": self.__class__.__name__,

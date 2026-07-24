@@ -1,5 +1,5 @@
 """
-Tests for deeplens/optics/imgsim/monte_carlo.py - Monte Carlo ray integration.
+deeplens/optics/imgsim/monte_carlo.py 测试——Monte Carlo 光线积分。
 """
 
 import pytest
@@ -10,15 +10,15 @@ from deeplens.light import Ray
 
 
 class TestForwardIntegral:
-    """Test forward Monte Carlo integration for PSF."""
+    """测试用于 PSF 的前向 Monte Carlo 积分。"""
 
     def test_forward_integral_shape(self, device_auto):
-        """Output should have correct shape."""
-        # Create rays at the sensor plane
+        """输出应具有正确 shape。"""
+        # 在传感器平面创建光线
         n_rays = 1024
         o = torch.zeros(n_rays, 3, device=device_auto)
-        o[:, 2] = 10.0  # At sensor z=10
-        # Spread rays in x-y
+        o[:, 2] = 10.0  # 位于传感器 z=10 处
+        # 在 x-y 平面展开光线
         o[:, 0] = torch.randn(n_rays, device=device_auto) * 0.1
         o[:, 1] = torch.randn(n_rays, device=device_auto) * 0.1
         
@@ -28,13 +28,13 @@ class TestForwardIntegral:
         ray = Ray(o, d, wvln=0.55, device=device_auto)
         
         ks = 31
-        ps = 0.01  # pixel size
+        ps = 0.01  # 像素尺寸
         field = forward_integral(ray, ps=ps, ks=ks)
         
         assert field.shape == (ks, ks)
 
     def test_forward_integral_normalized(self, device_auto):
-        """Integrated PSF should sum to approximately valid ray count."""
+        """积分后的 PSF 之和应约等于有效光线数量。"""
         n_rays = 4096
         o = torch.zeros(n_rays, 3, device=device_auto)
         o[:, 2] = 10.0
@@ -50,16 +50,16 @@ class TestForwardIntegral:
         ps = 0.01
         field = forward_integral(ray, ps=ps, ks=ks)
         
-        # Sum should be approximately n_rays (number of valid rays)
+        # 总和应约为 n_rays（有效光线数量）
         valid_count = ray.is_valid.sum().item()
         assert field.sum().item() == pytest.approx(valid_count, rel=0.2)
 
     def test_forward_integral_with_center(self, device_auto):
-        """Should use provided reference center."""
+        """应使用提供的参考中心。"""
         n_rays = 1024
         o = torch.zeros(n_rays, 3, device=device_auto)
         o[:, 2] = 10.0
-        o[:, 0] = torch.randn(n_rays, device=device_auto) * 0.05 + 0.5  # Offset center
+        o[:, 0] = torch.randn(n_rays, device=device_auto) * 0.05 + 0.5  # 偏移中心
         o[:, 1] = torch.randn(n_rays, device=device_auto) * 0.05
         
         d = torch.zeros(n_rays, 3, device=device_auto)
@@ -73,14 +73,14 @@ class TestForwardIntegral:
         
         field = forward_integral(ray, ps=ps, ks=ks, pointc=pointc)
         
-        # Peak should be near center of kernel
+        # 峰值应位于核中心附近
         center = ks // 2
         peak_y, peak_x = torch.where(field == field.max())
         assert abs(peak_x[0].item() - center) <= 5
         assert abs(peak_y[0].item() - center) <= 5
 
     def test_forward_integral_batch(self, device_auto):
-        """Should handle batched rays."""
+        """应能处理批量光线。"""
         batch_size = 4
         n_rays = 512
         
@@ -102,14 +102,14 @@ class TestForwardIntegral:
 
 
 class TestAssignPointsToPixels:
-    """Test point-to-pixel assignment."""
+    """测试点到像素的分配。"""
 
     def test_assign_points_basic(self, device_auto):
-        """Should assign points to correct pixels."""
-        # Points at known locations
+        """应将点分配到正确像素。"""
+        # 位于已知位置的点
         points = torch.tensor([
-            [0.0, 0.0],  # Center
-            [0.5, 0.0],  # Right of center
+            [0.0, 0.0],  # 中心
+            [0.5, 0.0],  # 中心右侧
         ], device=device_auto)
         mask = torch.ones(2, device=device_auto)
         
@@ -127,13 +127,13 @@ class TestAssignPointsToPixels:
         assert field.sum() > 0
 
     def test_assign_points_with_mask(self, device_auto):
-        """Should respect validity mask."""
+        """应遵循有效性掩码。"""
         points = torch.tensor([
             [0.0, 0.0],
             [0.1, 0.0],
             [0.2, 0.0],
         ], device=device_auto)
-        mask = torch.tensor([1.0, 0.0, 1.0], device=device_auto)  # Middle point invalid
+        mask = torch.tensor([1.0, 0.0, 1.0], device=device_auto)  # 中间点无效
         
         ks = 11
         x_range = (-0.55, 0.55)
@@ -145,12 +145,12 @@ class TestAssignPointsToPixels:
             value=value, interpolate=False,
         )
         
-        # Only 2 valid points should contribute
+        # 只有 2 个有效点应产生贡献
         assert field.sum().item() == pytest.approx(2.0, abs=0.1)
 
     def test_assign_points_interpolate(self, device_auto):
-        """Interpolation should spread point across nearby pixels."""
-        # Point between pixel centers
+        """插值应将点扩散到附近像素。"""
+        # 位于像素中心之间的点
         points = torch.tensor([[0.025, 0.025]], device=device_auto)
         mask = torch.ones(1, device=device_auto)
         
@@ -164,12 +164,12 @@ class TestAssignPointsToPixels:
             value=value, interpolate=True,
         )
         
-        # With interpolation, multiple pixels should have non-zero values
+        # 使用插值后，多个像素应具有非零值
         nonzero_count = (field > 0).sum().item()
         assert nonzero_count >= 1
 
     def test_assign_points_complex_value(self, device_auto):
-        """Should handle complex amplitude values."""
+        """应能处理复振幅值。"""
         points = torch.tensor([[0.0, 0.0]], device=device_auto)
         mask = torch.ones(1, device=device_auto)
         
@@ -177,7 +177,7 @@ class TestAssignPointsToPixels:
         x_range = (-0.1, 0.1)
         y_range = (-0.1, 0.1)
         
-        # Complex amplitude value
+        # 复振幅值
         value = torch.ones(1, device=device_auto, dtype=torch.complex64)
         
         field = assign_points_to_pixels(
@@ -185,15 +185,15 @@ class TestAssignPointsToPixels:
             value=value, interpolate=False,
         )
         
-        # Output should be complex when input value is complex
+        # 输入值为复数时，输出也应为复数
         assert field.dtype == torch.complex64 or field.dtype == torch.complex128
 
 
 class TestForwardIntegralCoherent:
-    """Test coherent forward integration."""
+    """测试相干前向积分。"""
 
     def test_forward_integral_coherent(self, device_auto):
-        """Coherent integration should return complex field."""
+        """相干积分应返回复光场。"""
         n_rays = 512
         o = torch.zeros(n_rays, 3, device=device_auto, dtype=torch.float64)
         o[:, 2] = 10.0
@@ -210,15 +210,15 @@ class TestForwardIntegralCoherent:
         ps = 0.01
         field = forward_integral(ray, ps=ps, ks=ks)
         
-        # Coherent field should be complex
+        # 相干光场应为复数
         assert field.is_complex()
 
 
 class TestForwardIntegralGPU:
-    """Test forward integration on GPU."""
+    """测试 GPU 上的前向积分。"""
 
     def test_forward_integral_gpu(self, device_auto):
-        """Forward integral should work on GPU."""
+        """前向积分应能在 GPU 上运行。"""
         n_rays = 1024
         o = torch.zeros(n_rays, 3, device=device_auto)
         o[:, 2] = 10.0
@@ -237,7 +237,7 @@ class TestForwardIntegralGPU:
         assert field.device.type == device_auto.type
 
     def test_forward_integral_large_batch_gpu(self, device_auto):
-        """Should handle large batches on GPU."""
+        """应能在 GPU 上处理大批量数据。"""
         batch_size = 16
         n_rays = 2048
         

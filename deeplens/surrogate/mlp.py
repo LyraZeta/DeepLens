@@ -4,17 +4,16 @@ import torch.nn.functional as F
 
 
 class MLP(nn.Module):
-    """Fully-connected network for low-frequency PSF prediction.
+    """用于低频 PSF 预测的全连接网络。
 
-    Predicts PSFs as flattened vectors using stacked linear layers with ReLU
-    activations and a Sigmoid output. The output is L1-normalized so it sums to 1
-    (valid as a PSF energy distribution).
+    使用堆叠线性层、ReLU 激活和 Sigmoid 输出，将 PSF 预测为展平向量。
+    输出经过 L1 归一化，使其总和为 1，从而构成有效的 PSF 能量分布。
 
-    Args:
-        in_features (int): Number of input features (e.g., field angle + wavelength).
-        out_features (int): Number of output features (flattened PSF size).
-        hidden_features (int): Width of hidden layers. Defaults to 64.
-        hidden_layers (int): Number of hidden layers. Defaults to 3.
+    参数：
+        in_features (int): 输入特征数，例如视场角与波长。
+        out_features (int): 输出特征数，即展平后的 PSF 大小。
+        hidden_features (int): 隐藏层宽度，默认为 64。
+        hidden_layers (int): 隐藏层数量，默认为 3。
     """
 
     def __init__(self, in_features, out_features, hidden_features=64, hidden_layers=3):
@@ -42,14 +41,14 @@ class MLP(nn.Module):
         self.net = nn.Sequential(*layers)
 
     def forward(self, x):
-        """Forward pass.
+        """执行前向传播。
 
-        Args:
-            x (torch.Tensor): Input tensor of shape `(batch_size, in_features)`.
+        参数：
+            x (torch.Tensor): 形状为 `(batch_size, in_features)` 的输入张量。
 
-        Returns:
-            x (torch.Tensor): L1-normalized output tensor of shape
-                `(batch_size, out_features)`, summing to 1 along the last dim.
+        返回：
+            x (torch.Tensor): 形状为 `(batch_size, out_features)` 的 L1
+                归一化输出张量，沿最后一维求和为 1。
         """
         x = self.net(x)
         x = F.normalize(x, p=1, dim=-1)
@@ -57,7 +56,7 @@ class MLP(nn.Module):
 
 
 if __name__ == "__main__":
-    # Test the network
+    # 测试网络
     mlp = MLP(4, 64, hidden_features=64, hidden_layers=3)
     print(mlp)
     x = torch.rand(100, 4)

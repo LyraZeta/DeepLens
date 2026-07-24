@@ -1,22 +1,19 @@
-"""DeepLens - differentiable optical lens simulator."""
+"""DeepLens——可微光学镜头仿真器。"""
 
 import torch
 
 
 def init_device():
-    """Initialize and return the default compute device (CUDA or CPU).
+    """初始化并返回默认计算设备（CUDA 或 CPU）。
 
-    Returns `cuda` when a GPU is available, otherwise `cpu`. MPS (Apple Silicon)
-    is intentionally NOT auto-selected: DeepLens relies on float64 for wave
-    propagation / coherent ray tracing, and the MPS backend does not support
-    float64 (`Cannot convert a MPS Tensor to float64`), so auto-selecting it
-    crashes every double-precision workflow. Apple Silicon therefore falls back
-    to CPU. A user who only needs the float32 geometric path on MPS can still
-    pass `device="mps"` explicitly.
+    GPU 可用时返回 `cuda`，否则返回 `cpu`。有意不自动选择 MPS（Apple Silicon）：
+    DeepLens 的波传播/相干光线追迹依赖 float64，而 MPS 后端不支持 float64
+    （`Cannot convert a MPS Tensor to float64`），因此自动选择 MPS 会导致所有
+    双精度工作流崩溃。Apple Silicon 因而回退到 CPU。仅需在 MPS 上运行
+    float32 几何路径的用户仍可显式传入 `device="mps"`。
 
-    Returns:
-        device (torch.device): The selected compute device, `cuda` if a GPU is
-            available else `cpu`.
+    返回：
+        device (torch.device): 所选计算设备；GPU 可用时为 `cuda`，否则为 `cpu`。
     """
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -51,7 +48,7 @@ from .light import (
     ScalableASM,
 )
 
-# Lens classes
+# 镜头类
 from .lens import Lens
 from .geolens import GeoLens
 from .hybridlens import HybridLens
@@ -59,10 +56,10 @@ from .diffraclens import DiffractiveLens
 from .defocuslens import DefocusLens
 from .psfnetlens import PSFNetLens
 
-# geolens extras
+# geolens 扩展
 from .geolens_pkg import *
 
-# utilities
+# 实用工具
 from .utils import *
 
 __all__ = [

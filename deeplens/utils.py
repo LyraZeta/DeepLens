@@ -11,27 +11,26 @@ import torch.nn.functional as F
 
 
 # ==================================
-# Image IO
+# 图像输入输出
 # ==================================
 def img2batch(img):
-    """Convert an image of any supported type to a normalized tensor batch.
+    """将任意受支持类型的图像转换为归一化张量批次。
 
-    Accepts a numpy array or torch tensor in (H, W), (H, W, C), or (C, H, W)
-    layout and returns a float32 batch in [0, 1]. uint8 inputs are scaled by
-    1/255; float32 inputs are passed through unchanged.
+    接受布局为 (H, W)、(H, W, C) 或 (C, H, W) 的 numpy 数组或 torch 张量，
+    并返回 [0, 1] 范围内的 float32 批次。uint8 输入会缩放 1/255；float32
+    输入保持不变。
 
-    Args:
-        img (numpy.ndarray or torch.Tensor): Input image of shape (H, W),
-            (H, W, C), or (C, H, W), with 1 or 3 channels.
+    参数：
+        img (numpy.ndarray or torch.Tensor): 输入图像，shape 为 (H, W)、
+            (H, W, C) 或 (C, H, W)，具有 1 或 3 个通道。
 
-    Returns:
-        img (torch.Tensor): Batched float32 image of shape (1, C, H, W).
+    返回：
+        img (torch.Tensor): 批处理后的 float32 图像，shape 为 (1, C, H, W)。
 
-    Raises:
-        ValueError: If the channel count or dtype is unsupported, or a 2D
-            input is not a numpy array.
+    异常：
+        ValueError: 当通道数或 dtype 不受支持，或二维输入不是 numpy 数组时抛出。
     """
-    # Tensor shape
+    # 张量 shape
     if len(img.shape) == 2:
         if isinstance(img, np.ndarray):
             img = torch.tensor(img).unsqueeze(0).unsqueeze(0)  # (H, W) -> (1, 1, H, W)
@@ -46,17 +45,17 @@ def img2batch(img):
             )  # (H, W, C) -> (1, C, H, W)
         elif torch.is_tensor(img):
             if img.shape[0] in [1, 3]:
-                # Assume (C, H, W) -> (1, C, H, W)
+                # 假定为 (C, H, W) -> (1, C, H, W)
                 img = img.unsqueeze(0)
             elif img.shape[-1] in [1, 3]:
-                # Assume (H, W, C) -> (1, C, H, W)
+                # 假定为 (H, W, C) -> (1, C, H, W)
                 img = img.permute(2, 0, 1).unsqueeze(0)
             else:
                  raise ValueError("Image channel should be 1 or 3.")
         else:
             raise ValueError("Image should be numpy array or torch tensor.")
 
-    # Tensor dtype
+    # 张量 dtype
     if img.dtype == torch.uint8:
         img = img.to(torch.float32) / 255.0
     elif img.dtype == torch.float32:
@@ -68,17 +67,17 @@ def img2batch(img):
 
 
 # ==================================
-# Image batch quality evaluation
+# 图像批次质量评估
 # ==================================
 def batch_PSNR(img_clean, img):
-    """Compute the mean PSNR over an image batch using skimage.
+    """使用 skimage 计算图像批次的平均 PSNR。
 
-    Args:
-        img_clean (torch.Tensor): Reference images in [0, 1], shape (B, C, H, W).
-        img (torch.Tensor): Test images in [0, 1], shape (B, C, H, W).
+    参数：
+        img_clean (torch.Tensor): [0, 1] 范围内的参考图像，shape 为 (B, C, H, W)。
+        img (torch.Tensor): [0, 1] 范围内的测试图像，shape 为 (B, C, H, W)。
 
-    Returns:
-        psnr (float): Mean PSNR [dB] across the batch, rounded to 4 decimals.
+    返回：
+        psnr (float): 整个批次的平均 PSNR [dB]，四舍五入到 4 位小数。
     """
     Img = img.mul(255).add_(0.5).clamp_(0, 255).to("cpu", torch.uint8).numpy()
     Img_clean = (
@@ -92,61 +91,59 @@ def batch_PSNR(img_clean, img):
 
 
 def batch_psnr(pred, target, max_val=1.0, eps=1e-8):
-    """Compute the per-image PSNR between two image batches (differentiable).
+    """计算两个图像批次中每幅图像的 PSNR（可微）。
 
-    Args:
-        pred (torch.Tensor): Predicted images, shape (B, C, H, W).
-        target (torch.Tensor): Target images, shape (B, C, H, W).
-        max_val (float, optional): Maximum pixel value (1.0 for normalized
-            images, 255 for uint8). Defaults to 1.0.
-        eps (float, optional): Small constant added to the MSE to avoid
-            log(0). Defaults to 1e-8.
+    参数：
+        pred (torch.Tensor): 预测图像，shape 为 (B, C, H, W)。
+        target (torch.Tensor): 目标图像，shape 为 (B, C, H, W)。
+        max_val (float, optional): 最大像素值（归一化图像为 1.0，uint8 为 255）。
+            默认为 1.0。
+        eps (float, optional): 加到 MSE 上以避免 log(0) 的小常数。默认为 1e-8。
 
-    Returns:
-        psnr (torch.Tensor): Per-image PSNR [dB], shape (B,).
+    返回：
+        psnr (torch.Tensor): 每幅图像的 PSNR [dB]，shape 为 (B,)。
 
-    Reference:
+    参考：
         https://en.wikipedia.org/wiki/Peak_signal-to-noise_ratio
     """
     assert pred.shape == target.shape, f"Shape mismatch: {pred.shape} vs {target.shape}"
 
-    # Calculate MSE along spatial and channel dimensions
-    mse = torch.mean((pred - target) ** 2, dim=[1, 2, 3])  # Shape: [B]
+    # 沿空间维度和通道维度计算 MSE
+    mse = torch.mean((pred - target) ** 2, dim=[1, 2, 3])  # shape: [B]
 
-    # Calculate PSNR
+    # 计算 PSNR
     psnr = 20 * torch.log10(max_val / torch.sqrt(mse + eps))
 
     return psnr
 
 
 def batch_SSIM(img, img_clean):
-    """Compute the mean SSIM over an image batch (alias of `batch_ssim`).
+    """计算图像批次的平均 SSIM（`batch_ssim` 的别名）。
 
-    Args:
-        img (torch.Tensor): Test images in [0, 1], shape (B, C, H, W).
-        img_clean (torch.Tensor): Reference images in [0, 1], shape (B, C, H, W).
+    参数：
+        img (torch.Tensor): [0, 1] 范围内的测试图像，shape 为 (B, C, H, W)。
+        img_clean (torch.Tensor): [0, 1] 范围内的参考图像，shape 为 (B, C, H, W)。
 
-    Returns:
-        ssim (float): Mean SSIM across the batch, rounded to 4 decimals.
+    返回：
+        ssim (float): 整个批次的平均 SSIM，四舍五入到 4 位小数。
     """
     return batch_ssim(img, img_clean)
 
 
 def batch_ssim(img, img_clean):
-    """Compute the mean SSIM over an image batch using skimage.
+    """使用 skimage 计算图像批次的平均 SSIM。
 
-    Images are converted to uint8 in [0, 255] before scoring. Multi-channel
-    images are scored with `channel_axis=0`; single-channel images are scored
-    per 2D plane.
+    评分前将图像转换为 [0, 255] 范围内的 uint8。多通道图像使用
+    `channel_axis=0` 评分；单通道图像按二维平面评分。
 
-    Args:
-        img (torch.Tensor): Test images in [0, 1], shape (B, C, H, W).
-        img_clean (torch.Tensor): Reference images in [0, 1], shape (B, C, H, W).
+    参数：
+        img (torch.Tensor): [0, 1] 范围内的测试图像，shape 为 (B, C, H, W)。
+        img_clean (torch.Tensor): [0, 1] 范围内的参考图像，shape 为 (B, C, H, W)。
 
-    Returns:
-        ssim (float): Mean SSIM across the batch, rounded to 4 decimals.
+    返回：
+        ssim (float): 整个批次的平均 SSIM，四舍五入到 4 位小数。
     """
-    # Convert to numpy arrays in range [0, 255]
+    # 转换为 [0, 255] 范围内的 numpy 数组
     Img = img.mul(255).add_(0.5).clamp_(0, 255).to("cpu", torch.uint8).numpy()
     Img_clean = (
         img_clean.mul(255).add_(0.5).clamp_(0, 255).to("cpu", torch.uint8).numpy()
@@ -155,29 +152,28 @@ def batch_ssim(img, img_clean):
     from skimage.metrics import structural_similarity
     SSIM = 0.0
     for i in range(Img.shape[0]):
-        # Auto detect if multichannel based on number of dimensions
-        if Img.shape[1] > 1:  # Multiple channels
+        # 根据维数自动检测是否为多通道图像
+        if Img.shape[1] > 1:  # 多通道
             SSIM += structural_similarity(
                 Img_clean[i, ...], Img[i, ...], channel_axis=0
             )
-        else:  # Single channel
+        else:  # 单通道
             SSIM += structural_similarity(Img_clean[i, 0, ...], Img[i, 0, ...])
 
     return round(SSIM / Img.shape[0], 4)
 
 
 def batch_LPIPS(img, img_clean):
-    """Compute the mean LPIPS perceptual distance over an image batch.
+    """计算图像批次的平均 LPIPS 感知距离。
 
-    Uses the VGG backbone with spatial maps; the returned value is the mean
-    of the spatial distance map over the whole batch.
+    使用带空间图的 VGG 主干网络；返回值为整个批次空间距离图的平均值。
 
-    Args:
-        img (torch.Tensor): Test images, shape (B, C, H, W).
-        img_clean (torch.Tensor): Reference images, shape (B, C, H, W).
+    参数：
+        img (torch.Tensor): 测试图像，shape 为 (B, C, H, W)。
+        img_clean (torch.Tensor): 参考图像，shape 为 (B, C, H, W)。
 
-    Returns:
-        lpips (float): Mean LPIPS distance across the batch (lower is better).
+    返回：
+        lpips (float): 整个批次的平均 LPIPS 距离（越低越好）。
     """
     device = img.device
     loss_fn = lpips.LPIPS(net="vgg", spatial=True)
@@ -187,16 +183,16 @@ def batch_LPIPS(img, img_clean):
 
 
 # ==================================
-# Image batch normalization
+# 图像批次归一化
 # ==================================
 def normalize_ImageNet(batch):
-    """Normalize an RGB image batch by the ImageNet mean and std.
+    """使用 ImageNet 均值和标准差对 RGB 图像批次进行归一化。
 
-    Args:
-        batch (torch.Tensor): RGB images in [0, 1], shape (B, 3, H, W).
+    参数：
+        batch (torch.Tensor): [0, 1] 范围内的 RGB 图像，shape 为 (B, 3, H, W)。
 
-    Returns:
-        batch_out (torch.Tensor): Normalized images, shape (B, 3, H, W).
+    返回：
+        batch_out (torch.Tensor): 归一化图像，shape 为 (B, 3, H, W)。
     """
     mean = torch.zeros_like(batch)
     std = torch.zeros_like(batch)
@@ -212,13 +208,14 @@ def normalize_ImageNet(batch):
 
 
 def denormalize_ImageNet(batch):
-    """Invert ImageNet normalization to recover images in [0, 1].
+    """反转 ImageNet 归一化，恢复 [0, 1] 范围内的图像。
 
-    Args:
-        batch (torch.Tensor): ImageNet-normalized RGB images, shape (B, 3, H, W).
+    参数：
+        batch (torch.Tensor): 经 ImageNet 归一化的 RGB 图像，shape 为 (B, 3, H, W)。
 
-    Returns:
-        batch_out (torch.Tensor): Denormalized images in [0, 1], shape (B, 3, H, W).
+    返回：
+        batch_out (torch.Tensor): [0, 1] 范围内的反归一化图像，
+            shape 为 (B, 3, H, W)。
     """
     mean = torch.zeros_like(batch)
     std = torch.zeros_like(batch)
@@ -234,22 +231,22 @@ def denormalize_ImageNet(batch):
 
 
 # ==================================
-# EDoF
+# 扩展景深（EDoF）
 # ==================================
 def foc_dist_balanced(d1, d2):
-    """Compute the focus distance that balances the circle of confusion (CoC).
+    """计算使弥散圈（CoC）达到平衡的对焦距离。
 
-    Returns the harmonic mean $2 d_1 d_2 / (d_1 + d_2)$, the focus distance at
-    which two object planes at distances `d1` and `d2` produce the same CoC.
+    返回调和平均值 $2 d_1 d_2 / (d_1 + d_2)$，即距离为 `d1` 和 `d2` 的
+    两个物平面产生相同 CoC 时的对焦距离。
 
-    Args:
-        d1 (float or torch.Tensor): Distance to the first object plane [mm].
-        d2 (float or torch.Tensor): Distance to the second object plane [mm].
+    参数：
+        d1 (float or torch.Tensor): 到第一个物平面的距离 [mm]。
+        d2 (float or torch.Tensor): 到第二个物平面的距离 [mm]。
 
-    Returns:
-        foc_dist (float or torch.Tensor): Balanced focus distance [mm].
+    返回：
+        foc_dist (float or torch.Tensor): 平衡后的对焦距离 [mm]。
 
-    Reference:
+    参考：
         https://en.wikipedia.org/wiki/Circle_of_confusion
     """
     foc_dist = 2 * d1 * d2 / (d1 + d2)
@@ -257,58 +254,56 @@ def foc_dist_balanced(d1, d2):
 
 
 # ==================================
-# AutoLens
+# 自动镜头设计（AutoLens）
 # ==================================
 def create_video_from_images(image_folder, output_video_path, fps=30):
-    """Create a video from a folder of images.
+    """根据文件夹中的图像创建视频。
 
-    Args:
-        image_folder (str): Path to the folder containing the images;
-            searched recursively for "*.png", ordered by creation time.
-        output_video_path (str): Path to save the output .mp4 video (mp4v codec).
-        fps (int, optional): Frames per second of the output video. Defaults to 30.
+    参数：
+        image_folder (str): 包含图像的文件夹路径；递归搜索 "*.png"，
+            并按创建时间排序。
+        output_video_path (str): 输出 .mp4 视频（mp4v 编解码器）的保存路径。
+        fps (int, optional): 输出视频的每秒帧数。默认为 30。
     """
-    # Get all .png files in the image_folder and its subfolders
+    # 获取 image_folder 及其子文件夹中的所有 .png 文件
     images = glob(os.path.join(image_folder, "**/*.png"), recursive=True)
-    # images.sort()  # Sort the images by name
-    images.sort(key=lambda x: os.path.getctime(x))  # Sort the images by creation time
+    # images.sort()  # 按名称排序图像
+    images.sort(key=lambda x: os.path.getctime(x))  # 按创建时间排序图像
 
     if not images:
         print("No PNG images found in the provided directory.")
         return
 
-    # Read the first image to get the dimensions
+    # 读取第一幅图像以获取尺寸
     first_image = cv.imread(images[0])
     height, width, layers = first_image.shape
 
-    # Define the codec and create VideoWriter object
+    # 定义编解码器并创建 VideoWriter 对象
     fourcc = cv.VideoWriter_fourcc(*"mp4v")
     video_writer = cv.VideoWriter(output_video_path, fourcc, fps, (width, height))
 
-    # Iterate through images and write them to the video
+    # 遍历图像并写入视频
     from tqdm import tqdm
     for image_path in tqdm(images):
         img = cv.imread(image_path)
         video_writer.write(img)
 
-    # Release the video writer object
+    # 释放视频写入器对象
     video_writer.release()
     print(f"Video saved as {output_video_path}")
 
 
 # ==================================
-# Experimental logging
+# 实验日志记录
 # ==================================
 def gpu_init(gpu=0):
-    """Select a compute device and set the default float dtype to float32.
+    """选择计算设备，并将默认浮点 dtype 设置为 float32。
 
-    Args:
-        gpu (int, optional): CUDA device index to use when available.
-            Defaults to 0.
+    参数：
+        gpu (int, optional): CUDA 可用时所使用的设备索引。默认为 0。
 
-    Returns:
-        device (torch.device): The selected device (`cuda:{gpu}` if a GPU is
-            available, otherwise `cpu`).
+    返回：
+        device (torch.device): 所选设备（GPU 可用时为 `cuda:{gpu}`，否则为 `cpu`）。
     """
     device = torch.device(f"cuda:{gpu}" if torch.cuda.is_available() else "cpu")
     print("Using: {}".format(device))
@@ -317,34 +312,33 @@ def gpu_init(gpu=0):
 
 
 def set_seed(seed=0):
-    """Seed Python, NumPy, and PyTorch RNGs for reproducible runs.
+    """为 Python、NumPy 和 PyTorch 随机数生成器设置种子，以实现可复现运行。
 
-    Also disables cuDNN benchmarking and non-determinism (sets
-    `deterministic=True`, `benchmark=False`, `enabled=False`).
+    同时禁用 cuDNN 基准测试和非确定性行为（设置 `deterministic=True`、
+    `benchmark=False`、`enabled=False`）。
 
-    Args:
-        seed (int, optional): Random seed. Defaults to 0.
+    参数：
+        seed (int, optional): 随机种子。默认为 0。
     """
     random.seed(seed)
     os.environ["PYTHONHASHSEED"] = str(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)  # for multi-GPU.
+    torch.cuda.manual_seed_all(seed)  # 用于多 GPU。
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.enabled = False
 
 
 def set_logger(dir="./"):
-    """Configure the root logger to stream to console and write to a file.
+    """配置根日志记录器，使其向控制台输出并写入文件。
 
-    Adds a stdout `StreamHandler` and a `FileHandler` writing to
-    `{dir}/output.log`, both at INFO level, with a timestamped format.
+    添加 stdout `StreamHandler` 和写入 `{dir}/output.log` 的 `FileHandler`；
+    二者均使用 INFO 级别和带时间戳的格式。
 
-    Args:
-        dir (str, optional): Directory for the `output.log` file.
-            Defaults to "./".
+    参数：
+        dir (str, optional): `output.log` 文件所在目录。默认为 "./"。
     """
     logger = logging.getLogger()
     logger.setLevel("DEBUG")
@@ -370,77 +364,75 @@ def set_logger(dir="./"):
 
 
 # ==================================
-# Differentiable interpolation
+# 可微插值
 # ==================================
 def interp1d(query, key, value, mode="linear"):
-    """Differentiably interpolate values defined on 1D key points at query points.
+    """在查询点处对一维关键点上定义的值进行可微插值。
 
-    Only `mode="linear"` is implemented: keys are sorted, query points are
-    located by `searchsorted`, and values are linearly interpolated between
-    the bracketing keys. Queries outside the key range are clamped to the
-    end segments.
+    仅实现 `mode="linear"`：首先对关键点排序，使用 `searchsorted` 定位查询点，
+    然后在包围查询点的关键点之间进行线性插值。关键点范围外的查询会被限制到
+    两端区间。
 
-    Args:
-        query (torch.Tensor): Query points, shape (N, 1) (flattened to (N,)).
-        key (torch.Tensor): Key points, shape (M, 1) (flattened to (M,)).
-        value (torch.Tensor): Values at key points, shape (M, ...).
-        mode (str, optional): Interpolation mode; only "linear" is
-            supported. Defaults to "linear".
+    参数：
+        query (torch.Tensor): 查询点，shape 为 (N, 1)（展平为 (N,)）。
+        key (torch.Tensor): 关键点，shape 为 (M, 1)（展平为 (M,)）。
+        value (torch.Tensor): 关键点处的值，shape 为 (M, ...)。
+        mode (str, optional): 插值模式；仅支持 "linear"。默认为 "linear"。
 
-    Returns:
-        query_value (torch.Tensor): Interpolated values, shape (N, ...).
+    返回：
+        query_value (torch.Tensor): 插值后的值，shape 为 (N, ...)。
 
-    Raises:
-        NotImplementedError: If `mode="grid_sample"`.
-        ValueError: If `mode` is not a recognized value.
+    异常：
+        NotImplementedError: 当 `mode="grid_sample"` 时抛出。
+        ValueError: 当 `mode` 不是可识别的值时抛出。
 
-    Reference:
+    参考：
         https://github.com/aliutkus/torchinterp1d
     """
     if mode == "linear":
-        # Flatten query and key tensors for processing
+        # 展平 query 和 key 张量以便处理
         query_flat = query.flatten()  # [N]
         key_flat = key.flatten()  # [M]
 
-        # Get the original value shape to preserve extra dimensions
+        # 获取原始 value shape，以保留额外维度
         value_shape = value.shape  # [M, ...]
         M = value_shape[0]
         extra_dims = value_shape[1:]
-        value_reshaped = value.view(M, -1)  # [M, D] where D = product of extra dims
+        value_reshaped = value.view(M, -1)  # [M, D]，其中 D 为额外维度的乘积
 
-        # Sort key and value
+        # 对 key 和 value 排序
         sort_idx = torch.argsort(key_flat)
         key_sorted = key_flat[sort_idx]  # [M]
         value_sorted = value_reshaped[sort_idx]  # [M, D]
 
-        # Find the indices for interpolation
+        # 查找插值索引
         indices = torch.searchsorted(key_sorted, query_flat, right=False)  # [N]
         indices = torch.clamp(indices, 1, len(key_sorted) - 1)  # [N]
 
-        # Get the left and right key points
+        # 获取左右关键点
         key_left = key_sorted[indices - 1]  # [N]
         key_right = key_sorted[indices]  # [N]
         value_left = value_sorted[indices - 1]  # [N, D]
         value_right = value_sorted[indices]  # [N, D]
 
-        # Linear interpolation
+        # 线性插值
         result = value_left.clone()  # [N, D]
         mask = key_left != key_right  # [N]
         if mask.any():
             denom = torch.where(mask, key_right - key_left, torch.ones_like(key_left))
             weight = ((query_flat - key_left) / denom).unsqueeze(-1)  # [N, 1]
 
-            # Apply interpolation only where mask is True
+            # 仅在 mask 为 True 的位置应用插值
             interpolated = value_left + weight * (value_right - value_left)  # [N, D]
             result = torch.where(mask.unsqueeze(-1), interpolated, value_left)  # [N, D]
 
-        # Reshape result back to [N, ...] maintaining the extra dimensions
+        # 将结果恢复为 [N, ...]，同时保留额外维度
         result_shape = (query.shape[0],) + extra_dims
         query_value = result.view(result_shape)
 
     elif mode == "grid_sample":
         # https://docs.pytorch.org/docs/stable/generated/torch.nn.functional.grid_sample.html
-        # This requires uniform spacing between key points.
+        # 这要求关键点之间具有均匀间距。
         raise NotImplementedError("Grid sample is not implemented yet.")
 
     else:
@@ -452,26 +444,24 @@ def interp1d(query, key, value, mode="linear"):
 def grid_sample_xy(
     input, grid_xy, mode="bilinear", padding_mode="zeros", align_corners=False
 ):
-    """Sample an input feature map on an xy-coordinate grid.
+    """在 xy 坐标网格上对输入特征图进行采样。
 
-    Wraps `torch.nn.functional.grid_sample` but takes a grid in xy convention
-    (y pointing up): top-left is (-1, 1) and bottom-right is (1, -1). The y
-    component is negated internally to match PyTorch's row-down convention.
+    封装 `torch.nn.functional.grid_sample`，但接受遵循 xy 约定（y 轴向上）的网格：
+    左上角为 (-1, 1)，右下角为 (1, -1)。内部会对 y 分量取负，以匹配 PyTorch
+    行方向向下的约定。
 
-    Args:
-        input (torch.Tensor): Input feature map, shape (B, C, H, W).
-        grid_xy (torch.Tensor): Sampling grid in normalized xy coordinates,
-            shape (B, H, W, 2).
-        mode (str, optional): Interpolation mode, "bilinear" or "nearest".
-            Defaults to "bilinear".
-        padding_mode (str, optional): Out-of-grid padding, "zeros",
-            "border", or "reflection". Defaults to "zeros".
-        align_corners (bool, optional): Whether to align corner pixels.
-            Defaults to False.
+    参数：
+        input (torch.Tensor): 输入特征图，shape 为 (B, C, H, W)。
+        grid_xy (torch.Tensor): 归一化 xy 坐标中的采样网格，shape 为 (B, H, W, 2)。
+        mode (str, optional): 插值模式，可为 "bilinear" 或 "nearest"。
+            默认为 "bilinear"。
+        padding_mode (str, optional): 网格外填充，可为 "zeros"、"border" 或
+            "reflection"。默认为 "zeros"。
+        align_corners (bool, optional): 是否对齐角点像素。默认为 False。
 
-    Returns:
-        output (torch.Tensor): Sampled feature map, shape (B, C, H, W), where
-            H and W are the spatial dimensions of `grid_xy`.
+    返回：
+        output (torch.Tensor): 采样后的特征图，shape 为 (B, C, H, W)，
+            其中 H 和 W 是 `grid_xy` 的空间维度。
     """
     grid_x = grid_xy[..., 0]
     grid_y = grid_xy[..., 1]
@@ -486,38 +476,37 @@ def grid_sample_xy(
 
 
 # ================================
-# Autograd Function diff_float
+# 自动微分函数 diff_float
 # ================================
 class DiffFloat(torch.autograd.Function):
-    """Cast a tensor to float32 in the forward pass while keeping float64 gradients.
+    """在前向传播中将张量转换为 float32，同时保留 float64 梯度。
 
-    The forward pass returns `x.float()`; the backward pass upcasts the
-    incoming gradient back to double precision, so the upstream graph stays
-    in float64 while downstream ops run in float32.
+    前向传播返回 `x.float()`；反向传播将传入梯度向上转换回双精度，
+    因而上游计算图保持 float64，而下游运算使用 float32。
     """
 
     @staticmethod
     def forward(ctx, x):
-        """Cast the input tensor to float32.
+        """将输入张量转换为 float32。
 
-        Args:
-            x (torch.Tensor): Input tensor (typically float64).
+        参数：
+            x (torch.Tensor): 输入张量（通常为 float64）。
 
-        Returns:
-            out (torch.Tensor): The input cast to float32.
+        返回：
+            out (torch.Tensor): 转换为 float32 的输入。
         """
         ctx.save_for_backward(x)
         return x.float()
 
     @staticmethod
     def backward(ctx, grad_output):
-        """Upcast the gradient back to float64.
+        """将梯度向上转换回 float64。
 
-        Args:
-            grad_output (torch.Tensor): Incoming gradient (float32).
+        参数：
+            grad_output (torch.Tensor): 传入梯度（float32）。
 
-        Returns:
-            grad_input (torch.Tensor): Gradient cast to float64.
+        返回：
+            grad_input (torch.Tensor): 转换为 float64 的梯度。
         """
         (x,) = ctx.saved_tensors
         grad_input = grad_output.double()
@@ -525,75 +514,74 @@ class DiffFloat(torch.autograd.Function):
 
 
 def diff_float(input):
-    """Cast a tensor to float32 with float64-preserving gradients.
+    """将张量转换为 float32，同时保留 float64 梯度。
 
-    Convenience wrapper around `DiffFloat`.
+    `DiffFloat` 的便捷封装。
 
-    Args:
-        input (torch.Tensor): Input tensor (typically float64).
+    参数：
+        input (torch.Tensor): 输入张量（通常为 float64）。
 
-    Returns:
-        out (torch.Tensor): The input cast to float32, differentiable in float64.
+    返回：
+        out (torch.Tensor): 转换为 float32 的输入，可在 float64 下求导。
     """
     return DiffFloat.apply(input)
 
 
 # ================================
-# Autograd Function diff_quantize
+# 自动微分函数 diff_quantize
 # ================================
 class DiffQuantize(torch.autograd.Function):
-    """Quantize a tensor to evenly spaced levels with a straight-through gradient.
+    """将张量量化到等间距级别，并使用直通梯度。
 
-    The forward pass rounds each value to the nearest of `levels` steps that
-    span `interval` (step size `interval / levels`). The backward pass passes
-    the gradient through unchanged (straight-through estimator), so the
-    non-differentiable rounding does not block optimization.
+    前向传播将每个值舍入到覆盖 `interval` 的 `levels` 个步长中最接近的一档
+    （步长为 `interval / levels`）。反向传播保持梯度不变（直通估计器），
+    因而不可微的舍入操作不会阻碍优化。
     """
 
     @staticmethod
     def forward(ctx, x, levels, interval=2 * torch.pi):
-        """Round the input to the nearest quantization step.
+        """将输入舍入到最近的量化步长。
 
-        Args:
-            x (torch.Tensor): Input tensor.
-            levels (int): Number of quantization levels.
-            interval (float, optional): Total range spanned by the levels;
-                the step size is `interval / levels`. Defaults to 2*pi.
+        参数：
+            x (torch.Tensor): 输入张量。
+            levels (int): 量化级别数。
+            interval (float, optional): 各级别覆盖的总范围；步长为
+                `interval / levels`。默认为 2*pi。
 
-        Returns:
-            out (torch.Tensor): Quantized tensor, same shape as `x`.
+        返回：
+            out (torch.Tensor): 量化后的张量，shape 与 `x` 相同。
         """
         step = interval / levels
         return torch.round(x / step) * step
 
     @staticmethod
     def backward(ctx, grad_output):
-        """Pass the gradient through unchanged (straight-through estimator).
+        """保持梯度不变地传递（直通估计器）。
 
-        Args:
-            grad_output (torch.Tensor): Incoming gradient.
+        参数：
+            grad_output (torch.Tensor): 传入梯度。
 
-        Returns:
-            grad_input (torch.Tensor): Gradient w.r.t. `x` (equal to `grad_output`).
-            grad_levels (None): Always None — `levels` is not differentiable.
-            grad_interval (None): Always None — `interval` is not differentiable.
+        返回：
+            grad_input (torch.Tensor): 关于 `x` 的梯度（等于 `grad_output`）。
+            grad_levels (None): 始终为 None——`levels` 不可微。
+            grad_interval (None): 始终为 None——`interval` 不可微。
         """
         grad_input = grad_output.clone()
         return grad_input, None, None
 
 
 def diff_quantize(input, levels, interval=2 * torch.pi):
-    """Quantize a tensor to evenly spaced levels with a straight-through gradient.
+    """将张量量化到等间距级别，并使用直通梯度。
 
-    Convenience wrapper around `DiffQuantize`.
+    `DiffQuantize` 的便捷封装。
 
-    Args:
-        input (torch.Tensor): Input tensor.
-        levels (int): Number of quantization levels.
-        interval (float, optional): Total range spanned by the levels; the
-            step size is `interval / levels`. Defaults to 2*pi.
+    参数：
+        input (torch.Tensor): 输入张量。
+        levels (int): 量化级别数。
+        interval (float, optional): 各级别覆盖的总范围；步长为
+            `interval / levels`。默认为 2*pi。
 
-    Returns:
-        out (torch.Tensor): Quantized tensor, same shape as `input`.
+    返回：
+        out (torch.Tensor): 量化后的张量，shape 与 `input` 相同。
     """
     return DiffQuantize.apply(input, levels, interval)

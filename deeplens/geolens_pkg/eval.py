@@ -4,76 +4,36 @@
 # Licensed under the Apache License, Version 2.0.
 # See LICENSE file in the project root for full license information.
 
-"""Classical optical performance evaluation for geometric lens systems.
+"""几何透镜系统的经典光学性能评估。
 
-This module provides a mixin class ``GeoLensEval`` that adds Zemax-equivalent
-optical evaluation capabilities to ``GeoLens``.  Every metric is computed via
-geometric ray tracing: rays are sampled from object space, propagated through
-all lens surfaces (refraction + clipping), and analyzed at the sensor plane.
+本模块提供 ``GeoLensEval`` 混入类，为 ``GeoLens`` 添加与 Zemax 对应的光学评估能力。
+所有指标均通过几何光线追迹计算：从物方采样光线，使其经过全部透镜表面（折射与裁剪），
+最后在传感器平面上分析结果。
 
-Coordinate convention (shared with the rest of DeepLens):
-    - **z-axis**: optical axis, light travels in +z direction.
-    - **y-axis**: meridional (tangential) plane.
-    - **x-axis**: sagittal plane.
-    - Sensor plane is at ``z = self.d_sensor``.
+坐标约定（与 DeepLens 其余部分一致）：
+    - **z 轴**：光轴，光沿 +z 方向传播。
+    - **y 轴**：子午（切向）平面。
+    - **x 轴**：弧矢平面。
+    - 传感器平面位于 ``z = self.d_sensor``。
 
-Key dependencies consumed from the parent ``GeoLens`` instance:
-    - ``self.sample_radial_rays()``, ``self.sample_grid_rays()``: ray sampling.
-    - ``self.trace(ray)``, ``self.trace2sensor(ray)``: sequential ray tracing.
-    - ``self.psf()``, ``self.psf_rgb()``: point-spread-function computation.
-    - ``self.render()``: image-plane rendering via ray tracing or PSF convolution.
-    - ``self.d_sensor``, ``self.sensor_size``, ``self.pixel_size``, ``self.rfov``,
-      ``self.foclen``, ``self.device``: lens geometry attributes.
+从父级 ``GeoLens`` 实例使用的主要依赖：
+    - ``self.sample_radial_rays()``、``self.sample_grid_rays()``：光线采样。
+    - ``self.trace(ray)``、``self.trace2sensor(ray)``：顺序光线追迹。
+    - ``self.psf()``、``self.psf_rgb()``：点扩散函数计算。
+    - ``self.render()``：通过光线追迹或 PSF 卷积进行像面渲染。
+    - ``self.d_sensor``、``self.sensor_size``、``self.pixel_size``、``self.rfov``、
+      ``self.foclen``、``self.device``：透镜几何属性。
 
-Functions:
-    Spot Diagram:
-        spot_points: Core ray-tracing function — samples rays from physical
-            object points, traces through the lens, returns sensor positions.
-            Shared by draw_spot_radial, draw_spot_map, and rms_map.
-        draw_spot_radial: Spot diagrams at evenly-spaced field angles along a
-            chosen direction (meridional/sagittal/diagonal), with RGB overlay.
-        draw_spot_map: 2-D grid of spot diagrams across the full field of view.
-
-    RMS Spot Error:
-        rms_map_rgb: Per-pixel RMS spot radius for R/G/B, referenced to the
-            green-channel centroid (chromatic shift included).
-        rms_map: Per-pixel RMS spot radius for a single wavelength, referenced
-            to its own centroid.
-
-    Distortion:
-        calc_distortion_radial: Fractional distortion at evenly-spaced field
-            angles along the meridional direction
-        draw_distortion_radial: Distortion-vs-field-angle curve (Zemax style).
-        calc_distortion_map: 2-D grid of actual-vs-ideal image positions.
-        calc_inv_distortion_map: Inverse grid for applying distortion with
-            ``grid_sample``.
-        draw_distortion_map: Scatter plot of the distortion grid.
-        distortion_center: Normalized centroid positions for arbitrary object
-            points (used for warp/unwarp).
-
-    MTF (Modulation Transfer Function):
-        mtf: Geometric MTF (tangential + sagittal) at a single field position
-            via PSF → FFT.
-        psf2mtf: Static utility converting a 2-D PSF array to tangential and
-            sagittal MTF curves.
-        draw_mtf: Grid of tangential MTF curves for multiple depths, FOVs, and
-            RGB wavelengths.
-
-    Vignetting:
-        vignetting: Fractional ray-throughput map across the field.
-        draw_vignetting: Grayscale image of relative illumination.
-
-    Chief Ray & Ray Aiming:
-        calc_chief_ray_infinite: Batched chief-ray computation with optional
-            iterative ray aiming for accurate distortion measurement.
-
-    Comprehensive Analysis:
-        analysis_spot: RMS and geometric spot radii averaged over RGB at
-            multiple field positions.
-        analysis_rendering: Render a test image through the lens and report
-            PSNR / SSIM.
-        analysis: One-call entry point that chains layout drawing, spot
-            analysis, and (optionally) full evaluation + rendering.
+主要功能：
+    点列图：``spot_points``、``draw_spot_radial``、``draw_spot_map``。
+    RMS 点列误差：``rms_map_rgb``、``rms_map``。
+    畸变：``calc_distortion_radial``、``draw_distortion_radial``、
+        ``calc_distortion_map``、``calc_inv_distortion_map``、
+        ``draw_distortion_map``、``distortion_center``。
+    MTF（调制传递函数）：``mtf``、``psf2mtf``、``draw_mtf``。
+    渐晕：``vignetting``、``draw_vignetting``。
+    主光线与光线瞄准：``calc_chief_ray_infinite``。
+    综合分析：``analysis_spot``、``analysis_rendering``、``analysis``。
 """
 
 import matplotlib.pyplot as plt
@@ -91,7 +51,7 @@ from ..config import (
 )
 from ..light import Ray
 
-# RGB color definitions for wavelength visualization
+# 用于波长可视化的 RGB 颜色定义
 RGB_RED = "#CC0000"
 RGB_GREEN = "#006600"
 RGB_BLUE = "#0066CC"
@@ -100,76 +60,57 @@ RGB_LABELS = ["R", "G", "B"]
 
 
 class GeoLensEval:
-    """Mixin that adds classical optical evaluation methods to ``GeoLens``.
+    """为 ``GeoLens`` 添加经典光学评估方法的混入类。
 
-    This class is **never instantiated on its own**.  It is mixed into
-    ``GeoLens`` via multiple inheritance, so every method can access lens
-    geometry (``self.d_sensor``, ``self.rfov``, …) and ray-tracing routines
-    (``self.trace()``, ``self.trace2sensor()``, …) directly through ``self``.
+    本类**不会单独实例化**，而是通过多重继承混入 ``GeoLens``，因此各方法可通过
+    ``self`` 直接访问透镜几何属性和光线追迹方法。
 
-    All evaluation functions follow the same pattern:
-        1. Sample rays from object space (parallel / grid / radial).
-        2. Trace rays through the lens (``self.trace`` or ``self.trace2sensor``).
-        3. Analyze ray positions / directions at the sensor plane.
-        4. Optionally produce a matplotlib figure saved to disk.
+    所有评估函数均遵循相同流程：
+        1. 从物方采样光线（平行、网格或径向）。
+        2. 通过 ``self.trace`` 或 ``self.trace2sensor`` 追迹光线。
+        3. 在传感器平面分析光线位置或方向。
+        4. 可选生成并保存 matplotlib 图像。
 
-    Results are accuracy-aligned with Zemax OpticStudio for the same lens
-    prescriptions and ray-sampling densities.
+    在相同透镜参数与光线采样密度下，结果精度与 Zemax OpticStudio 对齐。
 
-    Attributes consumed from ``GeoLens`` (via ``self``):
-        d_sensor (float): Axial position of the sensor plane (mm).
-        sensor_size (tuple[float, float]): Sensor (width, height) in mm.
-        pixel_size (float): Pixel pitch in mm.
-        sensor_res (tuple[int, int]): Sensor resolution (W, H) in pixels.
-        rfov (float): Half field-of-view in **radians**.
-        foclen (float): Equivalent focal length in mm.
-        fnum (float): F-number.
-        aper_idx (int): Index of the aperture stop surface.
-        device (torch.device): Compute device (CPU / CUDA).
+    通过 ``self`` 使用的 ``GeoLens`` 属性：
+        d_sensor (float): 传感器平面的轴向位置，单位 mm。
+        sensor_size (tuple[float, float]): 传感器尺寸 ``(width, height)``，单位 mm。
+        pixel_size (float): 像素间距，单位 mm。
+        sensor_res (tuple[int, int]): 传感器分辨率 ``(W, H)``，单位 pixel。
+        rfov (float): 半视场角，单位 rad。
+        foclen (float): 等效焦距，单位 mm。
+        fnum (float): F 数。
+        aper_idx (int): 孔径光阑表面的索引。
+        device (torch.device): 计算设备（CPU / CUDA）。
     """
 
     # ================================================================
-    # Spot diagram
+    # 点列图
     # ================================================================
     @torch.no_grad()
     def spot_points(self, points, num_rays=SPP_PSF, wvln=None):
-        """Trace rays from object points to sensor and return the traced Ray.
+        """从物点向传感器追迹光线并返回追迹后的 ``Ray``。
 
-        Samples rays from each physical object point toward the entrance pupil,
-        traces through all lens surfaces (refraction + clipping), and returns
-        the resulting Ray object on the sensor plane.
+        从每个物理物点朝入瞳采样光线，经过全部透镜表面（折射与裁剪）后，返回位于
+        传感器平面的 ``Ray``。这是点列图和 RMS 误差图共用的计算核心。
 
-        This is the shared computational core for spot diagrams
-        (``draw_spot_radial``, ``draw_spot_map``) and RMS error maps
-        (``rms_map``, ``rms_map_rgb``).
+        算法：
+            1. ``self.sample_from_points(points, num_rays, wvln)`` 为每个物点
+               生成朝向入瞳的 ``num_rays`` 条光线。
+            2. ``self.trace2sensor()`` 使光线经过所有表面并裁剪渐晕光线。
 
-        Algorithm:
-            1. ``self.sample_from_points(points, num_rays, wvln)`` generates a
-               fan of ``num_rays`` rays per object point, aimed at the entrance
-               pupil.
-            2. ``self.trace2sensor()`` propagates through all surfaces and
-               clips vignetted rays.
+        参数：
+            points (torch.Tensor): 物方三维物理坐标，shape 为 ``[..., 3]``，单位 mm。
+                支持 ``[3]``、``[N, 3]`` 和 ``[H, W, 3]``。
+            num_rays (int): 每个物点的采样光线数，默认为 ``SPP_PSF``。
+            wvln (float): 波长，单位 µm；为 ``None`` 时使用 ``self.primary_wvln``。
 
-        Args:
-            points (torch.Tensor): Physical 3D object-space coordinates with
-                shape ``[..., 3]`` (mm).  Supported layouts:
-                - ``[3]`` — single point.
-                - ``[N, 3]`` — N points (e.g. radial field positions).
-                - ``[H, W, 3]`` — 2-D field grid.
-                Generated by ``self.point_source_grid(normalized=False)`` for
-                grid sampling, or ``self.point_source_radial(normalized=False)``
-                for radial sampling.
-            num_rays (int): Number of rays sampled per object point.
-                Defaults to ``SPP_PSF``.
-            wvln (float): Wavelength in µm. When ``None`` (default), falls
-                back to ``self.primary_wvln``.
-
-        Returns:
-            ray (Ray): Traced ray on the sensor plane, with shape
-                ``[..., num_rays, 3]`` for positions and ``[..., num_rays]``
-                for validity mask. Use ``ray.o[..., :2]`` for transverse
-                positions and ``ray.is_valid`` for the validity mask.
-                ``ray.centroid()`` gives the weighted centroid.
+        返回：
+            ray (Ray): 传感器平面上的追迹光线。位置 shape 为
+                ``[..., num_rays, 3]``，有效性掩码 shape 为 ``[..., num_rays]``。
+                横向位置使用 ``ray.o[..., :2]``，有效性掩码使用 ``ray.is_valid``，
+                加权质心由 ``ray.centroid()`` 给出。
         """
         wvln = self.primary_wvln if wvln is None else wvln
         ray = self.sample_from_points(points=points, num_rays=num_rays, wvln=wvln)
@@ -186,60 +127,43 @@ class GeoLensEval:
         direction="y",
         show=False,
     ):
-        """Draw spot diagrams at evenly-spaced field angles along a chosen direction.
+        """沿指定方向在等间隔视场角处绘制点列图。
 
-        A *spot diagram* visualizes the transverse ray-intercept distribution on
-        the sensor plane for a point source at a given field angle and depth.
-        It reveals the combined effect of all aberrations (spherical, coma,
-        astigmatism, field curvature, chromatic, …).
+        点列图展示给定视场角和深度的点光源在传感器平面上的横向光线交点分布，可反映
+        球差、彗差、像散、场曲和色差等像差的综合影响。视场位置按视场角从轴上位置
+        0 均匀采样至全视场 ``self.rfov``，因此 ``FoV 1.0`` 对应完整像高。
 
-        Field positions are sampled by **field angle** uniformly from on-axis
-        (0) to full-field (``self.rfov``), so the ``FoV 1.0`` subplot reaches
-        the full image height — consistent with ``analysis_spot()``.
+        对 ``wvln_list`` 中的每个波长，沿指定方向采样 ``num_fov`` 个视场角，追迹至
+        传感器，并在对应子图中绘制有效光线的 ``(x, y)``；所有波长以 RGB 颜色叠加。
 
-        Algorithm:
-            For each wavelength in ``wvln_list``:
-                1. ``self.sample_radial_rays(direction)`` samples rays at
-                   ``num_fov`` field angles in ``[0, self.rfov]`` along the
-                   chosen direction.
-                2. ``self.trace2sensor()`` traces them to the sensor.
-                3. Valid ray (x, y) positions are scatter-plotted per subplot.
-            All wavelengths are overlaid in a single figure with RGB coloring.
-
-        Args:
-            save_name (str): File path for the output PNG.
-                Defaults to ``'./lens_spot_radial.png'``.
-            num_fov (int): Number of field positions sampled uniformly from
-                on-axis (0) to full-field. Defaults to 5.
-            depth (float): Object distance in mm (negative = real object).
-                When ``None`` or ``float('inf')`` (default ``None``), falls
-                back to ``self.obj_depth``.
-            num_rays (int): Rays per field position per wavelength.
-                Defaults to ``SPP_PSF``.
-            wvln_list (list[float]): Wavelengths in µm.  When ``None``
-                (default), falls back to ``self.wvln_rgb``.
-            direction (str): Sampling direction —
-                ``"y"`` (meridional, default), ``"x"`` (sagittal),
-                ``"diagonal"`` (45°).
-            show (bool): If ``True``, display the figure interactively instead
-                of saving to disk. Defaults to ``False``.
+        参数：
+            save_name (str): 输出 PNG 的路径，默认为 ``'./lens_spot_radial.png'``。
+            num_fov (int): 从轴上到全视场的采样位置数，默认为 5。
+            depth (float): 物距，单位 mm（负值表示实物）；为 ``None`` 或
+                ``float('inf')`` 时使用 ``self.obj_depth``。
+            num_rays (int): 每个视场、每个波长的光线数，默认为 ``SPP_PSF``。
+            wvln_list (list[float]): 波长列表，单位 µm；为 ``None`` 时使用
+                ``self.wvln_rgb``。
+            direction (str): 采样方向；``"y"`` 为子午方向（默认），``"x"`` 为
+                弧矢方向，``"diagonal"`` 为 45° 对角方向。
+            show (bool): 为 ``True`` 时交互显示，否则保存到磁盘；默认为 ``False``。
         """
         wvln_list = self.wvln_rgb if wvln_list is None else wvln_list
         assert isinstance(wvln_list, list), "wvln_list must be a list"
         if depth is None or depth == float("inf"):
             depth = self.obj_depth
 
-        # Field fractions for subplot titles (0 -> on-axis, 1 -> full field)
+        # 子图标题使用的视场比例（0 表示轴上，1 表示全视场）
         fov_fracs = torch.linspace(0, 1, num_fov)
 
-        # Prepare figure
+        # 准备图像
         fig, axs = plt.subplots(1, num_fov, figsize=(num_fov * 3.5, 3))
         axs = np.atleast_1d(axs)
 
-        # Trace and draw each wavelength separately, overlaying results
+        # 分别追迹并绘制各波长，再叠加结果
         for wvln_idx, wvln in enumerate(wvln_list):
-            # Sample rays by field angle (0 .. self.rfov) so FoV 1.0 reaches the
-            # full image height, matching analysis_spot().
+            # 按视场角（0 .. self.rfov）采样，使 FoV 1.0 达到完整像高并与
+            # analysis_spot() 保持一致。
             ray = self.sample_radial_rays(
                 num_field=num_fov,
                 depth=depth,
@@ -253,16 +177,16 @@ class GeoLensEval:
 
             color = RGB_COLORS[wvln_idx % len(RGB_COLORS)]
 
-            # Plot multiple spot diagrams in one figure
+            # 在一幅图中绘制多个点列图
             for i in range(num_fov):
                 valid = ray_valid_np[i, :]
                 xi, yi = ray_o[i, :, 0], ray_o[i, :, 1]
 
-                # Filter valid rays
+                # 筛选有效光线
                 mask = valid > 0
                 x_valid, y_valid = xi[mask], yi[mask]
 
-                # Plot points and center of mass for this wavelength
+                # 绘制当前波长的光线点和质心
                 axs[i].scatter(x_valid, y_valid, 2, color=color, alpha=0.5)
                 axs[i].set_aspect("equal", adjustable="datalim")
                 axs[i].tick_params(axis="both", which="major", labelsize=6)
@@ -286,39 +210,26 @@ class GeoLensEval:
         wvln_list=None,
         show=False,
     ):
-        """Draw a 2-D grid of spot diagrams across the full field of view.
+        """在全视场范围内绘制二维点列图网格。
 
-        Unlike ``draw_spot_radial`` (which samples only a radial slice),
-        this method samples a ``num_grid × num_grid`` grid of field positions
-        covering both the x (sagittal) and y (meridional) axes, revealing
-        off-axis aberrations that are invisible in a 1-D radial scan.
+        与只采样径向切片的 ``draw_spot_radial`` 不同，本方法在 x（弧矢）和 y（子午）
+        两个方向采样 ``num_grid × num_grid`` 视场位置，以显示一维径向扫描无法观察到的
+        轴外像差。网格按视场角覆盖两轴完整视场，角点达到完整像高。
 
-        Grid field positions are sampled by **field angle**, spanning the full
-        field on both axes so the corner cells reach the full image height —
-        consistent with ``draw_spot_radial`` / ``analysis_spot``.
+        对每个波长，``self.sample_grid_rays()`` 在
+        ``[-vfov/2, vfov/2] × [-hfov/2, hfov/2]`` 上采样视场角网格，
+        ``self.trace2sensor()`` 将其追迹至传感器，再将有效 ``(x, y)`` 位置绘制到
+        对应子图；各波长使用 RGB 颜色叠加。
 
-        Algorithm:
-            For each wavelength in ``wvln_list``:
-                1. ``self.sample_grid_rays()`` samples a ``grid_h × grid_w``
-                   field-angle grid spanning ``[-vfov/2, vfov/2]`` ×
-                   ``[-hfov/2, hfov/2]``.
-                2. ``self.trace2sensor()`` traces them to the sensor.
-                3. Valid (x, y) positions are scatter-plotted in the
-                   corresponding subplot of the ``num_grid × num_grid`` figure.
-            All wavelengths are overlaid with RGB coloring.
-
-        Args:
-            save_name (str): File path for the output PNG.
-                Defaults to ``'./lens_spot_map.png'``.
-            num_grid (int | tuple[int, int]): Number of grid points along each
-                axis. Total subplots = ``grid_w * grid_h``. Defaults to 5.
-            depth (float): Object distance in mm. When ``None`` (default),
-                falls back to ``self.obj_depth``.
-            num_rays (int): Rays per grid cell per wavelength.
-                Defaults to ``SPP_PSF``.
-            wvln_list (list[float]): Wavelengths in µm.  When ``None``
-                (default), falls back to ``self.wvln_rgb``.
-            show (bool): If ``True``, display interactively. Defaults to ``False``.
+        参数：
+            save_name (str): 输出 PNG 的路径，默认为 ``'./lens_spot_map.png'``。
+            num_grid (int | tuple[int, int]): 各轴网格点数；子图总数为
+                ``grid_w * grid_h``，默认为 5。
+            depth (float): 物距，单位 mm；为 ``None`` 时使用 ``self.obj_depth``。
+            num_rays (int): 每个网格单元、每个波长的光线数，默认为 ``SPP_PSF``。
+            wvln_list (list[float]): 波长列表，单位 µm；为 ``None`` 时使用
+                ``self.wvln_rgb``。
+            show (bool): 为 ``True`` 时交互显示，默认为 ``False``。
         """
         wvln_list = self.wvln_rgb if wvln_list is None else wvln_list
         depth = self.obj_depth if depth is None else depth
@@ -332,32 +243,32 @@ class GeoLensEval:
         )
         axs = np.atleast_2d(axs)
 
-        # Loop wavelengths and overlay scatters
+        # 遍历各波长并叠加散点
         for wvln_idx, wvln in enumerate(wvln_list):
-            # Sample a field-angle grid spanning the full field so the corner
-            # cells reach full image height. Shape [grid_h, grid_w, num_rays, 3].
+            # 采样覆盖完整视场的视场角网格，使角点达到完整像高；
+            # shape 为 [grid_h, grid_w, num_rays, 3]。
             ray = self.sample_grid_rays(
                 depth=depth, num_grid=num_grid, num_rays=num_rays, wvln=wvln
             )
             ray = self.trace2sensor(ray)
 
-            # Convert to numpy, shape [grid_h, grid_w, num_rays, 2]
+            # 转为 numpy，shape 为 [grid_h, grid_w, num_rays, 2]
             ray_o = ray.o[..., :2].cpu().numpy()
             ray_valid_np = ray.is_valid.cpu().numpy()
 
             color = RGB_COLORS[wvln_idx % len(RGB_COLORS)]
 
-            # Draw per grid cell
+            # 按网格单元绘制
             for i in range(grid_h):
                 for j in range(grid_w):
                     valid = ray_valid_np[i, j, :]
                     xi, yi = ray_o[i, j, :, 0], ray_o[i, j, :, 1]
 
-                    # Filter valid rays
+                    # 筛选有效光线
                     mask = valid > 0
                     x_valid, y_valid = xi[mask], yi[mask]
 
-                    # Plot points for this wavelength
+                    # 绘制当前波长的光线点
                     axs[i, j].scatter(x_valid, y_valid, 2, color=color, alpha=0.5)
                     axs[i, j].set_aspect("equal", adjustable="datalim")
                     axs[i, j].tick_params(axis="both", which="major", labelsize=6)
@@ -370,61 +281,46 @@ class GeoLensEval:
         plt.close(fig)
 
     # ================================================================
-    # RMS map
+    # RMS 图
     # ================================================================
     @torch.no_grad()
     def rms_map(self, num_grid=32, depth=None, wvln=None, center=None):
-        """Compute per-field-position RMS spot radius for a single wavelength.
+        """计算单一波长下各视场位置的 RMS 点列半径。
 
-        Traces ``SPP_PSF`` rays per grid cell and computes the root-mean-square
-        distance of valid ray hits from a reference centroid.  When ``center``
-        is ``None``, each cell uses its own centroid (monochromatic blur).
-        When an external ``center`` is provided (e.g. the green-channel
-        centroid), the RMS includes the chromatic shift from that reference.
+        每个网格单元追迹 ``SPP_PSF`` 条光线，并计算有效光线交点到参考质心的均方根
+        距离。当 ``center`` 为 ``None`` 时，每个单元使用自身质心；提供外部 ``center``
+        （例如绿光通道质心）时，RMS 会包含相对该参考点的色移。
 
-        Algorithm:
-            1. ``self.point_source_grid(normalized=False)`` generates physical
-               object points on a ``[num_grid, num_grid]`` field grid.
-            2. ``self.spot_points()`` samples ``SPP_PSF`` rays per point and
-               traces to sensor.
-            3. If ``center`` is ``None``, compute per-cell centroid
-               ``c = mean(valid ray_xy)``; otherwise use the provided ``center``.
-            4. ``RMS = sqrt( mean( ||ray_xy - c||^2 ) )``.
+        计算公式为 ``RMS = sqrt(mean(||ray_xy - c||^2))``。
 
-        Args:
-            num_grid (int | tuple[int, int]): Spatial resolution of the field
-                sampling grid. Defaults to 32.
-            depth (float): Object distance in mm. When ``None`` (default),
-                falls back to ``self.obj_depth``.
-            wvln (float): Wavelength in µm. When ``None`` (default), falls
-                back to ``self.primary_wvln``.
-            center (torch.Tensor | None): External reference centroid with shape
-                ``[grid_h, grid_w, 2]``.  If ``None``, each cell's own
-                centroid is used. Defaults to ``None``.
+        参数：
+            num_grid (int | tuple[int, int]): 视场采样网格分辨率，默认为 32。
+            depth (float): 物距，单位 mm；为 ``None`` 时使用 ``self.obj_depth``。
+            wvln (float): 波长，单位 µm；为 ``None`` 时使用 ``self.primary_wvln``。
+            center (torch.Tensor | None): 外部参考质心，shape 为
+                ``[grid_h, grid_w, 2]``；为 ``None`` 时使用各单元自身质心。
 
-        Returns:
-            rms (torch.Tensor): RMS spot error map, shape ``[grid_h, grid_w]``,
-                in mm.
-            centroid (torch.Tensor): Per-cell centroid used as reference, shape
-                ``[grid_h, grid_w, 2]``.  Useful for passing as
-                ``center`` to subsequent calls (e.g. in ``rms_map_rgb``).
+        返回：
+            rms (torch.Tensor): RMS 点列误差图，shape 为 ``[grid_h, grid_w]``，单位 mm。
+            centroid (torch.Tensor): 作为参考的各单元质心，shape 为
+                ``[grid_h, grid_w, 2]``，可作为后续调用的 ``center``。
         """
         wvln = self.primary_wvln if wvln is None else wvln
         depth = self.obj_depth if depth is None else depth
         if isinstance(num_grid, int):
             num_grid = (num_grid, num_grid)
 
-        # Generate physical grid points and trace rays to sensor
+        # 生成物理网格点并将光线追迹至传感器
         points = self.point_source_grid(depth=depth, grid=num_grid, normalized=False)
         ray = self.spot_points(points, num_rays=SPP_PSF, wvln=wvln)
 
-        # Reuse Ray.centroid() — shape [grid_h, grid_w, 3], slice to [grid_h, grid_w, 2]
+        # 复用 Ray.centroid()：shape 为 [grid_h, grid_w, 3]，再切片为 [grid_h, grid_w, 2]
         centroid = ray.centroid()[..., :2]
 
-        # Use external center if provided, otherwise own centroid
+        # 若提供外部中心则使用它，否则使用自身质心
         ref = center if center is not None else centroid
 
-        # RMS relative to reference, shape [grid_h, grid_w]
+        # 相对于参考点的 RMS，shape 为 [grid_h, grid_w]
         ray_xy = ray.o[..., :2]
         ray_valid = ray.is_valid
         rms = torch.sqrt(
@@ -436,44 +332,30 @@ class GeoLensEval:
 
     @torch.no_grad()
     def rms_map_rgb(self, num_grid=32, depth=None):
-        """Compute per-field-position RMS spot radius for R, G, B wavelengths.
+        """计算 R、G、B 三个波长在各视场位置的 RMS 点列半径。
 
-        The RMS spot radius is a standard measure of geometrical image quality.
-        For each field position in a ``num_grid × num_grid`` grid, this method
-        traces ``SPP_PSF`` rays per wavelength and computes the root-mean-square
-        distance of valid ray hits from a **common** reference centroid.
+        对 ``num_grid × num_grid`` 网格中的每个位置，本方法按波长追迹 ``SPP_PSF``
+        条光线，并计算有效交点到**共同**参考质心的均方根距离。参考点采用绿光通道质心，
+        因而结果包含 R/G/B 质心偏移所产生的横向色差，可作为复色像质指标。
 
-        The reference centroid is the green-channel centroid.  Using a common
-        reference means the returned RMS values include *lateral chromatic
-        aberration* (the shift between R/G/B centroids), making the map useful
-        as a polychromatic image-quality metric.
+        先调用 ``rms_map(wvln=green)`` 得到绿光 RMS 和质心，再以该质心计算红光与蓝光
+        RMS，最后按 ``[R, G, B]`` 堆叠。
 
-        Algorithm:
-            1. Call ``rms_map(wvln=green)`` to get the green RMS map **and**
-               the green centroid.
-            2. Call ``rms_map(wvln=red, center=green_centroid)`` and
-               ``rms_map(wvln=blue, center=green_centroid)`` to measure R/B
-               blur relative to the green reference.
-            3. Stack as ``[R, G, B]``.
+        参数：
+            num_grid (int | tuple[int, int]): 视场采样网格分辨率，默认为 32。
+            depth (float): 物距，单位 mm；为 ``None`` 时使用 ``self.obj_depth``。
 
-        Args:
-            num_grid (int or tuple[int, int]): Spatial resolution of the field
-                sampling grid. Defaults to 32.
-            depth (float): Object distance in mm. When ``None`` (default),
-                falls back to ``self.obj_depth``.
-
-        Returns:
-            rms_rgb (torch.Tensor): RMS spot error map with shape
-                ``[3, grid_h, grid_w]`` (channels ordered R, G, B). Units
-                are mm (same as sensor coordinates).
+        返回：
+            rms_rgb (torch.Tensor): RMS 点列误差图，shape 为
+                ``[3, grid_h, grid_w]``，通道顺序为 R、G、B，单位 mm。
         """
         depth = self.obj_depth if depth is None else depth
-        # Green first to obtain the shared reference centroid
+        # 先计算绿光，以获得共同参考质心
         rms_g, green_centroid = self.rms_map(
             num_grid=num_grid, depth=depth, wvln=self.wvln_rgb[1]
         )
 
-        # Red and blue relative to the green centroid
+        # 相对于绿光质心计算红光和蓝光
         rms_r, _ = self.rms_map(
             num_grid=num_grid, depth=depth, wvln=self.wvln_rgb[0], center=green_centroid
         )
@@ -484,7 +366,7 @@ class GeoLensEval:
         return torch.stack([rms_r, rms_g, rms_b], dim=0)
 
     # ================================================================
-    # Distortion
+    # 畸变
     # ================================================================
     @torch.no_grad()
     def calc_distortion_radial(
@@ -494,60 +376,40 @@ class GeoLensEval:
         plane="meridional",
         ray_aiming=True,
     ):
-        """Compute fractional distortion at evenly-spaced field angles along the meridional direction.
+        """计算子午方向上等间隔视场角处的相对畸变。
 
-        Distortion is defined as ``(h_actual - h_ideal) / h_ideal``, where
-        ``h_ideal = f * tan(theta)`` (rectilinear projection) and ``h_actual``
-        is the chief-ray image height on the sensor.  A positive value means
-        pincushion distortion; negative means barrel distortion.
+        畸变定义为 ``(h_actual - h_ideal) / h_ideal``，其中
+        ``h_ideal = f * tan(theta)`` 为直线投影的理想像高，``h_actual`` 为主光线
+        在传感器上的实际像高。正值表示枕形畸变，负值表示桶形畸变。
 
-        This is the computational counterpart to ``draw_spot_radial``: it
-        samples ``num_points`` field angles uniformly from 0 to ``self.rfov``
-        and returns both the sampled angles and the corresponding distortion
-        values, making it easy to pair with other radial evaluation functions.
+        本方法从 0 到 ``self.rfov`` 均匀采样 ``num_points`` 个视场角。轴上样本使用
+        一个极小正角度以避免 0/0；随后追迹主光线，按弧矢平面的 x 坐标或子午平面的
+        y 坐标取得实际像高，并返回相对畸变。
 
-        Algorithm:
-            1. Derive ``rfov_deg`` from ``self.rfov`` (radians → degrees).
-            2. Sample ``num_points`` field angles uniformly in
-               ``[0, rfov_deg]``.  The on-axis sample (0°) is replaced by a
-               tiny positive angle to avoid 0/0.
-            3. Compute ``h_ideal = foclen * tan(angle)`` for each sample.
-            4. Trace the chief ray (via ``calc_chief_ray_infinite``) through the
-               full lens to the sensor plane.
-            5. Extract ``h_actual`` from the appropriate transverse coordinate
-               (x for sagittal, y for meridional).
-            6. Return ``(h_actual - h_ideal) / h_ideal``.
+        参数：
+            num_points (int): 从轴上到全视场的等间隔样本数，默认为 ``GEO_GRID``。
+            wvln (float): 波长，单位 µm；为 ``None`` 时使用 ``self.primary_wvln``。
+            plane (str): ``'meridional'``（y 轴）或 ``'sagittal'``（x 轴），
+                默认为 ``'meridional'``。
+            ray_aiming (bool): 为 ``True`` 时瞄准主光线使其通过孔径光阑中心，
+                对广角透镜更准确；默认为 ``True``。
 
-        Args:
-            num_points (int): Number of evenly-spaced field-angle samples from
-                on-axis (0°) to full-field (``self.rfov``).
-                Defaults to ``GEO_GRID``.
-            wvln (float): Wavelength in µm. When ``None`` (default), falls
-                back to ``self.primary_wvln``.
-            plane (str): ``'meridional'`` (y-axis) or ``'sagittal'`` (x-axis).
-                Defaults to ``'meridional'``.
-            ray_aiming (bool): If ``True``, the chief ray is aimed to pass
-                through the center of the aperture stop (more accurate for
-                wide-angle lenses). Defaults to ``True``.
-
-        Returns:
-            rfov_samples (np.ndarray): Field angles in degrees, shape
-                ``[num_points]``.
-            distortions (np.ndarray): Fractional distortion at each angle, shape
-                ``[num_points]``.  Dimensionless (multiply by 100 for
-                percent).
+        返回：
+            rfov_samples (np.ndarray): 视场角数组，单位 degree，shape 为
+                ``[num_points]``。
+            distortions (np.ndarray): 各视场角的无量纲相对畸变，shape 为
+                ``[num_points]``；乘以 100 可得到百分比。
         """
         wvln = self.primary_wvln if wvln is None else wvln
         rfov_deg = self.rfov * 180 / torch.pi
 
-        # Sample field angles uniformly from 0 to rfov_deg.
-        # For the on-axis point (FOV=0), distortion is 0/0.  We compute it at a
-        # tiny positive angle to obtain the correct limit, which may be non-zero
-        # when the sensor is not at the paraxial focus.
+        # 从 0 到 rfov_deg 均匀采样视场角。
+        # 轴上点（FOV=0）的畸变为 0/0，因此使用极小正角度计算正确极限；
+        # 当传感器不在近轴焦点时，该极限可能不为零。
         rfov_samples = torch.linspace(0, rfov_deg, num_points)
         rfov_compute = rfov_samples.clone()
         if rfov_compute[0] == 0:
-            # Guard rfov_samples[1] for the single-sample case (num_points == 1).
+            # 在单样本情形（num_points == 1）下避免访问 rfov_samples[1]。
             tiny = (
                 rfov_samples[1].item() * 0.01
                 if len(rfov_samples) > 1
@@ -555,11 +417,11 @@ class GeoLensEval:
             )
             rfov_compute[0] = min(0.01, tiny)
 
-        # Ideal image height: h_ideal = f * tan(theta)
+        # 理想像高：h_ideal = f * tan(theta)
         eff_foclen = float(self.foclen)
         ideal_imgh = eff_foclen * np.tan(rfov_compute.numpy() * np.pi / 180)
 
-        # Trace chief rays to the sensor plane
+        # 将主光线追迹至传感器平面
         chief_ray_o, chief_ray_d = self.calc_chief_ray_infinite(
             rfov=rfov_compute, wvln=wvln, plane=plane, ray_aiming=ray_aiming
         )
@@ -567,7 +429,7 @@ class GeoLensEval:
         ray, _ = self.trace(ray)
         t = (self.d_sensor - ray.o[..., 2]) / ray.d[..., 2]
 
-        # Actual image height from the appropriate transverse coordinate
+        # 从对应横向坐标取得实际像高
         if plane == "sagittal":
             actual_imgh = (ray.o[..., 0] + ray.d[..., 0] * t).abs()
         elif plane == "meridional":
@@ -577,7 +439,7 @@ class GeoLensEval:
 
         actual_imgh = actual_imgh.cpu().numpy()
 
-        # Fractional distortion, with safe handling of the on-axis singularity
+        # 计算相对畸变，并安全处理轴上奇点
         ideal_imgh = np.asarray(ideal_imgh)
         mask = np.abs(ideal_imgh) < EPSILON
         distortions = np.where(
@@ -596,78 +458,69 @@ class GeoLensEval:
         ray_aiming=True,
         show=False,
     ):
-        """Draw distortion-vs-field-angle curve in Zemax style.
+        """以 Zemax 风格绘制畸变随视场角变化的曲线。
 
-        Produces a plot with field angle on the y-axis and percent distortion
-        on the x-axis, matching the layout convention used in Zemax OpticStudio.
-        Useful for quick visual assessment of barrel / pincushion distortion.
+        y 轴为视场角，x 轴为百分比畸变，与 Zemax OpticStudio 的布局约定一致，
+        可用于快速判断桶形或枕形畸变。
 
-        Algorithm:
-            1. Call ``calc_distortion_radial`` to obtain field angles and
-               fractional distortion values.
-            2. Convert distortion to percent and plot.
-
-        Args:
-            save_name (str | None): File path for the output PNG.  If ``None``,
-                auto-generates ``'./{plane}_distortion_inf.png'``.
-            num_points (int): Number of field-angle samples.
-                Defaults to ``GEO_GRID``.
-            wvln (float): Wavelength in µm. When ``None`` (default), falls
-                back to ``self.primary_wvln``.
-            plane (str): ``'meridional'`` or ``'sagittal'``.
-                Defaults to ``'meridional'``.
-            ray_aiming (bool): Whether to use ray aiming for chief-ray
-                computation. Defaults to ``True``.
-            show (bool): If ``True``, display interactively. Defaults to ``False``.
+        参数：
+            save_name (str | None): 输出 PNG 的路径；为 ``None`` 时自动生成
+                ``'./{plane}_distortion_inf.png'``。
+            num_points (int): 视场角样本数，默认为 ``GEO_GRID``。
+            wvln (float): 波长，单位 µm；为 ``None`` 时使用 ``self.primary_wvln``。
+            plane (str): ``'meridional'`` 或 ``'sagittal'``，默认为
+                ``'meridional'``。
+            ray_aiming (bool): 是否在计算主光线时使用光线瞄准，默认为 ``True``。
+            show (bool): 为 ``True`` 时交互显示，默认为 ``False``。
         """
         wvln = self.primary_wvln if wvln is None else wvln
         rfov_deg = self.rfov * 180 / torch.pi
 
-        # Calculate distortion at evenly-spaced field angles
+        # 计算等间隔视场角处的畸变
         rfov_samples, distortions = self.calc_distortion_radial(
             num_points=num_points, wvln=wvln, plane=plane, ray_aiming=ray_aiming
         )
 
-        # Convert to percentage and handle NaN
+        # 转为百分比并处理 NaN
         values = np.nan_to_num(distortions * 100, nan=0.0).tolist()
 
-        # Create figure
+        # 创建图像
         fig, ax = plt.subplots(figsize=(8, 8))
         ax.set_title(f"{plane} Surface Distortion")
 
-        # Draw distortion curve
+        # 绘制畸变曲线
         ax.plot(values, rfov_samples, linestyle="-", color="g", linewidth=1.5)
 
-        # Draw reference line (vertical line)
+        # 绘制参考线（竖线）
         ax.axvline(x=0, color="k", linestyle="-", linewidth=0.8)
 
-        # Set grid
+        # 设置网格
         ax.grid(True, color="gray", linestyle="-", linewidth=0.5, alpha=1)
 
-        # Dynamically adjust x-axis range
+        # 动态调整 x 轴范围
         value = max(abs(v) for v in values)
-        margin = value * 0.2  # 20% margin
+        margin = value * 0.2  # 保留 20% 边距
         x_min, x_max = -max(0.2, value + margin), max(0.2, value + margin)
 
-        # Set ticks
+        # 设置刻度
         x_ticks = np.linspace(-value, value, 3)
         y_ticks = np.linspace(0, rfov_deg, 3)
 
         ax.set_xticks(x_ticks)
         ax.set_yticks(y_ticks)
 
-        # Format tick labels
+        # 格式化刻度标签
         x_labels = [f"{x:.1f}%" for x in x_ticks]
         y_labels = [f"{y:.1f}" for y in y_ticks]
 
         ax.set_xticklabels(x_labels)
         ax.set_yticklabels(y_labels)
 
-        # Set axis labels
+        # 设置坐标轴标签
         ax.set_xlabel("Distortion (%)")
         ax.set_ylabel("Field of View (degrees)")
 
-        # Set axis range
+        # 设置坐标轴范围
         ax.set_xlim(x_min, x_max)
         ax.set_ylim(0, rfov_deg)
 
@@ -681,41 +534,32 @@ class GeoLensEval:
 
     @torch.no_grad()
     def calc_distortion_map(self, num_grid=16, depth=None, wvln=None):
-        """Compute a 2-D distortion grid mapping ideal to actual image positions.
+        """计算从理想像位置映射到实际像位置的二维畸变网格。
 
-        For each cell in a ``num_grid × num_grid`` field grid, rays are traced
-        to the sensor and their centroid is computed.  The centroid is then
-        normalized to ``[-1, 1]`` sensor coordinates, producing a map that
-        shows how each ideal image point is displaced by lens distortion.
+        对 ``num_grid × num_grid`` 视场网格中的每个单元，将光线追迹至传感器并计算
+        质心，再将质心归一化到 ``[-1, 1]`` 传感器坐标。该映射可与
+        ``torch.nn.functional.grid_sample`` 配合，用于图像扭曲或反扭曲。
 
-        This map can be used with ``torch.nn.functional.grid_sample`` to warp
-        or unwarp rendered images.
+        参数：
+            num_grid (int): 每个轴的网格分辨率，默认为 16。
+            depth (float): 物距，单位 mm；为 ``None`` 时使用 ``self.obj_depth``。
+            wvln (float): 波长，单位 µm；为 ``None`` 时使用 ``self.primary_wvln``。
 
-        Args:
-            num_grid (int): Grid resolution along each axis. Defaults to 16.
-            depth (float): Object distance in mm. When ``None`` (default),
-                falls back to ``self.obj_depth``.
-            wvln (float): Wavelength in µm. When ``None`` (default), falls
-                back to ``self.primary_wvln``.
-
-        Returns:
-            distortion_grid (torch.Tensor): Distortion grid with shape
-                ``[grid_h, grid_w, 2]``. Each entry ``(x, y)`` is in
-                normalized sensor coordinates ``[-1, 1]``, representing the
-                actual centroid position for the corresponding ideal grid
-                position.
+        返回：
+            distortion_grid (torch.Tensor): 畸变网格，shape 为
+                ``[grid_h, grid_w, 2]``。各 ``(x, y)`` 位于归一化传感器坐标
+                ``[-1, 1]`` 中，表示对应理想网格位置的实际质心位置。
         """
         wvln = self.primary_wvln if wvln is None else wvln
         depth = self.obj_depth if depth is None else depth
-        # Sample and trace rays, shape (grid_size, grid_size, num_rays, 3)
+        # 采样并追迹光线，shape 为 (grid_size, grid_size, num_rays, 3)
         ray = self.sample_grid_rays(depth=depth, num_grid=num_grid, wvln=wvln, uniform_fov=False)
         ray = self.trace2sensor(ray)
 
-        # Calculate centroid of the rays, shape (grid_size, grid_size, 2).
-        # Normalize each axis by its own half-extent so non-square sensors
-        # map correctly to [-1, 1]: x by sensor_size[0] (width, W),
-        # y by sensor_size[1] (height, H).  Sign is flipped on both axes to
-        # undo image inversion, matching ``distortion_center``.
+        # 计算光线质心，shape 为 (grid_size, grid_size, 2)。
+        # 各轴分别除以自身半尺寸，使非方形传感器也能正确映射到 [-1, 1]：
+        # x 使用 sensor_size[0]（width, W），y 使用 sensor_size[1]（height, H）。
+        # 两个轴均翻转符号以消除成像倒置，并与 ``distortion_center`` 保持一致。
         sensor_w, sensor_h = self.sensor_size
         ray_xy = -ray.centroid()[..., :2]
         x_dist = ray_xy[..., 0] / (sensor_w / 2)
@@ -725,25 +569,20 @@ class GeoLensEval:
 
     @torch.no_grad()
     def calc_inv_distortion_map(self, num_grid=16, depth=None, wvln=None):
-        """Compute a grid for applying lens distortion with ``grid_sample``.
+        """计算供 ``grid_sample`` 应用透镜畸变的网格。
 
-        For each point on the distorted sensor grid, backward rays are traced
-        through the lens to the target object-depth plane. The traced object
-        intersections are converted to normalized ideal image coordinates.
-        Passing this grid to ``torch.nn.functional.grid_sample`` samples an
-        undistorted image and produces a distorted image.
+        对畸变传感器网格上的每个点，将光线反向追迹到目标物距平面，并把物方交点转换为
+        归一化理想像坐标。将该网格传给 ``torch.nn.functional.grid_sample``，可从无畸变
+        图像采样得到畸变图像。
 
-        Args:
-            num_grid (int or tuple): Grid resolution. If a tuple is supplied,
-                it is interpreted as ``(grid_w, grid_h)``.
-            depth (float): Object distance in mm. When ``None`` (default),
-                falls back to ``self.obj_depth``.
-            wvln (float): Wavelength in µm. When ``None`` (default), falls
-                back to ``self.primary_wvln``.
+        参数：
+            num_grid (int | tuple): 网格分辨率；元组按 ``(grid_w, grid_h)`` 解释。
+            depth (float): 物距，单位 mm；为 ``None`` 时使用 ``self.obj_depth``。
+            wvln (float): 波长，单位 µm；为 ``None`` 时使用 ``self.primary_wvln``。
 
-        Returns:
-            inv_distortion_grid (torch.Tensor): Inverse distortion grid with
-                shape ``[grid_h, grid_w, 2]`` in ``grid_sample`` coordinates.
+        返回：
+            inv_distortion_grid (torch.Tensor): ``grid_sample`` 坐标中的逆畸变网格，
+                shape 为 ``[grid_h, grid_w, 2]``。
         """
         wvln = self.primary_wvln if wvln is None else wvln
         depth = self.obj_depth if depth is None else depth
@@ -754,8 +593,8 @@ class GeoLensEval:
         sensor_w, sensor_h = self.sensor_size
         device = self.device
 
-        # Convert grid_sample output coordinates to physical sensor positions.
-        # Existing distortion maps use -sensor_centroid as image coordinates.
+        # 将 grid_sample 输出坐标转换为传感器物理位置。
+        # 现有畸变图使用 -sensor_centroid 作为图像坐标。
         x, y = torch.meshgrid(
             torch.linspace(sensor_w / 2, -sensor_w / 2, grid_w, device=device),
             torch.linspace(sensor_h / 2, -sensor_h / 2, grid_h, device=device),
@@ -779,46 +618,35 @@ class GeoLensEval:
         return inv_distortion_grid
 
     def distortion_center(self, points):
-        """Compute the distorted image centroid for arbitrary normalized object points.
+        """计算任意归一化物点对应的畸变像质心。
 
-        Given object points in normalized coordinates, this method converts them
-        to physical object-space positions, traces rays from each point through
-        the lens, and returns the ray centroid on the sensor in normalized
-        ``[-1, 1]`` coordinates.  This is the inverse mapping needed for
-        distortion correction (unwarping).
+        将归一化物点转换为物方物理位置，从每个点发射光线并追迹通过透镜，最后返回
+        传感器上归一化到 ``[-1, 1]`` 的光线质心。这是畸变校正所需的逆映射。
 
-        Algorithm:
-            1. Convert normalized ``(x, y)`` ∈ [-1, 1] to physical object-space
-               positions using ``self.calc_scale(depth)`` and ``self.sensor_size``.
-            2. ``self.sample_from_points()`` generates rays from each point.
-            3. ``self.trace2sensor()`` propagates rays.
-            4. Compute centroid and normalize back to ``[-1, 1]``.
+        参数：
+            points (torch.Tensor): 归一化点光源位置，shape 为 ``[N, 3]`` 或
+                ``[..., 3]``。``x, y`` ∈ [-1, 1] 表示视场位置，
+                ``z`` ∈ (-∞, 0] 为物距，单位 mm。
 
-        Args:
-            points (torch.Tensor): Normalized point source positions with shape
-                ``[N, 3]`` or ``[..., 3]``.  ``x, y`` ∈ [-1, 1] encode the
-                field position; ``z`` ∈ (-∞, 0] is the object depth in mm.
-
-        Returns:
-            distortion_center (torch.Tensor): Normalized distortion centroid
-                positions with shape ``[N, 2]`` or ``[..., 2]``.
-                ``x, y`` ∈ [-1, 1].
+        返回：
+            distortion_center (torch.Tensor): 归一化畸变质心，shape 为
+                ``[N, 2]`` 或 ``[..., 2]``，其中 ``x, y`` ∈ [-1, 1]。
         """
         sensor_w, sensor_h = self.sensor_size
 
-        # Convert normalized points to object space coordinates
+        # 将归一化点转换为物方坐标
         depth = points[..., 2]
         scale = self.calc_scale(depth)
         points_obj_x = points[..., 0] * scale * sensor_w / 2
         points_obj_y = points[..., 1] * scale * sensor_h / 2
         points_obj = torch.stack([points_obj_x, points_obj_y, depth], dim=-1)
 
-        # Sample rays and trace to sensor
+        # 采样光线并追迹至传感器
         ray = self.sample_from_points(points=points_obj)
         ray = self.trace2sensor(ray)
 
-        # Calculate centroid and normalize to [-1, 1]
-        ray_center = -ray.centroid()  # shape [..., 3]
+        # 计算质心并归一化到 [-1, 1]
+        ray_center = -ray.centroid()  # shape 为 [..., 3]
         distortion_center_x = ray_center[..., 0] / (sensor_w / 2)
         distortion_center_y = ray_center[..., 1] / (sensor_h / 2)
         distortion_center = torch.stack((distortion_center_x, distortion_center_y), dim=-1)
@@ -828,29 +656,25 @@ class GeoLensEval:
     def draw_distortion_map(
         self, save_name=None, num_grid=16, depth=None, wvln=None, show=False
     ):
-        """Draw a scatter plot of the distortion grid.
+        """绘制畸变网格散点图。
 
-        Visualizes the output of ``calc_distortion_map()`` as a scatter plot on
-        ``[-1, 1]`` normalized sensor coordinates.  An undistorted lens would
-        show a perfect rectilinear grid; deviations reveal barrel or pincushion
-        distortion.
+        在归一化传感器坐标 ``[-1, 1]`` 上显示 ``calc_distortion_map()`` 的输出。
+        无畸变透镜应形成规则直线网格，偏离情况可显示桶形或枕形畸变。
 
-        Args:
-            save_name (str | None): File path for the output PNG.  If ``None``,
-                auto-generates ``'./distortion_{depth}.png'``.
-            num_grid (int): Grid resolution per axis. Defaults to 16.
-            depth (float): Object distance in mm. When ``None`` (default),
-                falls back to ``self.obj_depth``.
-            wvln (float): Wavelength in µm. When ``None`` (default), falls
-                back to ``self.primary_wvln``.
-            show (bool): If ``True``, display interactively. Defaults to ``False``.
+        参数：
+            save_name (str | None): 输出 PNG 的路径；为 ``None`` 时自动生成
+                ``'./distortion_{depth}.png'``。
+            num_grid (int): 每个轴的网格分辨率，默认为 16。
+            depth (float): 物距，单位 mm；为 ``None`` 时使用 ``self.obj_depth``。
+            wvln (float): 波长，单位 µm；为 ``None`` 时使用 ``self.primary_wvln``。
+            show (bool): 为 ``True`` 时交互显示，默认为 ``False``。
         """
         wvln = self.primary_wvln if wvln is None else wvln
         depth = self.obj_depth if depth is None else depth
-        # Ray tracing to calculate distortion map
+        # 通过光线追迹计算畸变图
         distortion_grid = self.calc_distortion_map(num_grid=num_grid, depth=depth, wvln=wvln)
-        # Scale axes so the plot preserves the physical sensor aspect ratio:
-        # longer side → ±1, shorter side → ±(shorter/longer).
+        # 缩放坐标轴以保持传感器的物理宽高比：长边映射到 ±1，
+        # 短边映射到 ±(shorter/longer)。
         sensor_w, sensor_h = self.sensor_size
         max_half = max(sensor_w, sensor_h) / 2
         aspect_x = (sensor_w / 2) / max_half
@@ -858,15 +682,15 @@ class GeoLensEval:
         x1 = distortion_grid[..., 0].cpu().numpy() * aspect_x
         y1 = distortion_grid[..., 1].cpu().numpy() * aspect_y
 
-        # Draw image
+        # 绘制图像
         fig, ax = plt.subplots()
         ax.set_axisbelow(True)
         ax.grid(True)
         ax.scatter(x1, y1, s=20, zorder=3)
         ax.axis("scaled")
 
-        # Grid lines based on grid_size, scaled per axis so the overlay
-        # matches the data extent (±aspect_x × ±aspect_y).
+        # 按 grid_size 绘制网格线，并逐轴缩放，使叠加网格匹配数据范围
+        # （±aspect_x × ±aspect_y）。
         ax.set_xticks(np.linspace(-aspect_x, aspect_x, num_grid))
         ax.set_yticks(np.linspace(-aspect_y, aspect_y, num_grid))
         ax.set_xticklabels([])
@@ -885,37 +709,24 @@ class GeoLensEval:
         plt.close(fig)
 
     # ================================================================
-    # MTF
+    # 调制传递函数（MTF）
     # ================================================================
     def mtf(self, fov, wvln=None):
-        """Compute the geometric MTF at a single field position.
+        """计算单一视场位置的几何 MTF。
 
-        The *Modulation Transfer Function* describes how well the lens preserves
-        contrast as a function of spatial frequency.  MTF = 1 at low frequencies
-        (perfect contrast) and falls toward 0 near the diffraction limit or the
-        Nyquist frequency of the sensor.
+        调制传递函数描述透镜随空间频率保持对比度的能力。本实现采用基于光线的几何方法：
+        先通过 ``self.psf()`` 计算指定视场位置的 PSF，再由 ``psf2mtf()`` 投影到切向和
+        弧矢方向并计算一维 FFT 幅值。切向与弧矢 MTF 的差异可反映像散。
 
-        This implementation uses the *geometric* (ray-based) approach:
-            1. Compute the PSF at the given field position via ``self.psf()``.
-            2. Convert PSF → MTF via ``psf2mtf()`` (project onto tangential and
-               sagittal axes, then take the magnitude of the 1-D FFT).
+        参数：
+            fov (float): 视场角，单位 rad；内部映射为归一化点
+                ``[0, -fov/rfov, self.obj_depth]``。
+            wvln (float): 波长，单位 µm；为 ``None`` 时使用 ``self.primary_wvln``。
 
-        Tangential MTF captures resolution in the meridional (radial) direction;
-        sagittal MTF captures resolution perpendicular to it.  The difference
-        between the two indicates astigmatism.
-
-        Args:
-            fov (float): Field angle in radians.  Internally mapped to a
-                normalized point ``[0, -fov/rfov, self.obj_depth]``.
-            wvln (float): Wavelength in µm. When ``None`` (default), falls
-                back to ``self.primary_wvln``.
-
-        Returns:
-            freq (np.ndarray): Spatial frequency axis in cycles/mm (positive
-                frequencies only, excluding DC).
-            mtf_tan (np.ndarray): Tangential (meridional) MTF values, normalized
-                so that MTF → 1 at low frequency.
-            mtf_sag (np.ndarray): Sagittal MTF values, same normalization.
+        返回：
+            freq (np.ndarray): 空间频率轴，单位 cycles/mm，仅含不包括 DC 的正频率。
+            mtf_tan (np.ndarray): 切向（子午）MTF，归一化后低频处趋近 1。
+            mtf_sag (np.ndarray): 弧矢 MTF，采用相同归一化方式。
         """
         wvln = self.primary_wvln if wvln is None else wvln
         point = [0, -fov / self.rfov, self.obj_depth]
@@ -925,38 +736,30 @@ class GeoLensEval:
 
     @staticmethod
     def psf2mtf(psf, pixel_size):
-        """Convert a 2-D point-spread function to tangential and sagittal MTF curves.
+        """将二维点扩散函数转换为切向和弧矢 MTF 曲线。
 
-        The MTF is the magnitude of the optical transfer function (OTF), which
-        is the Fourier transform of the PSF.  For separable 1-D analysis:
-            1. Integrate the PSF along the x-axis → *tangential* line-spread
-               function (LSF_tan).
-            2. Integrate the PSF along the y-axis → *sagittal* LSF_sag.
-            3. Take ``|FFT(LSF)|`` and normalize by the DC component so that
-               MTF(0) = 1.
+        MTF 是光学传递函数 OTF 的幅值，而 OTF 是 PSF 的傅里叶变换。进行可分离的一维
+        分析时，沿 x 轴积分 PSF 得到切向线扩散函数，沿 y 轴积分得到弧矢线扩散函数，
+        再计算 ``|FFT(LSF)|`` 并用 DC 分量归一化，使 MTF(0) = 1。按照 Zemax MTF
+        图的约定，仅返回不包括 DC 的正频率。
 
-        Only positive frequencies (excluding DC) are returned, following the
-        convention used in Zemax MTF plots.
+        参数：
+            psf (torch.Tensor | np.ndarray): 二维 PSF，shape 为 ``[H, W]``。
+                y 轴（行）对应切向（子午）方向，x 轴（列）对应弧矢方向。
+            pixel_size (float): 像素间距，单位 mm；频率轴缩放满足
+                ``Nyquist = 0.5 / pixel_size`` cycles/mm。
 
-        Args:
-            psf (torch.Tensor | np.ndarray): 2-D PSF with shape ``[H, W]``.
-                The array's y-axis (rows) corresponds to the **tangential**
-                (meridional) direction; x-axis (columns) to the **sagittal**
-                direction.
-            pixel_size (float): Pixel pitch in mm.  Determines the frequency
-                axis scaling: ``Nyquist = 0.5 / pixel_size`` cycles/mm.
+        返回：
+            freq (np.ndarray): 空间频率，单位 cycles/mm，为不包括 DC 的正频率，
+                长度约为 ``W // 2``。
+            mtf_tan (np.ndarray): 切向 MTF，在 DC 处归一化为 1。
+            mtf_sag (np.ndarray): 弧矢 MTF，在 DC 处归一化为 1。
 
-        Returns:
-            freq (np.ndarray): Spatial frequency in cycles/mm (positive,
-                excluding DC).  Length is roughly ``W // 2``.
-            mtf_tan (np.ndarray): Tangential MTF, normalized to 1 at DC.
-            mtf_sag (np.ndarray): Sagittal MTF, normalized to 1 at DC.
-
-        References:
+        参考资料：
             - https://en.wikipedia.org/wiki/Optical_transfer_function
             - Edmund Optics: Introduction to Modulation Transfer Function.
         """
-        # Convert to numpy (supports torch tensors and numpy arrays)
+        # 转为 numpy（支持 torch tensor 和 numpy array）
         try:
             psf_np = psf.detach().cpu().numpy()
         except AttributeError:
@@ -965,16 +768,16 @@ class GeoLensEval:
             except AttributeError:
                 psf_np = np.asarray(psf)
 
-        # Compute line spread functions (integrate PSF over orthogonal axes)
-        # y-axis corresponds to tangential; x-axis corresponds to sagittal
-        lsf_sagittal = psf_np.sum(axis=0)  # function of x
-        lsf_tangential = psf_np.sum(axis=1)  # function of y
+        # 计算线扩散函数（沿正交轴积分 PSF）
+        # y 轴对应切向，x 轴对应弧矢
+        lsf_sagittal = psf_np.sum(axis=0)  # x 的函数
+        lsf_tangential = psf_np.sum(axis=1)  # y 的函数
 
-        # One-sided spectra (for real inputs)
+        # 单边频谱（适用于实数输入）
         mtf_sag = np.abs(np.fft.rfft(lsf_sagittal))
         mtf_tan = np.abs(np.fft.rfft(lsf_tangential))
 
-        # Normalize by DC to ensure MTF(0) == 1
+        # 使用 DC 分量归一化，确保 MTF(0) == 1
         dc_sag = mtf_sag[0] if mtf_sag.size > 0 else 1.0
         dc_tan = mtf_tan[0] if mtf_tan.size > 0 else 1.0
         if dc_sag != 0:
@@ -982,7 +785,7 @@ class GeoLensEval:
         if dc_tan != 0:
             mtf_tan = mtf_tan / dc_tan
 
-        # Frequency axis in cycles/mm (one-sided)
+        # 单边频率轴，单位 cycles/mm
         fx = np.fft.rfftfreq(lsf_sagittal.size, d=pixel_size)
         freq = fx
         positive_freq_idx = freq > 0
@@ -1002,33 +805,21 @@ class GeoLensEval:
         psf_ks=128,
         show=False,
     ):
-        """Draw a grid of MTF curves for multiple depths and field positions.
+        """绘制多个深度和视场位置的 MTF 曲线网格。
 
-        Produces a ``len(depth_list) × len(relative_fov_list)`` subplot grid.
-        Each subplot shows the tangential (T, solid) and sagittal (S, dashed)
-        MTF for R, G, B wavelengths plus a vertical line at the sensor Nyquist
-        frequency (``0.5 / pixel_size`` cycles/mm).
+        生成 ``len(depth_list) × len(relative_fov_list)`` 子图网格。每个子图显示
+        R、G、B 波长的切向 MTF（T，实线）和弧矢 MTF（S，虚线），并在传感器
+        Nyquist 频率 ``0.5 / pixel_size`` cycles/mm 处绘制竖线。
 
-        Algorithm per subplot:
-            1. Compute the RGB PSF via ``self.psf_rgb()`` at the specified
-               ``(depth, relative_fov)`` with kernel size ``psf_ks``.
-            2. For each wavelength channel, call ``psf2mtf()`` to obtain the
-               tangential and sagittal MTF curves.
-            3. Plot frequency vs MTF with RGB coloring (T solid, S dashed).
-
-        Args:
-            save_name (str): File path for the output PNG.
-                Defaults to ``'./lens_mtf.png'``.
-            relative_fov_list (list[float]): Relative field positions in
-                ``[0, 1]``, where 0 = on-axis and 1 = full field.
-                Defaults to ``[0.0, 0.7, 1.0]``.
-            depth_list (list[float]): Object distances in mm.
-                ``float('inf')`` is automatically replaced by
-                ``self.obj_depth``.  When ``None`` (default), uses
-                ``[self.obj_depth]``.
-            psf_ks (int): PSF kernel size in pixels (controls frequency
-                resolution of the resulting MTF). Defaults to 128.
-            show (bool): If ``True``, display interactively. Defaults to ``False``.
+        参数：
+            save_name (str): 输出 PNG 的路径，默认为 ``'./lens_mtf.png'``。
+            relative_fov_list (list[float]): ``[0, 1]`` 内的相对视场位置，
+                0 表示轴上，1 表示全视场；默认为 ``[0.0, 0.7, 1.0]``。
+            depth_list (list[float]): 物距列表，单位 mm；``float('inf')`` 会替换为
+                ``self.obj_depth``，为 ``None`` 时使用 ``[self.obj_depth]``。
+            psf_ks (int): PSF 核尺寸，单位 pixel，用于控制 MTF 频率分辨率；
+                默认为 128。
+            show (bool): 为 ``True`` 时交互显示，默认为 ``False``。
         """
         if depth_list is None:
             depth_list = [self.obj_depth]
@@ -1039,25 +830,25 @@ class GeoLensEval:
             depth_list = [self.obj_depth if x == float("inf") else x for x in depth_list]
         num_depths = len(depth_list)
 
-        # Create figure and subplots (num_depths * num_fovs subplots)
+        # 创建图像和子图（共 num_depths * num_fovs 个子图）
         fig, axs = plt.subplots(
             num_depths, num_fovs, figsize=(num_fovs * 3, num_depths * 3), squeeze=False
         )
 
-        # Iterate over depth and field of view
+        # 遍历深度和视场
         for depth_idx, depth in enumerate(depth_list):
             for fov_idx, fov_relative in enumerate(relative_fov_list):
-                # Calculate rgb PSF
+                # 计算 RGB PSF
                 point = [0, -fov_relative, depth]
                 psf_rgb = self.psf_rgb(points=point, ks=psf_ks, recenter=True)
 
-                # Calculate MTF curves for rgb wavelengths
+                # 计算 RGB 各波长的 MTF 曲线
                 for wvln_idx, wvln in enumerate(self.wvln_rgb):
-                    # Calculate tangential + sagittal MTF curves from PSF
+                    # 从 PSF 计算切向与弧矢 MTF 曲线
                     psf = psf_rgb[wvln_idx]
                     freq, mtf_tan, mtf_sag = self.psf2mtf(psf, pixel_size)
 
-                    # Plot MTF curves (tangential solid, sagittal dashed)
+                    # 绘制 MTF 曲线（切向为实线，弧矢为虚线）
                     ax = axs[depth_idx, fov_idx]
                     color = RGB_COLORS[wvln_idx % len(RGB_COLORS)]
                     wvln_label = RGB_LABELS[wvln_idx % len(RGB_LABELS)]
@@ -1077,7 +868,7 @@ class GeoLensEval:
                         label=f"{wvln_label}({wvln_nm}nm)-S",
                     )
 
-                # Draw Nyquist frequency
+                # 绘制 Nyquist 频率
                 ax.axvline(
                     x=nyquist_freq,
                     color="k",
@@ -1086,7 +877,7 @@ class GeoLensEval:
                     label="Nyquist",
                 )
 
-                # Set title and label for subplot
+                # 设置子图标题和标签
                 fov_deg = round(fov_relative * self.rfov * 180 / np.pi, 1)
                 depth_str = "inf" if depth == float("inf") else f"{depth}"
                 ax.set_title(f"FOV: {fov_deg}deg, Depth: {depth_str}mm", fontsize=8)
@@ -1106,76 +897,63 @@ class GeoLensEval:
         plt.close(fig)
 
     # ================================================================
-    # Vignetting
+    # 渐晕
     # ================================================================
     @torch.no_grad()
     def vignetting(self, depth=None, num_grid=32, num_rays=512):
-        """Compute the relative-illumination (vignetting) map across the field.
+        """计算全视场的相对照度（渐晕）图。
 
-        Vignetting measures how much light is lost at each field position due to
-        rays being clipped by lens apertures or barrel edges.  It is computed as
-        the fraction of traced rays that remain valid (not vignetted) at each
-        grid cell, normalized by the total number of launched rays.
+        渐晕衡量各视场位置因光线被透镜孔径或镜筒边缘裁剪而损失的光量。每个网格单元
+        的结果为追迹后仍有效的光线数占发射光线总数的比例。1.0 表示所有光线都到达
+        传感器，0.0 表示完全遮挡。
 
-        A value of 1.0 means all rays reach the sensor (no vignetting); 0.0
-        means complete light blockage.  Real lenses typically show 1.0 on-axis
-        and fall off toward the field edges due to mechanical vignetting and the
-        cos⁴ illumination law.
+        使用 ``uniform_fov=False`` 的 ``self.sample_grid_rays()`` 在像空间均匀采样，
+        再由 ``self.trace2sensor()`` 追迹并将被裁剪光线标记为无效；单元透过率为
+        ``count(valid) / num_rays``。
 
-        Algorithm:
-            1. ``self.sample_grid_rays()`` with ``uniform_fov=False`` (uniform
-               image-space sampling) to ensure correct sensor-plane mapping.
-            2. ``self.trace2sensor()`` propagates rays and marks clipped ones as
-               invalid.
-            3. Per-cell throughput = ``count(valid) / num_rays``.
+        参数：
+            depth (float): 物距，单位 mm；为 ``None`` 时使用 ``self.obj_depth``。
+            num_grid (int): 每个轴的网格分辨率，默认为 32。
+            num_rays (int): 每个网格单元发射的光线数；数值越大，Monte Carlo 噪声
+                越低，默认为 512。
 
-        Args:
-            depth (float): Object distance in mm. When ``None`` (default),
-                falls back to ``self.obj_depth``.
-            num_grid (int): Grid resolution per axis. Defaults to 32.
-            num_rays (int): Rays launched per grid cell.  Higher values reduce
-                Monte-Carlo noise. Defaults to 512.
-
-        Returns:
-            vignetting (torch.Tensor): Vignetting map with shape
-                ``[num_grid, num_grid]``, values in ``[0, 1]``.
+        返回：
+            vignetting (torch.Tensor): 渐晕图，shape 为 ``[num_grid, num_grid]``，
+                数值范围为 ``[0, 1]``。
         """
         depth = self.obj_depth if depth is None else depth
-        # Sample rays in uniform image space (not FOV angles) for correct sensor mapping
-        # shape [num_grid, num_grid, num_rays, 3]
+        # 在均匀像空间而非视场角空间采样，以正确映射传感器
+        # shape 为 [num_grid, num_grid, num_rays, 3]
         ray = self.sample_grid_rays(
             depth=depth, num_grid=num_grid, num_rays=num_rays, uniform_fov=False
         )
 
-        # Trace rays to sensor
+        # 将光线追迹至传感器
         ray = self.trace2sensor(ray)
 
-        # Calculate vignetting map
+        # 计算渐晕图
         vignetting = ray.is_valid.sum(-1) / (ray.is_valid.shape[-1])
         return vignetting
 
     @torch.no_grad()
     def draw_vignetting(self, filename=None, depth=None, resolution=512, show=False):
-        """Draw the vignetting map as a grayscale image with a colorbar.
+        """将渐晕图绘制为带色条的灰度图。
 
-        Computes the vignetting map via ``self.vignetting()``, bilinearly
-        upsamples it to ``resolution × resolution``, and displays it as a
-        grayscale image where white = no vignetting and black = fully vignetted.
+        通过 ``self.vignetting()`` 计算渐晕图，再双线性上采样至
+        ``resolution × resolution``。白色表示无渐晕，黑色表示完全渐晕。
 
-        Args:
-            filename (str | None): File path for the output PNG.  If ``None``,
-                auto-generates ``'./vignetting_{depth}.png'``.
-            depth (float): Object distance in mm. When ``None`` (default),
-                falls back to ``self.obj_depth``.
-            resolution (int): Output image size in pixels (square).
-                Defaults to 512.
-            show (bool): If ``True``, display interactively. Defaults to ``False``.
+        参数：
+            filename (str | None): 输出 PNG 的路径；为 ``None`` 时自动生成
+                ``'./vignetting_{depth}.png'``。
+            depth (float): 物距，单位 mm；为 ``None`` 时使用 ``self.obj_depth``。
+            resolution (int): 方形输出图像的边长，单位 pixel，默认为 512。
+            show (bool): 为 ``True`` 时交互显示，默认为 ``False``。
         """
         depth = self.obj_depth if depth is None else depth
-        # Calculate vignetting map
+        # 计算渐晕图
         vignetting = self.vignetting(depth=depth)
 
-        # Interpolate vignetting map to desired resolution
+        # 将渐晕图插值到目标分辨率
         vignetting = F.interpolate(
             vignetting.unsqueeze(0).unsqueeze(0),
             size=(resolution, resolution),
@@ -1197,7 +975,7 @@ class GeoLensEval:
         plt.close(fig)
 
     # ================================================================
-    # Chief ray calculation and ray aiming
+    # 主光线计算与光线瞄准
     # ================================================================
     @torch.no_grad()
     def calc_chief_ray_infinite(
@@ -1209,49 +987,30 @@ class GeoLensEval:
         num_rays=SPP_CALC,
         ray_aiming=True,
     ):
-        """Compute chief rays for one or more field angles with optional ray aiming.
+        """计算一个或多个视场角的主光线，并可选执行光线瞄准。
 
-        This computes chief rays with vectorized evaluation over multiple
-        field angles and implements
-        *ray aiming* — an iterative procedure that launches a fan of rays
-        toward the entrance pupil and selects the one that passes closest to
-        the aperture-stop center.  Ray aiming is essential for accurate
-        distortion measurement in wide-angle or fisheye lenses where the
-        paraxial approximation breaks down.
+        本方法对多个视场角进行向量化计算。光线瞄准会向入瞳发射一束光线，并选择在
+        孔径光阑处最接近光轴的光线。对于近轴近似失效的广角或鱼眼透镜，该过程对准确
+        测量畸变十分重要。
 
-        Algorithm:
-            1. For on-axis (``rfov = 0``): chief ray is trivially along the
-               z-axis.
-            2. For off-axis angles with ``ray_aiming=False``: the chief ray is
-               aimed at the entrance pupil center (paraxial approximation).
-            3. For off-axis angles with ``ray_aiming=True``:
-               a. Estimate the object-space y (or x) position from the entrance
-                  pupil geometry.
-               b. Create a narrow fan of ``num_rays`` rays bracketing that
-                  estimate (width = 5 % of y_distance, clamped to
-                  ``0.05 * pupil_radius``).
-               c. Trace the fan to the aperture stop.
-               d. Pick the ray closest to the optical axis at the stop.
+        轴上（``rfov = 0``）主光线沿 z 轴；轴外且 ``ray_aiming=False`` 时，主光线
+        直接瞄准入瞳中心；启用瞄准时，根据入瞳几何估算物方位置，在其附近生成
+        ``num_rays`` 条搜索光线，追迹至孔径光阑并选取最靠近光轴的一条。
 
-        Args:
-            rfov (float | torch.Tensor): Field angle(s) in **degrees**.
-                A positive scalar is expanded to ``[0, rfov]`` (two-element
-                tensor); a non-positive scalar becomes a single-element
-                tensor.  A tensor of shape ``[N]`` is used directly.
-            depth (float | torch.Tensor): Object depth(s) in mm.
-                Defaults to 0.0 (object at the first surface).
-            wvln (float): Wavelength in µm. When ``None`` (default), falls
-                back to ``self.primary_wvln``.
-            plane (str): ``'sagittal'`` or ``'meridional'``.
-                Defaults to ``'meridional'``.
-            num_rays (int): Size of the search fan for ray aiming.
-                Defaults to ``SPP_CALC``.
-            ray_aiming (bool): If ``True``, perform iterative ray aiming for
-                accurate chief-ray identification. Defaults to ``True``.
+        参数：
+            rfov (float | torch.Tensor): 视场角，单位 degree。正标量扩展为
+                ``[0, rfov]``，非正标量转为单元素 tensor，shape 为 ``[N]`` 的
+                tensor 则直接使用。
+            depth (float | torch.Tensor): 物方深度，单位 mm，默认为 0.0。
+            wvln (float): 波长，单位 µm；为 ``None`` 时使用 ``self.primary_wvln``。
+            plane (str): ``'sagittal'`` 或 ``'meridional'``，默认为
+                ``'meridional'``。
+            num_rays (int): 光线瞄准搜索束的光线数，默认为 ``SPP_CALC``。
+            ray_aiming (bool): 为 ``True`` 时执行光线瞄准，默认为 ``True``。
 
-        Returns:
-            chief_ray_o (torch.Tensor): Origins, shape ``[N, 3]``.
-            chief_ray_d (torch.Tensor): Unit directions, shape ``[N, 3]``.
+        返回：
+            chief_ray_o (torch.Tensor): 光线起点，shape 为 ``[N, 3]``。
+            chief_ray_d (torch.Tensor): 单位方向，shape 为 ``[N, 3]``。
         """
         wvln = self.primary_wvln if wvln is None else wvln
         if isinstance(rfov, (int, float)):
@@ -1265,11 +1024,11 @@ class GeoLensEval:
         if not isinstance(depth, torch.Tensor):
             depth = torch.tensor(depth, device=self.device).repeat(len(rfov))
 
-        # set chief ray
+        # 设置主光线
         chief_ray_o = torch.zeros([len(rfov), 3], device=self.device)
         chief_ray_d = torch.zeros([len(rfov), 3], device=self.device)
 
-        # Convert rfov to radian
+        # 将 rfov 转换为 rad
         rfov = rfov * torch.pi / 180.0
 
         if torch.any(rfov == 0):
@@ -1282,7 +1041,7 @@ class GeoLensEval:
             if len(rfov) == 1:
                 return chief_ray_o, chief_ray_d
 
-        # Extract non-zero rfov entries for processing
+        # 提取非零 rfov 条目进行处理
         has_zero = torch.any(rfov == 0)
         if has_zero:
             start_idx = 1
@@ -1313,13 +1072,13 @@ class GeoLensEval:
 
             return chief_ray_o, chief_ray_d
 
-        # Scale factor
+        # 缩放因子
         pupilz, pupilr = self.calc_entrance_pupil()
         y_distance = torch.tan(rfovs) * (abs(depths) + pupilz)
 
         if ray_aiming:
             scale = 0.05
-            min_delta = 0.05 * pupilr  # minimum search range based on pupil radius
+            min_delta = 0.05 * pupilr  # 基于瞳孔半径设置最小搜索范围
             delta = torch.clamp(scale * y_distance, min=min_delta)
 
         if not ray_aiming:
@@ -1347,7 +1106,7 @@ class GeoLensEval:
             o1_linspace = min_y.unsqueeze(-1) + t * (max_y - min_y).unsqueeze(-1)
 
             o1 = torch.zeros([len(rfovs), num_rays, 3], device=self.device)
-            # Use each field's own depth, not depths[0] for all fields.
+            # 每个视场使用自身深度，而不是全部使用 depths[0]。
             o1[:, :, 2] = depths.unsqueeze(-1)
 
             o2_linspace = -delta.unsqueeze(-1) + t * (2 * delta).unsqueeze(-1)
@@ -1362,13 +1121,13 @@ class GeoLensEval:
                 o1[:, :, 1] = o1_linspace
                 o2[:, :, 1] = o2_linspace
 
-            # Trace until the aperture
+            # 追迹至孔径光阑
             ray = Ray(o1, o2 - o1, wvln=wvln, device=self.device)
             inc_ray = ray.clone()
             surf_range = range(0, self.aper_idx + 1)
             ray, _ = self.trace(ray, surf_range=surf_range)
 
-            # Look for the ray that is closest to the optical axis
+            # 查找最接近光轴的光线
             if plane == "sagittal":
                 _, center_idx = torch.min(torch.abs(ray.o[..., 0]), dim=1)
                 chief_ray_o[start_idx:, ...] = inc_ray.o[
@@ -1391,7 +1150,7 @@ class GeoLensEval:
         return chief_ray_o, chief_ray_d
 
     # ====================================================================================
-    # Spot, rendering, and comprehensive analysis
+    # 点列、渲染与综合分析
     # ====================================================================================
     @torch.no_grad()
     def analysis_rendering(
@@ -1404,49 +1163,37 @@ class GeoLensEval:
         method="ray_tracing",
         show=False,
     ):
-        """Render a test image through the lens and report PSNR / SSIM.
+        """通过透镜渲染测试图像并报告 PSNR / SSIM。
 
-        Simulates what the sensor would capture if the given image were placed
-        at the specified object distance.  The rendering accounts for all
-        geometric aberrations (blur, distortion, vignetting, chromatic effects).
-        Optionally applies an inverse distortion warp (``unwarp``) and reports
-        quality metrics for both the raw and unwarped renderings.
+        模拟把给定图像放在指定物距时传感器捕获的结果。渲染考虑模糊、畸变、渐晕和
+        色差等全部几何像差，并可选执行逆畸变校正 ``unwarp``，分别报告原始渲染和
+        校正后渲染的质量指标。
 
-        Algorithm:
-            1. Convert ``img_org`` to a ``[1, 3, H, W]`` float tensor and
-               temporarily set the sensor resolution to match.
-            2. Call ``self.render()`` with the chosen method (ray tracing or
-               PSF-map / PSF-patch convolution).
-            3. Compute PSNR and SSIM between the original and rendered images.
-            4. If ``unwarp=True``, apply ``self.unwarp()`` to correct geometric
-               distortion and report metrics again.
-            5. Restore the original sensor resolution.
+        本方法把 ``img_org`` 转为 ``[1, 3, H, W]`` 浮点 tensor，临时调整传感器
+        分辨率，调用 ``self.render()``，计算原图与渲染图之间的 PSNR 和 SSIM，必要时
+        调用 ``self.unwarp()``，最后恢复原传感器分辨率。
 
-        Args:
-            img_org (np.ndarray | torch.Tensor): Source image with shape
-                ``[H, W, 3]``, either uint8 ``[0, 255]`` or float ``[0, 1]``.
-            save_name (str | None): Path prefix for saved PNGs.  If not
-                ``None``, saves ``'{save_name}.png'`` and (if unwarped)
-                ``'{save_name}_unwarped.png'``. Defaults to ``None``.
-            depth (float): Object distance in mm. When ``None`` (default),
-                falls back to ``self.obj_depth``.
-            spp (int): Samples (rays) per pixel for rendering.
-                Defaults to ``SPP_RENDER``.
-            unwarp (bool): If ``True``, apply distortion correction after
-                rendering. Defaults to ``False``.
-            method (str): Rendering backend — ``'ray_tracing'``, ``'psf_map'``,
-                or ``'psf_patch'``. Defaults to ``'ray_tracing'``.
-            show (bool): If ``True``, display the result with matplotlib.
-                Defaults to ``False``.
+        参数：
+            img_org (np.ndarray | torch.Tensor): 源图像，shape 为 ``[H, W, 3]``，
+                可为 uint8 ``[0, 255]`` 或 float ``[0, 1]``。
+            save_name (str | None): 保存 PNG 的路径前缀；非 ``None`` 时保存
+                ``'{save_name}.png'``，若校正畸变还保存
+                ``'{save_name}_unwarped.png'``。
+            depth (float): 物距，单位 mm；为 ``None`` 时使用 ``self.obj_depth``。
+            spp (int): 每个像素的渲染采样数（光线数），默认为 ``SPP_RENDER``。
+            unwarp (bool): 为 ``True`` 时在渲染后校正畸变，默认为 ``False``。
+            method (str): 渲染后端，可为 ``'ray_tracing'``、``'psf_map'`` 或
+                ``'psf_patch'``，默认为 ``'ray_tracing'``。
+            show (bool): 为 ``True`` 时使用 matplotlib 显示结果，默认为 ``False``。
 
-        Returns:
-            img_render (torch.Tensor): Rendered (and optionally unwarped) image
-                with shape ``[1, 3, H, W]``, float values in ``[0, 1]``.
+        返回：
+            img_render (torch.Tensor): 渲染后（并可选反扭曲）的图像，shape 为
+                ``[1, 3, H, W]``，浮点值范围为 ``[0, 1]``。
         """
         from skimage.metrics import peak_signal_noise_ratio, structural_similarity
         from torchvision.utils import save_image
         depth = self.obj_depth if depth is None else depth
-        # Change sensor resolution to match the image
+        # 调整传感器分辨率以匹配图像
         sensor_res_original = self.sensor_res
         if isinstance(img_org, np.ndarray):
             img = torch.from_numpy(img_org).permute(2, 0, 1).unsqueeze(0).float() / 255.0
@@ -1457,25 +1204,25 @@ class GeoLensEval:
         img = img.to(self.device)
         self.set_sensor_res(sensor_res=img.shape[-2:])
 
-        # Image rendering
+        # 图像渲染
         img_render = self.render(img, depth=depth, method=method, spp=spp)
 
-        # Compute PSNR and SSIM
+        # 计算 PSNR 和 SSIM
         img_np = img.squeeze(0).permute(1, 2, 0).cpu().numpy()
         render_np = img_render.squeeze(0).permute(1, 2, 0).clamp(0, 1).cpu().detach().numpy()
         render_psnr = round(peak_signal_noise_ratio(img_np, render_np, data_range=1.0), 3)
         render_ssim = round(structural_similarity(img_np, render_np, channel_axis=2, data_range=1.0), 4)
         print(f"Rendered image: PSNR={render_psnr:.3f}, SSIM={render_ssim:.4f}")
 
-        # Save image
+        # 保存图像
         if save_name is not None:
             save_image(img_render, f"{save_name}.png")
 
-        # Unwarp to correct geometry distortion
+        # 反扭曲以校正几何畸变
         if unwarp:
             img_render = self.unwarp(img_render, depth)
 
-            # Compute PSNR and SSIM
+            # 计算 PSNR 和 SSIM
             render_np = img_render.squeeze(0).permute(1, 2, 0).clamp(0, 1).cpu().detach().numpy()
             render_psnr = round(peak_signal_noise_ratio(img_np, render_np, data_range=1.0), 3)
             render_ssim = round(structural_similarity(img_np, render_np, channel_axis=2, data_range=1.0), 4)
@@ -1486,10 +1233,10 @@ class GeoLensEval:
             if save_name is not None:
                 save_image(img_render, f"{save_name}_unwarped.png")
 
-        # Change the sensor resolution back
+        # 恢复传感器分辨率
         self.set_sensor_res(sensor_res=sensor_res_original)
 
-        # Show image
+        # 显示图像
         if show:
             plt.imshow(img_render.cpu().squeeze(0).permute(1, 2, 0).numpy())
             plt.title("Rendered image")
@@ -1501,40 +1248,28 @@ class GeoLensEval:
 
     @torch.no_grad()
     def analysis_spot(self, num_field=3, depth=float("inf")):
-        """Compute RMS and geometric spot radii at multiple field positions for RGB.
+        """计算 RGB 在多个视场位置的 RMS 与几何点列半径。
 
-        Traces rays at ``num_field`` evenly-spaced field positions along the
-        meridional direction for three wavelengths (R, G, B), and computes
-        polychromatic RMS and geometric spot radii referenced to the
-        **combined centroid across all wavelengths** (matching Zemax's
-        default "RMS Spot Radius w.r.t. Centroid").
+        沿子午方向的 ``num_field`` 个等间隔视场位置追迹 R、G、B 三个波长，并以
+        **全部波长的联合质心**为参考计算复色 RMS 和几何点列半径，与 Zemax 默认的
+        “相对于质心的 RMS 点列半径”一致。
 
-        This provides a quick polychromatic spot-size summary used for design
-        comparisons and printed to stdout during ``analysis()``.
+        对每个视场点，汇总三个波长的所有有效光线交点并计算联合质心 ``c``；
+        ``RMS = sqrt(mean(||xy - c||²))``，几何半径为
+        ``max(||xy - c||)``，最后从 mm 转为 μm（× 1000）。
 
-        Algorithm (per field point):
-            1. Trace R, G, B rays through the lens to the sensor.
-            2. Pool all valid ray intercepts (across all three wavelengths)
-               and compute one combined centroid ``c``.
-            3. RMS = sqrt(mean(||xy - c||²)) over all pooled rays — a single
-               polychromatic RMS that includes lateral chromatic aberration.
-            4. radius = max(||xy - c||) over all pooled rays.
-            5. Convert from mm to μm (× 1000).
+        参数：
+            num_field (int): 从轴上到全视场的采样位置数，默认为 3。
+            depth (float): 物距，单位 mm；准直光使用 ``float('inf')``，默认为
+                ``float('inf')``。
 
-        Args:
-            num_field (int): Number of field positions sampled from on-axis
-                to full-field. Defaults to 3.
-            depth (float): Object distance in mm.  Use ``float('inf')`` for
-                collimated light. Defaults to ``float('inf')``.
-
-        Returns:
-            rms_results (dict[str, dict[str, float]]): Spot analysis results
-                keyed by field position string (e.g., ``'fov0.0'``,
-                ``'fov0.5'``, ``'fov1.0'``). Each value is a dict with:
-                    - ``'rms'``: Polychromatic RMS spot radius in μm.
-                    - ``'radius'``: Polychromatic geometric spot radius in μm.
+        返回：
+            rms_results (dict[str, dict[str, float]]): 按视场位置字符串索引的点列
+                分析结果，例如 ``'fov0.0'``、``'fov0.5'``、``'fov1.0'``。
+                ``'rms'`` 为复色 RMS 点列半径，``'radius'`` 为复色几何点列半径，
+                两者单位均为 μm。
         """
-        # Trace each wavelength and pool rays across wavelengths per field
+        # 分别追迹各波长，并按视场汇总跨波长光线
         xy_list = []
         valid_list = []
         for wvln in self.wvln_rgb:
@@ -1545,35 +1280,35 @@ class GeoLensEval:
             xy_list.append(ray.o[..., :2])
             valid_list.append(ray.is_valid)
 
-        # Pool over wavelengths, shape [num_field, 3*num_rays, 2] and [num_field, 3*num_rays]
+        # 沿波长维汇总，shape 分别为 [num_field, 3*num_rays, 2] 和 [num_field, 3*num_rays]
         xy_all = torch.cat(xy_list, dim=-2)
         valid_all = torch.cat(valid_list, dim=-1)
 
-        # Combined polychromatic centroid per field, shape [num_field, 1, 2]
+        # 各视场的联合复色质心，shape 为 [num_field, 1, 2]
         valid_mask = valid_all.unsqueeze(-1)
         center = (xy_all * valid_mask).sum(-2) / (
             valid_all.sum(-1, keepdim=True) + EPSILON
         )
         center = center.unsqueeze(-2)
 
-        # Squared distance to combined centroid, shape [num_field, 3*num_rays]
+        # 到联合质心的距离平方，shape 为 [num_field, 3*num_rays]
         dist_sq = ((xy_all - center) ** 2).sum(-1)
 
-        # Polychromatic RMS spot radius per field, shape [num_field]
+        # 各视场的复色 RMS 点列半径，shape 为 [num_field]
         spot_rms = (
             (dist_sq * valid_all).sum(-1) / (valid_all.sum(-1) + EPSILON)
         ).sqrt()
-        # Geometric spot radius (max distance among valid rays)
+        # 几何点列半径（有效光线中的最大距离）
         dist_masked = torch.where(
             valid_all > 0, dist_sq, torch.full_like(dist_sq, -1.0)
         )
         spot_radius = dist_masked.max(dim=-1).values.clamp(min=0.0).sqrt()
 
-        # Convert mm → μm
+        # 将 mm 转换为 μm
         avg_rms_radius_um = spot_rms * 1000.0
         avg_geo_radius_um = spot_radius * 1000.0
 
-        # Print results
+        # 打印结果
         print(f"Ray spot analysis results for depth {depth}:")
         print(
             f"RMS radius: FoV (0.0) {avg_rms_radius_um[0]:.3f} um, FoV (0.5) {avg_rms_radius_um[num_field // 2]:.3f} um, FoV (1.0) {avg_rms_radius_um[-1]:.3f} um"
@@ -1582,7 +1317,7 @@ class GeoLensEval:
             f"Geo radius: FoV (0.0) {avg_geo_radius_um[0]:.3f} um, FoV (0.5) {avg_geo_radius_um[num_field // 2]:.3f} um, FoV (1.0) {avg_geo_radius_um[-1]:.3f} um"
         )
 
-        # Save to dict
+        # 保存到字典
         rms_results = {}
         fov_ls = torch.linspace(0, 1, num_field)
         for i in range(num_field):
@@ -1605,42 +1340,27 @@ class GeoLensEval:
         lens_title=None,
         show=False,
     ):
-        """Run a comprehensive optical analysis pipeline for the lens.
+        """运行透镜的综合光学分析流程。
 
-        This is the main entry point for evaluating a lens design.  It chains
-        multiple evaluation steps in order, saving all plots with a common
-        ``save_name`` prefix.
+        这是评估透镜设计的主要入口，按顺序串联多个评估步骤，并使用共同的
+        ``save_name`` 前缀保存所有图像。始终绘制透镜布局并计算复色点列 RMS/半径；
+        ``full_eval=True`` 时还生成点列图、MTF 网格、畸变曲线和渐晕图；
+        ``render=True`` 时通过透镜渲染测试图并报告 PSNR/SSIM。
 
-        Execution flow:
-            1. **Always**: draw the lens layout (``draw_layout``) and compute
-               polychromatic spot RMS/radius (``analysis_spot``).
-            2. **If** ``full_eval=True``: additionally generate:
-               - Spot diagram (``draw_spot_radial``).
-               - MTF grid (``draw_mtf``).
-               - Distortion curve (``draw_distortion_radial``).
-               - Vignetting map (``draw_vignetting``).
-            3. **If** ``render=True``: render a test chart image through the
-               lens and report PSNR/SSIM (``analysis_rendering``).
-
-        Args:
-            save_name (str): Path prefix for all output files.  Each plot
-                appends a suffix (e.g., ``'_spot.png'``, ``'_mtf.png'``).
-                Defaults to ``'./lens'``.
-            depth (float): Object distance in mm.  ``float('inf')`` is replaced
-                by ``self.obj_depth`` for rendering and vignetting.
-                Defaults to ``float('inf')``.
-            full_eval (bool): If ``True``, run all evaluation plots.  If
-                ``False``, only layout + spot RMS. Defaults to ``False``.
-            render (bool): If ``True``, render a test image through the lens.
-                Defaults to ``False``.
-            render_unwarp (bool): If ``True`` (and ``render=True``), also
-                produce an unwarped rendering. Defaults to ``False``.
-            lens_title (str | None): Title string for the layout plot.
-                Defaults to ``None``.
-            show (bool): If ``True``, display all plots interactively.
-                Defaults to ``False``.
+        参数：
+            save_name (str): 所有输出文件的路径前缀，各图追加相应后缀，默认为
+                ``'./lens'``。
+            depth (float): 物距，单位 mm；渲染和渐晕处理中会将 ``float('inf')``
+                替换为 ``self.obj_depth``。
+            full_eval (bool): 为 ``True`` 时运行全部评估图；否则仅执行布局和点列 RMS，
+                默认为 ``False``。
+            render (bool): 为 ``True`` 时通过透镜渲染测试图，默认为 ``False``。
+            render_unwarp (bool): 当 ``render=True`` 时，为 ``True`` 还会生成反扭曲
+                渲染图，默认为 ``False``。
+            lens_title (str | None): 布局图标题，默认为 ``None``。
+            show (bool): 为 ``True`` 时交互显示所有图，默认为 ``False``。
         """
-        # Draw lens layout and ray path
+        # 绘制透镜布局和光线路径
         self.draw_layout(
             filename=f"{save_name}.png",
             lens_title=lens_title,
@@ -1648,19 +1368,19 @@ class GeoLensEval:
             show=show,
         )
 
-        # Calculate RMS error
+        # 计算 RMS 误差
         self.analysis_spot(depth=depth)
 
-        # Comprehensive optical evaluation
+        # 综合光学评估
         if full_eval:
-            # Draw spot diagram
+            # 绘制点列图
             self.draw_spot_radial(
                 save_name=f"{save_name}_spot.png",
                 depth=depth,
                 show=show,
             )
 
-            # Draw MTF
+            # 绘制 MTF
             if depth == float("inf"):
                 self.draw_mtf(
                     depth_list=[self.obj_depth],
@@ -1674,13 +1394,13 @@ class GeoLensEval:
                     show=show,
                 )
 
-            # Draw distortion
+            # 绘制畸变
             self.draw_distortion_radial(
                 save_name=f"{save_name}_distortion.png",
                 show=show,
             )
 
-            # Draw vignetting
+            # 绘制渐晕
             eval_depth = self.obj_depth if depth == float("inf") else depth
             self.draw_vignetting(
                 filename=f"{save_name}_vignetting.png",
@@ -1688,7 +1408,7 @@ class GeoLensEval:
                 show=show,
             )
 
-        # Render an image, compute PSNR and SSIM
+        # 渲染图像并计算 PSNR 和 SSIM
         if render:
             depth = self.obj_depth if depth == float("inf") else depth
             img_org = Image.open("./datasets/charts/NBS_1963_1k.png").convert("RGB")

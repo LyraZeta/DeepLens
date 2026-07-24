@@ -6,19 +6,20 @@ import torch.nn.functional as F
 
 
 class Siren(nn.Module):
-    """Single SIREN (Sinusoidal Representation Network) layer.
+    """单个 SIREN（Sinusoidal Representation Network）层。
 
-    A linear layer followed by a sine activation. Uses the initialization
-    scheme from "Implicit Neural Representations with Periodic Activation Functions".
+    由一个线性层和随后的正弦激活组成，采用论文
+    "Implicit Neural Representations with Periodic Activation Functions" 中的初始化方案。
 
-    Args:
-        dim_in (int): Input dimension.
-        dim_out (int): Output dimension.
-        w0 (float): Frequency multiplier for the sine activation. Defaults to 1.0.
-        c (float): Constant controlling the weight initialization scale (non-first layers). Defaults to 6.0.
-        is_first (bool): Whether this is the first layer (uses a different init scale). Defaults to False.
-        use_bias (bool): Whether to include a bias term. Defaults to True.
-        activation (nn.Module or None, optional): Custom activation module. Defaults to None, which uses `Sine(w0)`.
+    参数：
+        dim_in (int): 输入维度。
+        dim_out (int): 输出维度。
+        w0 (float): 正弦激活的频率乘子，默认为 1.0。
+        c (float): 控制非首层权重初始化尺度的常数，默认为 6.0。
+        is_first (bool): 是否为首层；首层使用不同的初始化尺度，默认为 False。
+        use_bias (bool): 是否包含偏置项，默认为 True。
+        activation (nn.Module or None, optional): 自定义激活模块。默认为 None，
+            此时使用 `Sine(w0)`。
     """
 
     def __init__(
@@ -44,18 +45,17 @@ class Siren(nn.Module):
         self.activation = Sine(w0) if activation is None else activation
 
     def init_(self, weight, bias, c, w0):
-        """Initialize the layer weight in place with the SIREN scheme.
+        """使用 SIREN 方案原地初始化层权重。
 
-        Fills `weight` uniformly in $[-w_{std}, w_{std}]$, where the std is
-        $1/\\text{dim}$ for the first layer and $\\sqrt{c/\\text{dim}}/w_0$
-        otherwise. The `bias` argument is accepted for API symmetry but left
-        unchanged (it stays at its zero-initialized value).
+        在 $[-w_{std}, w_{std}]$ 上均匀填充 `weight`。首层的尺度为
+        $1/\\text{dim}$，其他层为 $\\sqrt{c/\\text{dim}}/w_0$。
+        `bias` 参数仅为保持 API 对称而接收，不会被修改，仍保持零初始化值。
 
-        Args:
-            weight (torch.Tensor): Weight tensor of shape `(dim_out, dim_in)`, modified in place.
-            bias (torch.Tensor or None): Bias tensor of shape `(dim_out,)`, not modified.
-            c (float): Constant controlling the initialization scale.
-            w0 (float): Frequency multiplier for the sine activation.
+        参数：
+            weight (torch.Tensor): 形状为 `(dim_out, dim_in)` 的权重张量，将被原地修改。
+            bias (torch.Tensor or None): 形状为 `(dim_out,)` 的偏置张量，不会修改。
+            c (float): 控制初始化尺度的常数。
+            w0 (float): 正弦激活的频率乘子。
         """
         dim = self.dim_in
 
@@ -63,13 +63,13 @@ class Siren(nn.Module):
         weight.uniform_(-w_std, w_std)
 
     def forward(self, x):
-        """Forward pass.
+        """执行前向传播。
 
-        Args:
-            x (torch.Tensor): Input tensor of shape `(..., dim_in)`.
+        参数：
+            x (torch.Tensor): 形状为 `(..., dim_in)` 的输入张量。
 
-        Returns:
-            out (torch.Tensor): Output tensor of shape `(..., dim_out)`.
+        返回：
+            out (torch.Tensor): 形状为 `(..., dim_out)` 的输出张量。
         """
         out = F.linear(x, self.weight, self.bias)
         out = self.activation(out)
@@ -77,13 +77,12 @@ class Siren(nn.Module):
 
 
 class Sine(nn.Module):
-    """Sine activation with a frequency multiplier.
+    """带频率乘子的正弦激活。
 
-    Applies $\\sin(w_0 x)$ element-wise, the periodic activation used by
-    SIREN networks.
+    逐元素应用 $\\sin(w_0 x)$，这是 SIREN 网络采用的周期激活函数。
 
-    Args:
-        w0 (float): Frequency multiplier applied before the sine. Defaults to 1.0.
+    参数：
+        w0 (float): 应用于正弦函数之前的频率乘子，默认为 1.0。
     """
 
     def __init__(self, w0=1.0):
@@ -91,12 +90,12 @@ class Sine(nn.Module):
         self.w0 = w0
 
     def forward(self, x):
-        """Apply the sine activation element-wise.
+        """逐元素应用正弦激活。
 
-        Args:
-            x (torch.Tensor): Input tensor of any shape.
+        参数：
+            x (torch.Tensor): 任意形状的输入张量。
 
-        Returns:
-            out (torch.Tensor): Tensor of the same shape, equal to $\\sin(w_0 x)$.
+        返回：
+            out (torch.Tensor): 与输入形状相同、值为 $\\sin(w_0 x)$ 的张量。
         """
         return torch.sin(self.w0 * x)

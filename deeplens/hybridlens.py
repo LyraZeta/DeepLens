@@ -4,9 +4,12 @@
 # Licensed under the Apache License, Version 2.0.
 # See LICENSE file in the project root for full license information.
 
-"""Ray-wave model for hybrid refractive-diffractive lens. A hybrid lens consists of a GeoLens and a DOE in the back. A differentiable ray-wave model is used for optical simulation: first calculating the complex wavefield at the DOE plane by coherent ray tracing, then propagating the wavefield to the sensor plane by angular spectrum method. This hybrid lens model can simulate: (1) GeoLens aberration, and (2) DOE phase modulation.
+"""混合折射-衍射镜头的光线-波动模型。混合镜头由 GeoLens 和位于其后的 DOE
+组成。光学仿真采用可微光线-波动模型：先通过相干光线追迹计算 DOE 平面处的复波场，
+再使用角谱法将波场传播到传感器平面。该混合镜头模型可模拟：(1) GeoLens 像差，
+(2) DOE 相位调制。
 
-Technical Paper:
+技术论文:
     Xinge Yang, Matheus Souza, Kunyi Wang, Praneeth Chakravarthula, Qiang Fu, Wolfgang Heidrich, "End-to-End Hybrid Refractive-Diffractive Lens Design with Differentiable Ray-Wave Model," Siggraph Asia 2024.
 """
 
@@ -43,28 +46,24 @@ from .light import AngularSpectrumMethod
 
 
 class HybridLens(Lens):
-    """Hybrid refractive-diffractive lens using a differentiable ray-wave model.
+    """使用可微光线-波动模型的混合折射-衍射镜头。
 
-    Combines a `GeoLens` (refractive module) with a diffractive optical element
-    (DOE) placed behind it. The pipeline is: (1) coherent ray tracing through the
-    embedded `GeoLens` to obtain a complex wavefront at the DOE plane (including
-    all geometric aberrations); (2) DOE phase modulation applied to the
-    wavefront; (3) Angular Spectrum Method (ASM) propagation from the DOE to the
-    sensor plane to produce the final intensity PSF.
+    将 `GeoLens`（折射模块）与置于其后的衍射光学元件（DOE）结合。流程为：
+    (1) 通过嵌入的 `GeoLens` 进行相干光线追迹，获得 DOE 平面处包含全部几何像差
+    的复波前；(2) 对波前施加 DOE 相位调制；(3) 使用角谱法（ASM）从 DOE 传播到
+    传感器平面，生成最终强度 PSF。
 
-    This enables end-to-end gradient flow from image-quality metrics back to both
-    refractive surface parameters and the DOE phase profile. Operates in
-    `torch.float64` by default for numerical stability of the wave-propagation
-    step.
+    这使梯度能够从图像质量指标端到端回传到折射面参数和 DOE 相位轮廓。默认使用
+    `torch.float64`，以保证波传播步骤的数值稳定性。
 
-    Attributes:
-        geolens (GeoLens): Embedded refractive module. The DOE plane is appended
-            to its surface list as a `Plane` placeholder.
-        doe (Binary2 or Pixel2D or Fresnel or Zernike or Grating): Diffractive
-            optical element behind the refractive group.
-        foclen (float): Focal length [mm], copied from the embedded `GeoLens`.
+    属性:
+        geolens (GeoLens): 嵌入的折射模块。DOE 平面以 `Plane` 占位表面的形式
+            追加到其表面列表。
+        doe (Binary2 or Pixel2D or Fresnel or Zernike or Grating): 位于折射组
+            后方的衍射光学元件。
+        foclen (float): 从嵌入的 `GeoLens` 复制的焦距 [mm]。
 
-    Reference:
+    参考:
         Xinge Yang et al., "End-to-End Hybrid Refractive-Diffractive Lens
         Design with Differentiable Ray-Wave Model," SIGGRAPH Asia 2024.
     """
@@ -78,20 +77,18 @@ class HybridLens(Lens):
         wvln_rgb=WAVE_RGB,
         obj_depth=DEPTH,
     ):
-        """Initialize a hybrid refractive-diffractive lens.
+        """初始化混合折射-衍射镜头。
 
-        Args:
-            filename (str, optional): Path to the lens configuration JSON file. Defaults to None.
-            device (str, optional): Computation device ('cpu' or 'cuda'). Defaults to None.
-            dtype (torch.dtype, optional): Data type for computations. Defaults to `torch.float64`.
-            primary_wvln (float, optional): Primary design wavelength [µm].
-                Used as fallback when a method is called without an explicit
-                `wvln`. Defaults to `DEFAULT_WAVE`.
-            wvln_rgb (list of float, optional): Three wavelengths [µm] used
-                for RGB computations, ordered [R, G, B]. Defaults to `WAVE_RGB`.
-            obj_depth (float, optional): Default object depth [mm], used
-                when a method is called without an explicit `depth`. Defaults
-                to `DEPTH`.
+        参数:
+            filename (str, optional): 镜头配置 JSON 文件路径。默认为 None。
+            device (str, optional): 计算设备（'cpu' 或 'cuda'）。默认为 None。
+            dtype (torch.dtype, optional): 计算数据类型。默认为 `torch.float64`。
+            primary_wvln (float, optional): 主要设计波长 [µm]。调用方法时未显式
+                提供 `wvln`，则使用此值。默认为 `DEFAULT_WAVE`。
+            wvln_rgb (list of float, optional): RGB 计算所用的三个波长 [µm]，
+                按 [R, G, B] 排列。默认为 `WAVE_RGB`。
+            obj_depth (float, optional): 默认物体深度 [mm]。调用方法时未显式提供
+                `depth`，则使用此值。默认为 `DEPTH`。
         """
         super().__init__(
             device=device,
@@ -101,13 +98,13 @@ class HybridLens(Lens):
             obj_depth=obj_depth,
         )
 
-        # Load lens file
+        # 加载镜头文件
         if filename is not None:
             self.read_lens_json(filename)
         else:
             self.geolens = None
             self.doe = None
-            # Set default sensor size and resolution if no file provided
+            # 未提供文件时设置默认传感器尺寸和分辨率
             self.sensor_size = (8.0, 8.0)
             self.sensor_res = (2000, 2000)
             print(
@@ -118,27 +115,25 @@ class HybridLens(Lens):
         self.double()
 
     def read_lens_json(self, filename):
-        """Read the lens configuration from a JSON file.
+        """从 JSON 文件读取镜头配置。
 
-        Loads a `GeoLens` and associated DOE from the specified file. A `Plane`
-        surface is appended to the GeoLens surface list as a placeholder for the
-        DOE plane, matching the DOE aperture (square vs circular). Also sets
-        `self.foclen` and the sensor size/resolution from the loaded GeoLens.
+        从指定文件加载 `GeoLens` 及其 DOE。将 `Plane` 表面作为 DOE 平面的占位符
+        追加到 GeoLens 表面列表，并与 DOE 孔径（方形或圆形）匹配。同时根据加载的
+        GeoLens 设置 `self.foclen` 和传感器尺寸/分辨率。
 
-        Supported DOE types: binary2, pixel2d, fresnel, zernike, grating.
+        支持的 DOE 类型：binary2、pixel2d、fresnel、zernike、grating。
 
-        Args:
-            filename (str): Path to the JSON configuration file. Must contain a
-                "DOE" key with a "type" field.
+        参数:
+            filename (str): JSON 配置文件路径。必须包含带 "type" 字段的 "DOE" 键。
 
-        Raises:
-            ValueError: If the DOE type in the file is not supported.
+        异常:
+            ValueError: 文件中的 DOE 类型不受支持时抛出。
         """
-        # Load geolens
+        # 加载 geolens
         geolens = GeoLens(filename=filename, device=self.device)
 
-        # Load DOE (diffractive surface)
-        with open(filename, "r") as f:
+        # 加载 DOE（衍射面）
+        with open(filename, "r", encoding="utf-8") as f:
             data = json.load(f)
 
             doe_dict = data["DOE"]
@@ -157,9 +152,9 @@ class HybridLens(Lens):
                 raise ValueError(f"Unsupported DOE parameter model: {doe_param_model}")
             self.doe = doe
 
-        # Add a Plane/Phase surface to GeoLens (DOE placeholder).
-        # Match the DOE's actual aperture (square vs circular) so that rays
-        # outside the DOE region are correctly culled at the placeholder.
+        # 向 GeoLens 添加 Plane/Phase 表面（DOE 占位符）。
+        # 匹配 DOE 的实际孔径（方形或圆形），使 DOE 区域外的光线在占位表面处
+        # 被正确剔除。
         geolens.surfaces.append(
             Plane(d=doe.d.item(), r=doe.r, mat2="air", is_square=doe.is_square)
         )
@@ -168,19 +163,18 @@ class HybridLens(Lens):
         self.geolens = geolens
         self.foclen = geolens.foclen
 
-        # Update hybrid lens sensor resolution and pixel size
+        # 更新混合镜头的传感器分辨率和像素尺寸
         self.set_sensor(sensor_size=geolens.sensor_size, sensor_res=geolens.sensor_res)
         self.to(self.device)
 
     def write_lens_json(self, lens_path):
-        """Write the lens configuration to a JSON file.
+        """将镜头配置写入 JSON 文件。
 
-        Serialises the `GeoLens` surfaces (excluding the DOE placeholder) and the
-        DOE configuration into a single JSON file that can be reloaded with
-        `read_lens_json`.
+        将 `GeoLens` 表面（不含 DOE 占位符）和 DOE 配置序列化到单个 JSON 文件，
+        以便使用 `read_lens_json` 重新加载。
 
-        Args:
-            lens_path (str): Output file path.
+        参数:
+            lens_path (str): 输出文件路径。
         """
         geolens = self.geolens
         data = {}
@@ -192,12 +186,12 @@ class HybridLens(Lens):
         data["sensor_size"] = [round(i, 4) for i in geolens.sensor_size]
         data["sensor_res"] = geolens.sensor_res
 
-        # Geolens
+        # 几何镜头
         data["surfaces"] = []
         for i, s in enumerate(geolens.surfaces[:-1]):
             surf_dict = s.surf_dict()
 
-            # To exclude the last surface (DOE)
+        # 排除最后一个表面（DOE）
             if i < len(geolens.surfaces) - 2:
                 surf_dict["d_next"] = round(
                     geolens.surfaces[i + 1].d.item() - geolens.surfaces[i].d.item(), 3
@@ -209,103 +203,92 @@ class HybridLens(Lens):
 
             data["surfaces"].append(surf_dict)
 
-        # DOE
+        # 衍射光学元件（DOE）
         data["DOE"] = self.doe.surf_dict()
 
-        with open(lens_path, "w") as f:
+        with open(lens_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4)
 
     # =====================================================================
-    # Utils
+    # 实用工具
     # =====================================================================
     def analysis(self, save_name="./test.png"):
-        """Run a quick visual analysis of the hybrid lens.
+        """对混合镜头执行快速可视化分析。
 
-        Generates two figures: the 2D lens layout (saved to `save_name`) and the
-        DOE phase map (saved to `<save_name>_doe.png`).
+        生成两幅图：二维镜头布局（保存到 `save_name`）和 DOE 相位图（保存到
+        `<save_name>_doe.png`）。
 
-        Args:
-            save_name (str, optional): Base file path for the layout image. The
-                DOE phase-map image path is formed by appending `_doe.png`.
-                Defaults to "./test.png".
+        参数:
+            save_name (str, optional): 布局图的基础文件路径。DOE 相位图路径通过
+                追加 `_doe.png` 形成。默认为 "./test.png"。
         """
         self.draw_layout(save_name=save_name)
         self.doe.draw_phase_map(save_name=f"{save_name}_doe.png")
 
     def double(self):
-        """Convert the GeoLens and DOE to `float64` precision.
+        """将 GeoLens 和 DOE 转换为 `float64` 精度。
 
-        Double precision is required for numerically stable phase accumulation
-        during coherent ray tracing and ASM propagation. Called automatically by
-        `__init__`.
+        相干光线追迹和 ASM 传播期间的稳定相位累积需要双精度。由 `__init__`
+        自动调用。
         """
         self.geolens.astype(torch.float64)
         self.doe.astype(torch.float64)
 
     def refocus(self, foc_dist):
-        """Refocus the hybrid lens to a given object distance.
+        """将混合镜头重新对焦到给定物距。
 
-        Delegates to `GeoLens.refocus`, which adjusts the sensor distance; the
-        DOE remains fixed relative to the refractive group (it is physically
-        cemented to the lens barrel).
+        委托给 `GeoLens.refocus` 调整传感器距离；DOE 相对于折射组保持固定
+        （物理上固定在镜筒上）。
 
-        Args:
-            foc_dist (float): Target focus distance in [mm] (negative,
-                towards the object).
+        参数:
+            foc_dist (float): 目标对焦距离 [mm]（负值，朝向物体）。
         """
         self.geolens.refocus(foc_dist)
 
     def calc_scale(self, depth):
-        """Calculate the object-to-image magnification scale factor.
+        """计算物到像的放大缩放因子。
 
-        Delegates to the embedded `GeoLens`.
+        委托给嵌入的 `GeoLens`。
 
-        Args:
-            depth (float): Object distance in [mm] (negative, towards the
-                object).
+        参数:
+            depth (float): 物距 [mm]（负值，朝向物体）。
 
-        Returns:
-            scale (float): Magnification factor (object height / image height),
-                computed as $-\\text{depth} / \\text{foclen}$.
+        返回:
+            scale (float): 放大因子（物高/像高），按
+                $-\\text{depth} / \\text{foclen}$ 计算。
         """
         return self.geolens.calc_scale(depth)
 
     # =====================================================================
-    # PSF-related functions
+    # PSF 相关函数
     # =====================================================================
     def doe_field(self, point, wvln=None, spp=SPP_COHERENT, upsample_factor=None):
-        """Compute the complex wave field at the DOE plane via coherent ray tracing.
+        """通过相干光线追迹计算 DOE 平面处的复波场。
 
-        Similar to `GeoLens.pupil_field`, but evaluates the field at the last
-        surface (DOE plane) instead of the exit pupil. The returned wavefront
-        encodes amplitude, phase, and all diffraction-order information needed
-        for subsequent DOE modulation and ASM propagation.
+        与 `GeoLens.pupil_field` 类似，但在最后一个表面（DOE 平面）而非出瞳处
+        计算场。返回的波前编码后续 DOE 调制和 ASM 传播所需的振幅、相位及全部
+        衍射级次信息。
 
-        Args:
-            point (torch.Tensor): Point source position, shape [3] or [1, 3] as
-                [x, y, z]. x/y are in normalised sensor coordinates [-1, 1]; z is
-                depth in [mm].
-            wvln (float, optional): Wavelength [µm]. When None (default), falls
-                back to `self.primary_wvln`.
-            spp (int, optional): Number of rays to sample. Must be at least
-                1,000,000 for accurate coherent simulation. Defaults to
-                `SPP_COHERENT`.
-            upsample_factor (int or None, optional): Field upsampling factor to
-                meet the Nyquist sampling constraint. The field is sampled on a
-                `doe.res * upsample_factor` grid with a `doe.ps / upsample_factor`
-                pitch (same physical aperture, finer sampling). When None
-                (default), a factor is chosen so the field resolution is close to
-                4000 x 4000.
+        参数:
+            point (torch.Tensor): 点光源位置，shape [3] 或 [1, 3]，表示为
+                [x, y, z]。x/y 为 [-1, 1] 范围内的归一化传感器坐标；z 为深度 [mm]。
+            wvln (float, optional): 波长 [µm]。为 None（默认）时使用
+                `self.primary_wvln`。
+            spp (int, optional): 采样光线数。为获得准确的相干仿真，必须至少为
+                1,000,000。默认为 `SPP_COHERENT`。
+            upsample_factor (int or None, optional): 满足 Nyquist 采样约束的场上采样
+                倍数。场在 `doe.res * upsample_factor` 网格上采样，间距为
+                `doe.ps / upsample_factor`（物理孔径相同，采样更细）。为 None
+                （默认）时，选择使场分辨率接近 4000 x 4000 的倍数。
 
-        Returns:
-            wavefront (torch.Tensor): Complex wavefront at the DOE plane, shape
-                [H, W] where H = W = `doe.res[0] * upsample_factor`.
-            psf_center (list of float): Estimated PSF centre on the sensor in
-                normalised coordinates [x, y].
+        返回:
+            wavefront (torch.Tensor): DOE 平面处的复波前，shape [H, W]，其中
+                H = W = `doe.res[0] * upsample_factor`。
+            psf_center (list of float): 传感器上估计的 PSF 中心，使用归一化坐标
+                [x, y]。
 
-        Raises:
-            AssertionError: If `spp` is less than 1,000,000 or the default dtype
-                is not `float64`.
+        异常:
+            AssertionError: `spp` 小于 1,000,000 或默认 dtype 不是 `float64` 时抛出。
         """
         wvln = self.primary_wvln if wvln is None else wvln
         assert spp >= 1_000_000, (
@@ -318,7 +301,7 @@ class HybridLens(Lens):
 
         geolens, doe = self.geolens, self.doe
 
-        # Field-plane upsampling to satisfy the ASM Nyquist constraint
+        # 场平面上采样，以满足 ASM Nyquist 约束
         if upsample_factor is None:
             upsample_factor = max(1, round(4000 / doe.res[0]))
 
@@ -326,26 +309,26 @@ class HybridLens(Lens):
             point = point.unsqueeze(0)
         point = point.to(self.device)
 
-        # Calculate ray origin in the object space
+        # 计算物方光线原点
         scale = geolens.calc_scale(point[:, 2].item())
         point_obj = point.clone()
-        # sensor_size is (W, H): x scales with width [0], y with height [1].
-        # (Matches the chief-ray center below and base Lens / DiffractiveLens.)
+        # sensor_size 为 (W, H)：x 按宽度 [0] 缩放，y 按高度 [1] 缩放。
+        #（与下方主光线中心及基类 Lens / DiffractiveLens 一致。）
         point_obj[:, 0] = point[:, 0] * scale * geolens.sensor_size[0] / 2
         point_obj[:, 1] = point[:, 1] * scale * geolens.sensor_size[1] / 2
 
-        # Determine ray center via chief ray
+        # 通过主光线确定光线中心
         pointc_chief_ray = geolens.psf_center(point_obj, method="chief_ray")[
             0
         ]  # shape [2]
 
-        # Ray tracing to the DOE plane
+        # 追迹光线到 DOE 平面
         ray = geolens.sample_from_points(points=point_obj, num_rays=spp, wvln=wvln)
         ray.is_coherent = True
         ray, _ = geolens.trace(ray)
         ray = ray.prop_to(doe.d)
 
-        # Calculate full-resolution complex field for exit-pupil diffraction
+        # 计算用于出瞳衍射的全分辨率复场
         wavefront = forward_integral(
             ray.flip_xy(),
             ps=doe.ps / upsample_factor,
@@ -353,7 +336,7 @@ class HybridLens(Lens):
             pointc=torch.zeros_like(point[:, :2]),
         ).squeeze(0)  # shape [H, W]
 
-        # Compute PSF center based on chief ray
+        # 根据主光线计算 PSF 中心
         psf_center = [
             pointc_chief_ray[0] / geolens.sensor_size[0] * 2,
             pointc_chief_ray[1] / geolens.sensor_size[1] * 2,
@@ -362,57 +345,50 @@ class HybridLens(Lens):
         return wavefront, psf_center
 
     def psf(self, points=None, wvln=None, ks=PSF_KS, **kwargs):
-        """Compute a single-point monochromatic PSF using the ray-wave model.
+        """使用光线-波动模型计算单点单色 PSF。
 
-        The returned PSF includes all diffraction orders with physically correct
-        diffraction efficiencies. The pipeline is: (1) coherent ray tracing
-        through the `GeoLens` to obtain the complex wavefront at the DOE plane;
-        (2) DOE phase modulation applied to the wavefront; (3) ASM propagation to
-        the sensor, intensity calculation, cropping, and normalisation.
+        返回的 PSF 包含具有物理正确衍射效率的全部衍射级次。流程为：(1) 通过
+        `GeoLens` 进行相干光线追迹，获得 DOE 平面处的复波前；(2) 对波前施加
+        DOE 相位调制；(3) 使用 ASM 传播到传感器，并计算强度、裁剪及归一化。
 
-        Args:
-            points (list or torch.Tensor, optional): [x, y, z] point source
-                coordinates. x, y are in normalised sensor coordinates [-1, 1];
-                z is depth in [mm]. When None (default), uses
-                [0.0, 0.0, -10000.0].
-            wvln (float, optional): Wavelength [µm]. When None (default), falls
-                back to `self.primary_wvln`.
-            ks (int or None, optional): Output PSF patch size. When None, the
-                centre half of the field is returned instead. Defaults to
-                `PSF_KS`.
-            **kwargs: Model-specific options. `spp` (int): number of coherent
-                rays to sample, defaults to `SPP_COHERENT`. `upsample_factor`
-                (int): field upsampling factor to meet the Nyquist sampling
-                constraint; when None (default), a factor is chosen so the field
-                resolution is close to 4000 x 4000.
+        参数:
+            points (list or torch.Tensor, optional): [x, y, z] 点光源坐标。
+                x、y 为 [-1, 1] 范围内的归一化传感器坐标；z 为深度 [mm]。
+                为 None（默认）时使用 [0.0, 0.0, -10000.0]。
+            wvln (float, optional): 波长 [µm]。为 None（默认）时使用
+                `self.primary_wvln`。
+            ks (int or None, optional): 输出 PSF 图块尺寸。为 None 时改为返回场的
+                中间一半。默认为 `PSF_KS`。
+            **kwargs: 模型特定选项。`spp` (int)：相干光线采样数，默认为
+                `SPP_COHERENT`。`upsample_factor` (int)：满足 Nyquist 采样约束
+                的场上采样倍数；为 None（默认）时，选择使场分辨率接近
+                4000 x 4000 的倍数。
 
-        Returns:
-            psf (torch.Tensor): Normalised PSF patch (sums to 1), shape [ks, ks]
-                (or roughly half the field per side when `ks` is None). Returned
-                in `float32` precision.
+        返回:
+            psf (torch.Tensor): 归一化 PSF 图块（总和为 1），shape [ks, ks]
+                （`ks` 为 None 时每边约为场的一半）。以 `float32` 精度返回。
 
-        Raises:
-            ValueError: If the default dtype is not `float64` (call `double`
-                first).
+        异常:
+            ValueError: 默认 dtype 不是 `float64` 时抛出（应先调用 `double`）。
         """
         if points is None:
             points = [0.0, 0.0, -10000.0]
         spp = kwargs.get("spp", SPP_COHERENT)
         upsample_factor = kwargs.get("upsample_factor", None)
         wvln = self.primary_wvln if wvln is None else wvln
-        # Check double precision
+        # 检查双精度
         if not torch.get_default_dtype() == torch.float64:
             raise ValueError(
                 "Please call HybridLens.double() to set the default dtype to float64 for accurate phase tracing."
             )
 
-        # Check lens last surface
+        # 检查镜头最后一个表面
         assert isinstance(self.geolens.surfaces[-1], Phase) or isinstance(
             self.geolens.surfaces[-1], Plane
         ), "The last lens surface should be a DOE."
         geolens, doe = self.geolens, self.doe
 
-        # Compute pupil field by coherent ray tracing
+        # 通过相干光线追迹计算瞳孔场
         if isinstance(points, list):
             point0 = torch.tensor(points)
         elif isinstance(points, torch.Tensor):
@@ -420,7 +396,7 @@ class HybridLens(Lens):
         else:
             raise ValueError("point should be a list or a torch.Tensor.")
 
-        # Field-plane upsampling to satisfy the ASM Nyquist constraint
+        # 场平面上采样，以满足 ASM Nyquist 约束
         if upsample_factor is None:
             upsample_factor = max(1, round(4000 / doe.res[0]))
 
@@ -429,9 +405,8 @@ class HybridLens(Lens):
         )
         wavefront = wavefront.squeeze(0)  # shape of [H, W]
 
-        # DOE phase modulation. We have to flip the phase map because the
-        # wavefront has been flipped. The phase map is upsampled (nearest, so
-        # each flat DOE pixel is preserved) to the field resolution.
+        # DOE 相位调制。由于波前已经翻转，因此必须翻转相位图。将相位图上采样
+        #（使用 nearest，以保留每个平坦 DOE 像素）到场分辨率。
         phase_map = torch.flip(doe.get_phase_map(wvln), [-1, -2])
         if phase_map.shape != wavefront.shape:
             phase_map = F.interpolate(
@@ -439,7 +414,7 @@ class HybridLens(Lens):
             )[0, 0]
         wavefront = wavefront * torch.exp(1j * phase_map)
 
-        # Propagate wave field to sensor plane
+        # 将波场传播到传感器平面
         h, w = wavefront.shape
         wavefront = F.pad(
             wavefront.unsqueeze(0).unsqueeze(0),
@@ -455,7 +430,7 @@ class HybridLens(Lens):
             padding=False,
         )
 
-        # Compute PSF (intensity distribution)
+        # 计算 PSF（强度分布）
         psf_inten = sensor_field.abs() ** 2
         psf_inten = (
             F.interpolate(
@@ -468,13 +443,13 @@ class HybridLens(Lens):
             .squeeze(0)
         )
 
-        # Calculate PSF center index and crop valid PSF region (Consider both interplation and padding)
+        # 计算 PSF 中心索引并裁剪有效 PSF 区域（同时考虑插值和填充）
         if ks is not None:
             h, w = psf_inten.shape[-2:]
             psfc_idx_i = ((2 - psfc[1]) * h / 4).round().long()
             psfc_idx_j = ((2 + psfc[0]) * w / 4).round().long()
 
-            # Pad to avoid invalid edge region
+        # 填充以避开无效边缘区域
             psf_inten_pad = F.pad(
                 psf_inten,
                 [ks // 2, ks // 2, ks // 2, ks // 2],
@@ -491,12 +466,12 @@ class HybridLens(Lens):
                 int(w / 2 - w / 4) : int(w / 2 + w / 4),
             ]
 
-        # Normalize and convert to float precision.
+        # 归一化并转换为 float 精度。
         psf = psf / (psf.sum() + EPSILON)  # shape of [ks, ks] or [h, w]
         return diff_float(psf)
 
     # =====================================================================
-    # Visualization
+    # 可视化
     # =====================================================================
     @torch.no_grad()
     def draw_layout(
@@ -507,45 +482,38 @@ class HybridLens(Lens):
         fig=None,
         dpi=600,
     ):
-        """Draw the hybrid-lens layout with ray paths and wave-propagation arcs.
+        """绘制包含光线路径和波传播圆弧的混合镜头布局。
 
-        Renders the refractive elements via `GeoLens.draw_lens_2d`, traces rays
-        at three field angles (on-axis, 0.707x, 0.99x full field), and overlays
-        concentric arcs between the DOE and sensor to illustrate the
-        wave-propagation region.
+        通过 `GeoLens.draw_lens_2d` 渲染折射元件，在三个视场角（轴上、0.707x、
+        0.99x 全视场）处追迹光线，并在 DOE 与传感器之间叠加同心圆弧以表示波传播区域。
 
-        Args:
-            save_name (str, optional): File path to save the figure (used only
-                when `ax` is None). Defaults to "./DOELens.png".
-            depth (float, optional): Object depth [mm] for the traced rays.
-                Defaults to -10000.0.
-            ax (matplotlib.axes.Axes, optional): Pre-existing axes to draw into.
-                If None, a new figure is created and saved.
-            fig (matplotlib.figure.Figure, optional): Pre-existing figure.
-                Required when `ax` is provided.
-            dpi (int, optional): Resolution used when saving a new figure.
-                Defaults to 600.
+        参数:
+            save_name (str, optional): 图像保存路径（仅在 `ax` 为 None 时使用）。
+                默认为 "./DOELens.png"。
+            depth (float, optional): 所追迹光线的物体深度 [mm]。默认为 -10000.0。
+            ax (matplotlib.axes.Axes, optional): 用于绘图的现有坐标轴。为 None 时
+                创建并保存新图。
+            fig (matplotlib.figure.Figure, optional): 现有图形。提供 `ax` 时必需。
+            dpi (int, optional): 保存新图时使用的分辨率。默认为 600。
 
-        Returns:
-            ax (matplotlib.axes.Axes): The axes, returned only when `ax` was
-                provided. When `ax` is None the figure is saved to `save_name`
-                and nothing is returned.
-            fig (matplotlib.figure.Figure): The figure, returned only when `ax`
-                was provided.
+        返回:
+            ax (matplotlib.axes.Axes): 坐标轴，仅在提供 `ax` 时返回。`ax` 为 None
+                时将图保存到 `save_name`，不返回任何内容。
+            fig (matplotlib.figure.Figure): 图形，仅在提供 `ax` 时返回。
         """
         geolens = self.geolens
 
-        # Draw lens layout
+        # 绘制镜头布局
         if ax is None:
             ax, fig = geolens.draw_lens_2d()
             save_fig = True
         else:
             save_fig = False
 
-        # Draw DOE as orange Fresnel-style widget
+        # 将 DOE 绘制为橙色 Fresnel 风格组件
         self.doe.draw_widget(ax, color="orange")
 
-        # Draw light path
+        # 绘制光路
         color_list = ["#CC0000", "#006600", "#0066CC"]
         views = [
             0.0,
@@ -556,7 +524,7 @@ class HybridLens(Lens):
         num_rays = 11
         arc_half_angle = 20
         for i, view in enumerate(views):
-            # Draw ray tracing
+            # 绘制光线追迹
             ray = geolens.sample_point_source_2D(
                 depth=depth,
                 fov=view,
@@ -571,8 +539,8 @@ class HybridLens(Lens):
                 ray_o_record, ax=ax, fig=fig, color=color_list[i]
             )
 
-            # Draw wave propagation
-            # Calculate ray center for wave propagation visualization
+            # 绘制波传播
+            # 计算用于波传播可视化的光线中心
             ray_center_doe = (
                 ((ray.o * ray.is_valid.unsqueeze(-1)).sum(dim=0) / ray.is_valid.sum())
                 .cpu()
@@ -609,7 +577,7 @@ class HybridLens(Lens):
                 ax.add_patch(arc)
 
         if save_fig:
-            # Save figure
+        # 保存图形
             ax.axis("off")
             ax.set_title("DOE Lens")
             fig.savefig(save_name, bbox_inches="tight", dpi=dpi)
@@ -618,28 +586,24 @@ class HybridLens(Lens):
             return ax, fig
 
     # =====================================================================
-    # Optimization
+    # 优化
     # =====================================================================
     def get_optimizer(
         self, doe_lr=1e-4, lens_lr=[1e-4, 1e-4, 1e-2, 1e-5]
     ):
-        """Build an Adam optimiser for joint lens + DOE design.
+        """为镜头 + DOE 联合设计构建 Adam 优化器。
 
-        Collects trainable parameters from both the `GeoLens` (surface
-        thicknesses, curvatures, conic constants, aspheric coefficients) and the
-        DOE phase profile into a single optimiser with per-group learning rates.
+        将 `GeoLens`（表面厚度、曲率、圆锥常数、非球面系数）和 DOE 相位轮廓的
+        可训练参数收集到一个优化器中，并为各参数组设置学习率。
 
-        Args:
-            doe_lr (float, optional): Learning rate for DOE phase parameters.
-                Defaults to 1e-4.
-            lens_lr (list of float, optional): Per-parameter-group learning rates
-                for the GeoLens, ordered as
-                [thickness_d, curvature_c, conic_k, aspheric_a]. Defaults to
-                [1e-4, 1e-4, 1e-2, 1e-5].
+        参数:
+            doe_lr (float, optional): DOE 相位参数的学习率。默认为 1e-4。
+            lens_lr (list of float, optional): GeoLens 各参数组的学习率，顺序为
+                [thickness_d, curvature_c, conic_k, aspheric_a]。默认为
+                [1e-4, 1e-4, 1e-2, 1e-5]。
 
-        Returns:
-            optimizer (torch.optim.Adam): Configured optimiser over all trainable
-                parameters.
+        返回:
+            optimizer (torch.optim.Adam): 针对所有可训练参数配置的优化器。
         """
         params = []
         params += self.geolens.get_optimizer_params(lrs=lens_lr)

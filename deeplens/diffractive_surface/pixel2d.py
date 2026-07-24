@@ -4,21 +4,20 @@
 # Licensed under the Apache License, Version 2.0.
 # See LICENSE file in the project root for full license information.
 
-"""Pixel2D DOE parameterization. Each pixel is an independent parameter."""
+"""Pixel2D DOE 参数化，其中每个像素都是独立参数。"""
 
 import torch
 from .diffractive import DiffractiveSurface
 
 
 class Pixel2D(DiffractiveSurface):
-    """Pixel2D DOE parameterization with a direct, per-pixel phase map.
+    """使用逐像素直接相位图的 Pixel2D DOE 参数化。
 
-    Each pixel of the phase map is an independent optimizable parameter, giving
-    the most general (and highest-dimensional) DOE parameterization. The phase
-    map is stored at the design wavelength `wvln0`.
+    相位图的每个像素都是独立的可优化参数，因此这是最通用（也是维度最高）的
+    DOE 参数化方式。相位图按设计波长 `wvln0` 存储。
 
-    Attributes:
-        phase_map (torch.Tensor): Per-pixel phase at the design wavelength.
+    属性：
+        phase_map (torch.Tensor): 设计波长下的逐像素相位。
             [H, W]. [rad]
     """
 
@@ -33,31 +32,29 @@ class Pixel2D(DiffractiveSurface):
         fab_step=16,
         device="cpu",
     ):
-        """Initialize a Pixel2D DOE where each pixel is an independent parameter.
+        """初始化每个像素均为独立参数的 Pixel2D DOE。
 
-        If `phase_map_path` is None the phase map is initialized to small random
-        values (`torch.randn * 1e-3`); otherwise it is loaded from the given path.
+        若 `phase_map_path` 为 None，则用较小的随机值（`torch.randn * 1e-3`）
+        初始化相位图；否则从给定路径加载。
 
-        Args:
-            d (float): Distance of the DOE surface along the optical axis. [mm]
-            phase_map_path (str or None, optional): Path to a saved phase-map
-                tensor to load. If None, the phase map is randomly initialized.
-                Defaults to None.
-            res (tuple or int, optional): Resolution of the DOE as (H, W); an int
-                is expanded to (res, res). [pixel]. Defaults to (2000, 2000).
-            mat (str, optional): Material of the DOE. Defaults to "fused_silica".
-            wvln0 (float, optional): Design wavelength. [um]. Defaults to 0.55.
-            fab_ps (float, optional): Fabrication pixel size. [mm]. Defaults to 0.001.
-            fab_step (int, optional): Number of fabrication quantization levels.
-                Defaults to 16.
-            device (str, optional): Device to run the DOE. Defaults to "cpu".
+        参数：
+            d (float): DOE 表面沿光轴的位置。[mm]
+            phase_map_path (str or None, optional): 待加载的已保存相位图张量路径。
+                若为 None，则随机初始化相位图。默认值为 None。
+            res (tuple or int, optional): DOE 分辨率，格式为 (H, W)；整数会
+                扩展为 (res, res)。[pixel]。默认值为 (2000, 2000)。
+            mat (str, optional): DOE 材料。默认值为 "fused_silica"。
+            wvln0 (float, optional): 设计波长。[um]。默认值为 0.55。
+            fab_ps (float, optional): 制造像素尺寸。[mm]。默认值为 0.001。
+            fab_step (int, optional): 制造量化级数。默认值为 16。
+            device (str, optional): 运行 DOE 的设备。默认值为 "cpu"。
 
-        Raises:
-            ValueError: If `phase_map_path` is neither None nor a string.
+        异常：
+            ValueError: 当 `phase_map_path` 既不是 None 也不是字符串时抛出。
         """
         super().__init__(d=d, res=res, mat=mat, fab_ps=fab_ps, fab_step=fab_step, wvln0=wvln0, device=device)
 
-        # Initialize phase map with random values
+        # 使用随机值初始化相位图
         if phase_map_path is None:
             self.phase_map = torch.randn(self.res, device=self.device) * 1e-3
         elif isinstance(phase_map_path, str):
@@ -69,14 +66,14 @@ class Pixel2D(DiffractiveSurface):
 
     @classmethod
     def init_from_dict(cls, doe_dict):
-        """Initialize a Pixel2D DOE from a dict.
+        """从字典初始化 Pixel2D DOE。
 
-        Args:
-            doe_dict (dict): Surface dict with keys "d" and "res" required and
-                optional keys "mat", "fab_ps", "fab_step", "phase_map_path", "wvln0".
+        参数：
+            doe_dict (dict): 表面字典，必须包含 "d" 和 "res"，可选键为
+                "mat"、"fab_ps"、"fab_step"、"phase_map_path"、"wvln0"。
 
-        Returns:
-            doe (Pixel2D): The constructed Pixel2D DOE.
+        返回：
+            doe (Pixel2D): 构造得到的 Pixel2D DOE。
         """
         return cls(
             d=doe_dict["d"],
@@ -89,28 +86,27 @@ class Pixel2D(DiffractiveSurface):
         )
 
     def phase_func(self):
-        """Return the raw per-pixel phase map at the design wavelength.
+        """返回设计波长下的原始逐像素相位图。
 
-        Returns:
-            phase_map (torch.Tensor): Per-pixel phase at the design wavelength.
+        返回：
+            phase_map (torch.Tensor): 设计波长下的逐像素相位。
                 [H, W]. [rad]
         """
         return self.phase_map
 
     # =======================================
-    # Optimization
+    # 优化
     # =======================================
     def get_optimizer_params(self, lr=0.01):
-        """Get optimizer parameter groups for the phase map.
+        """获取相位图的优化器参数组。
 
-        Enables gradients on the phase map and returns it as a single Adam-style
-        parameter group with the given learning rate.
+        启用相位图的梯度，并使用给定学习率将其作为单个 Adam 风格参数组返回。
 
-        Args:
-            lr (float, optional): Learning rate for the phase map. Defaults to 0.01.
+        参数：
+            lr (float, optional): 相位图的学习率。默认值为 0.01。
 
-        Returns:
-            optimizer_params (list): List with one parameter-group dict
+        返回：
+            optimizer_params (list): 包含一个参数组字典的列表
                 {"params": [phase_map], "lr": lr}.
         """
         self.phase_map.requires_grad = True
@@ -118,20 +114,20 @@ class Pixel2D(DiffractiveSurface):
         return optimizer_params
 
     # =======================================
-    # IO
+    # 输入输出
     # =======================================
     def surf_dict(self, phase_map_path):
-        """Return a serializable surface dict and save the phase map to disk.
+        """返回可序列化的表面字典，并将相位图保存到磁盘。
 
-        Extends the base surface dict with the phase-map path, and writes the
-        detached CPU phase-map tensor to `phase_map_path`.
+        在基础表面字典中加入相位图路径，并将已分离且位于 CPU 上的相位图张量
+        写入 `phase_map_path`。
 
-        Args:
-            phase_map_path (str): Path to which the phase-map tensor is saved and
-                which is recorded in the returned dict.
+        参数：
+            phase_map_path (str): 相位图张量的保存路径，该路径也会记录在
+                返回的字典中。
 
-        Returns:
-            surf_dict (dict): Surface dict including the "phase_map_path" entry.
+        返回：
+            surf_dict (dict): 包含 "phase_map_path" 项的表面字典。
         """
         surf_dict = super().surf_dict()
         surf_dict["phase_map_path"] = phase_map_path

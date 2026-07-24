@@ -1,4 +1,4 @@
-"""Zernike phase on a plane substrate."""
+"""平面基底上的泽尼克相位面。"""
 
 import math
 
@@ -9,24 +9,7 @@ from .phase import Phase
 
 
 class ZernikePhase(Phase):
-    """Diffractive phase surface parameterized by Zernike polynomials.
-
-    Implements a flat (plane-substrate) diffractive surface whose phase profile
-    is the weighted sum of the first 37 standard (normalized) Zernike
-    polynomials evaluated over a circular pupil. Inherits ray-tracing,
-    refraction, and diffraction from `Phase`.
-
-    Attributes:
-        param_model (str): Parameterization tag, always "zernike".
-        zernike_order (int): Number of Zernike terms (up to 37).
-        z_coeff (torch.Tensor): Zernike coefficients, shape [zernike_order].
-        norm_radii (float): Radius [mm] used to normalize pupil coordinates.
-
-    Reference:
-        [1] https://support.zemax.com/hc/en-us/articles/1500005489061-How-diffractive-surfaces-are-modeled-in-OpticStudio
-        [2] https://optics.ansys.com/hc/en-us/articles/360042097313-Small-Scale-Metalens-Field-Propagation
-        [3] https://optics.ansys.com/hc/en-us/articles/18254409091987-Large-Scale-Metalens-Ray-Propagation
-    """
+    """使用泽尼克多项式参数化的衍射相位面。"""
 
     def __init__(
         self,
@@ -41,25 +24,7 @@ class ZernikePhase(Phase):
         is_square=False,
         device="cpu",
     ):
-        """Initialize a Zernike phase surface.
-
-        Args:
-            r (float): Aperture radius of the surface [mm].
-            d (float): Axial position (distance to next surface) [mm].
-            zernike_order (int, optional): Number of Zernike terms. Defaults to 37.
-            zernike_coeff (list or torch.Tensor or None, optional): Initial Zernike
-                coefficients of length `zernike_order`. If None, they are randomly
-                initialized as `randn * 1e-3`. Defaults to None.
-            norm_radii (float or None, optional): Radius [mm] used to normalize pupil
-                coordinates. Defaults to None, meaning `r` is used.
-            mat2 (str, optional): Material after the surface. Defaults to "air".
-            pos_xy (tuple, optional): Lateral (x, y) position of the surface center [mm].
-                Defaults to (0.0, 0.0).
-            vec_local (tuple, optional): Local surface normal direction in global
-                coordinates. Defaults to (0.0, 0.0, 1.0).
-            is_square (bool, optional): Whether the aperture is square. Defaults to False.
-            device (str, optional): Computation device. Defaults to "cpu".
-        """
+        """初始化泽尼克相位面。"""
         super().__init__(
             r=r,
             d=d,
@@ -73,7 +38,7 @@ class ZernikePhase(Phase):
 
         self.param_model = "zernike"
 
-        # Zernike polynomial parameterization
+        # 泽尼克多项式参数化
         self.zernike_order = zernike_order
         if zernike_coeff is None:
             self.z_coeff = torch.randn(self.zernike_order) * 1e-3
@@ -84,16 +49,7 @@ class ZernikePhase(Phase):
 
     @classmethod
     def init_from_dict(cls, surf_dict):
-        """Construct a Zernike phase surface from a serialized dictionary.
-
-        Args:
-            surf_dict (dict): Surface parameters. Requires keys "r" and "d";
-                optionally reads "mat2", "norm_radii", "zernike_order", and
-                "z_coeff" (the Zernike coefficient list/tensor).
-
-        Returns:
-            obj (ZernikePhase): The reconstructed phase surface.
-        """
+        """根据序列化字典构造泽尼克相位面。"""
         mat2 = surf_dict.get("mat2", "air")
         norm_radii = surf_dict.get("norm_radii", None)
         zernike_order = surf_dict.get("zernike_order", 37)
@@ -106,7 +62,7 @@ class ZernikePhase(Phase):
             mat2=mat2,
         )
 
-        # Load Zernike coefficients
+        # 加载泽尼克系数
         z_coeff = surf_dict.get("z_coeff", None)
         if z_coeff is not None:
             obj.z_coeff = (
@@ -118,21 +74,10 @@ class ZernikePhase(Phase):
         return obj
 
     # ==============================
-    # Zernike-specific Phase Methods
+    # 泽尼克专用相位方法
     # ==============================
     def phi(self, x, y):
-        """Compute the reference phase map from the Zernike polynomials.
-
-        Overrides `Phase.phi`. Coordinates are normalized by `norm_radii` before
-        evaluation, and the result is wrapped into $[0, 2\\pi)$.
-
-        Args:
-            x (torch.Tensor): Lateral x coordinates [mm], any shape.
-            y (torch.Tensor): Lateral y coordinates [mm], same shape as `x`.
-
-        Returns:
-            phi (torch.Tensor): Phase in radians, wrapped to $[0, 2\\pi)$, same shape as `x`.
-        """
+        """根据泽尼克多项式计算参考相位图。"""
         x_norm = x / self.norm_radii
         y_norm = y / self.norm_radii
         phi = self._calculate_zernike_phase(x_norm, y_norm)
@@ -140,42 +85,18 @@ class ZernikePhase(Phase):
         return phi
 
     def dphi_dxy(self, x, y):
-        """Compute the phase gradient (dphi/dx, dphi/dy) at given points.
-
-        Overrides `Phase.dphi_dxy`. Coordinates are normalized by `norm_radii`
-        before evaluation; the returned derivatives are with respect to the
-        physical x, y in [mm].
-
-        Args:
-            x (torch.Tensor): Lateral x coordinates [mm], any shape.
-            y (torch.Tensor): Lateral y coordinates [mm], same shape as `x`.
-
-        Returns:
-            dphidx (torch.Tensor): Phase derivative dphi/dx [1/mm], same shape as `x`.
-            dphidy (torch.Tensor): Phase derivative dphi/dy [1/mm], same shape as `x`.
-        """
+        """计算给定点处的相位梯度 `(dphi/dx, dphi/dy)`。"""
         x_norm = x / self.norm_radii
         y_norm = y / self.norm_radii
         dphidx, dphidy = self._calculate_zernike_derivatives(x_norm, y_norm)
         return dphidx, dphidy
 
     # ==============================
-    # Zernike Polynomial Calculations
+    # 泽尼克多项式计算
     # ==============================
     def _calculate_zernike_phase(self, x_norm, y_norm):
-        """Evaluate the weighted sum of Zernike polynomials over the pupil.
-
-        Accumulates the first 37 standard Zernike terms scaled by `z_coeff` and
-        zeroes out points outside the unit pupil ($r > 1$).
-
-        Args:
-            x_norm (torch.Tensor): Pupil-normalized x coordinates (x / norm_radii), any shape.
-            y_norm (torch.Tensor): Pupil-normalized y coordinates (y / norm_radii), same shape.
-
-        Returns:
-            ZW (torch.Tensor): Unwrapped Zernike phase in radians, same shape as `x_norm`.
-        """
-        # Pre-compute radial powers (each computed once)
+        """计算光瞳上泽尼克多项式的加权和。"""
+        # 预先计算径向幂（每项仅计算一次）
         r2 = x_norm * x_norm + y_norm * y_norm + EPSILON
         r = torch.sqrt(r2)
         r3 = r2 * r
@@ -185,7 +106,7 @@ class ZernikePhase(Phase):
         r7 = r6 * r
         r8 = r4 * r4
 
-        # Pre-compute trig terms via angle-addition recurrence
+        # 通过和角递推预先计算三角函数项
         alpha = torch.atan2(y_norm, x_norm)
         s1 = torch.sin(alpha)
         c1 = torch.cos(alpha)
@@ -202,7 +123,7 @@ class ZernikePhase(Phase):
         s7 = s6 * c1 + c6 * s1
         c7 = c6 * c1 - s6 * s1
 
-        # Pre-compute sqrt constants and shared radial polynomials
+        # 预先计算平方根常数和共享径向多项式
         sqrt3 = math.sqrt(3)
         sqrt5 = math.sqrt(5)
         sqrt6 = math.sqrt(6)
@@ -222,7 +143,7 @@ class ZernikePhase(Phase):
         poly_21r7_30r5_10r3 = 21 * r7 - 30 * r5 + 10 * r3
         poly_7r7_6r5 = 7 * r7 - 6 * r5
 
-        # Accumulate Zernike terms
+        # 累加泽尼克项
         c = self.z_coeff
         ZW = c[0] * 1
         ZW = ZW + c[1] * (2 * r * s1)
@@ -262,29 +183,14 @@ class ZernikePhase(Phase):
         ZW = ZW + c[35] * (4 * r7 * c7)
         ZW = ZW + c[36] * (3 * (70 * r8 - 140 * r6 + 90 * r4 - 20 * r2 + 1))
 
-        # Apply circular mask (reuse r2 instead of recomputing x_norm**2 + y_norm**2)
+        # 应用圆形掩膜（复用 r2，避免重新计算 x_norm**2 + y_norm**2）
         ZW = torch.where(r2 - EPSILON <= 1, ZW, torch.zeros(1, device=ZW.device))
 
         return ZW
 
     def _calculate_zernike_derivatives(self, x_norm, y_norm):
-        """Compute the analytic gradient of the Zernike phase via the chain rule.
-
-        Differentiates each Zernike term with respect to physical x, y by
-        combining $dR/dr$, $dr/dx$, $d\\theta/dx$, etc.; points outside the unit
-        pupil ($r > 1$) are set to zero. The final result is divided by
-        `norm_radii` to convert from normalized-coordinate to physical [1/mm]
-        derivatives.
-
-        Args:
-            x_norm (torch.Tensor): Pupil-normalized x coordinates (x / norm_radii), any shape.
-            y_norm (torch.Tensor): Pupil-normalized y coordinates (y / norm_radii), same shape.
-
-        Returns:
-            dZdx (torch.Tensor): Phase derivative dphi/dx [1/mm], same shape as `x_norm`.
-            dZdy (torch.Tensor): Phase derivative dphi/dy [1/mm], same shape as `x_norm`.
-        """
-        # Pre-compute radial powers (each computed once)
+        """通过链式法则计算泽尼克相位的解析梯度。"""
+        # 预先计算径向幂（每项仅计算一次）
         r2 = x_norm * x_norm + y_norm * y_norm + EPSILON
         r = torch.sqrt(r2)
         r3 = r2 * r
@@ -293,7 +199,7 @@ class ZernikePhase(Phase):
         r6 = r4 * r2
         r7 = r6 * r
 
-        # Pre-compute trig terms via angle-addition recurrence
+        # 通过和角递推预先计算三角函数项
         alpha = torch.atan2(y_norm, x_norm)
         s1 = torch.sin(alpha)
         c1 = torch.cos(alpha)
@@ -310,13 +216,13 @@ class ZernikePhase(Phase):
         s7 = s6 * c1 + c6 * s1
         c7 = c6 * c1 - s6 * s1
 
-        # Chain rule terms: dr/dx, dr/dy, dtheta/dx, dtheta/dy
+        # 链式法则项：dr/dx、dr/dy、dtheta/dx、dtheta/dy
         drdx = x_norm / r
         drdy = y_norm / r
         dthetadx = -y_norm / (r2 + EPSILON)
         dthetady = x_norm / (r2 + EPSILON)
 
-        # Sqrt constants
+        # 平方根常数
         sqrt3 = math.sqrt(3)
         sqrt5 = math.sqrt(5)
         sqrt6 = math.sqrt(6)
@@ -326,8 +232,8 @@ class ZernikePhase(Phase):
         sqrt12 = math.sqrt(12)
         sqrt14 = math.sqrt(14)
 
-        # Pre-compute shared radial polynomials and their derivatives
-        # (paired terms share the same R(r) and dR/dr)
+        # 预先计算共享径向多项式及其导数
+        # （成对项共享相同的 R(r) 和 dR/dr）
         R_sqrt8_3r3_2r = sqrt8 * (3 * r3 - 2 * r)  # Z7, Z8
         dR_sqrt8_3r3_2r = sqrt8 * (9 * r2 - 2)
         R_sqrt8_r3 = sqrt8 * r3  # Z9, Z10
@@ -359,14 +265,14 @@ class ZernikePhase(Phase):
 
         c = self.z_coeff
 
-        # Initialize derivatives
+        # 初始化导数
         dZdx = torch.zeros_like(x_norm)
         dZdy = torch.zeros_like(y_norm)
 
-        # Helper: for Z = coeff * R(r) * T(theta):
+        # 辅助公式：对于 Z = coeff * R(r) * T(theta)：
         #   dZ/dx = coeff * (dR/dr * dr/dx * T + R * dT/dtheta * dtheta/dx)
 
-        # Z1: piston (no derivative)
+        # Z1：活塞项（导数为零）
 
         # Z2 = c2 * 2*r*sin(a),  Z3 = c3 * 2*r*cos(a)
         R_2r = 2 * r
@@ -375,7 +281,7 @@ class ZernikePhase(Phase):
         dZdx += c[2] * (2 * drdx * c1 + R_2r * (-s1) * dthetadx)
         dZdy += c[2] * (2 * drdy * c1 + R_2r * (-s1) * dthetady)
 
-        # Z4 = c4 * sqrt(3) * (2*r^2 - 1)  (rotationally symmetric)
+        # Z4 = c4 * sqrt(3) * (2*r^2 - 1)  （旋转对称）
         dR4dr = sqrt3 * 4 * r
         dZdx += c[3] * dR4dr * drdx
         dZdy += c[3] * dR4dr * drdy
@@ -400,7 +306,7 @@ class ZernikePhase(Phase):
         dZdx += c[9] * (dR_sqrt8_r3 * drdx * c3 + R_sqrt8_r3 * (-3 * s3) * dthetadx)
         dZdy += c[9] * (dR_sqrt8_r3 * drdy * c3 + R_sqrt8_r3 * (-3 * s3) * dthetady)
 
-        # Z11: sqrt(5) * (6r^4 - 6r^2 + 1)  (rotationally symmetric)
+        # Z11: sqrt(5) * (6r^4 - 6r^2 + 1)  （旋转对称）
         dR11dr = sqrt5 * (24 * r3 - 12 * r)
         dZdx += c[10] * dR11dr * drdx
         dZdy += c[10] * dR11dr * drdy
@@ -435,7 +341,7 @@ class ZernikePhase(Phase):
         dZdx += c[20] * (dR_sqrt12_r5 * drdx * s5 + R_sqrt12_r5 * 5 * c5 * dthetadx)
         dZdy += c[20] * (dR_sqrt12_r5 * drdy * s5 + R_sqrt12_r5 * 5 * c5 * dthetady)
 
-        # Z22: sqrt(7) * (20r^6 - 30r^4 + 12r^2 - 1)  (rotationally symmetric)
+        # Z22: sqrt(7) * (20r^6 - 30r^4 + 12r^2 - 1)  （旋转对称）
         dR22dr = sqrt7 * (120 * r5 - 120 * r3 + 24 * r)
         dZdx += c[21] * dR22dr * drdx
         dZdy += c[21] * dR22dr * drdy
@@ -482,48 +388,33 @@ class ZernikePhase(Phase):
         dZdx += c[35] * (dR_4_r7 * drdx * c7 + R_4_r7 * (-7 * s7) * dthetadx)
         dZdy += c[35] * (dR_4_r7 * drdy * c7 + R_4_r7 * (-7 * s7) * dthetady)
 
-        # Z37: 3*(70r^8 - 140r^6 + 90r^4 - 20r^2 + 1)  (rotationally symmetric)
+        # Z37: 3*(70r^8 - 140r^6 + 90r^4 - 20r^2 + 1)  （旋转对称）
         dR37dr = 3 * (560 * r7 - 840 * r5 + 360 * r3 - 40 * r)
         dZdx += c[36] * dR37dr * drdx
         dZdy += c[36] * dR37dr * drdy
 
-        # Apply circular mask (reuse r2)
+        # 应用圆形掩膜（复用 r2）
         mask = r2 - EPSILON > 1
         zero = torch.zeros(1, device=dZdx.device)
         dZdx = torch.where(mask, zero, dZdx)
         dZdy = torch.where(mask, zero, dZdy)
 
-        # Scale by normalization radius
+        # 按归一化半径缩放
         dZdx = dZdx / self.norm_radii
         dZdy = dZdy / self.norm_radii
 
         return dZdx, dZdy
 
     # ==============================
-    # Optimization
+    # 优化
     # ==============================
     def get_optimizer_params(self, lrs=[1e-4], optim_mat=False):
-        """Build optimizer parameter groups for the Zernike coefficients.
-
-        Enables gradients on `z_coeff` and assigns it the first learning rate.
-
-        Args:
-            lrs (list, optional): Learning rates; `lrs[0]` is used for `z_coeff`.
-                Defaults to [1e-4].
-            optim_mat (bool, optional): Must be False; material optimization is
-                unsupported for phase surfaces. Defaults to False.
-
-        Returns:
-            params (list): List with one parameter-group dict for the optimizer.
-
-        Raises:
-            AssertionError: If `optim_mat` is True.
-        """
+        """为泽尼克系数构建优化器参数组。"""
         params = []
         self.z_coeff.requires_grad = True
         params.append({"params": [self.z_coeff], "lr": lrs[0]})
 
-        # We do not optimize material parameters for phase surface.
+        # 相位面不优化材料参数。
         assert optim_mat is False, (
             "Material parameters are not optimized for phase surface."
         )
@@ -531,14 +422,10 @@ class ZernikePhase(Phase):
         return params
 
     # =========================================
-    # IO
+    # 输入输出
     # =========================================
     def save_ckpt(self, save_path="./zernike_doe.pth"):
-        """Save the Zernike coefficients and order to a checkpoint file.
-
-        Args:
-            save_path (str, optional): Output path. Defaults to "./zernike_doe.pth".
-        """
+        """将泽尼克系数和阶数保存到检查点文件。"""
         torch.save(
             {
                 "param_model": "zernike",
@@ -549,24 +436,13 @@ class ZernikePhase(Phase):
         )
 
     def load_ckpt(self, load_path="./zernike_doe.pth"):
-        """Load Zernike coefficients and order from a checkpoint file.
-
-        Args:
-            load_path (str, optional): Checkpoint path. Defaults to "./zernike_doe.pth".
-        """
+        """从检查点文件加载泽尼克系数和阶数。"""
         ckpt = torch.load(load_path)
         self.z_coeff = ckpt["z_coeff"].to(self.device)
         self.zernike_order = ckpt["zernike_order"]
 
     def surf_dict(self):
-        """Serialize the surface parameters to a JSON-friendly dictionary.
-
-        Returns:
-            surf_dict (dict): Surface parameters including type, radius `r` [mm],
-                `is_square`, `param_model`, the Zernike coefficient list
-                `z_coeff`, `zernike_order`, `norm_radii` [mm], axial position
-                `d` [mm], and the right-side material name.
-        """
+        """将表面参数序列化为适用于 JSON 的字典。"""
         surf_dict = {
             "type": self.__class__.__name__,
             "r": self.r,

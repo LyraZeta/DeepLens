@@ -4,20 +4,20 @@
 # Licensed under the Apache License, Version 2.0.
 # See LICENSE file in the project root for full license information.
 
-"""Visualization functions for GeoLens.
+"""GeoLens 的可视化函数。
 
-Functions:
-    Ray Sampling (2D):
-        - sample_parallel_2D(): Sample parallel rays (2D) in object space
-        - sample_point_source_2D(): Sample point source rays (2D) in object space
+函数：
+    光线采样（2D）：
+        - sample_parallel_2D()：在物方采样平行光线（2D）
+        - sample_point_source_2D()：在物方采样点光源光线（2D）
 
-    2D Layout Visualization:
-        - draw_layout(): Plot 2D lens layout with ray tracing
-        - draw_lens_2d(): Draw lens layout in a 2D plot
-        - draw_ray_2d(): Plot ray paths
+    2D 布局可视化：
+        - draw_layout()：绘制带光线追迹的 2D 透镜布局
+        - draw_lens_2d()：在 2D 图中绘制透镜布局
+        - draw_ray_2d()：绘制光线路径
 
-    Barrier Overlay:
-        - create_barrier(): Draw a lens barrel overlay on the 2D layout
+    遮挡结构叠加：
+        - create_barrier()：在 2D 布局上叠加绘制镜筒
 """
 
 import matplotlib.pyplot as plt
@@ -28,17 +28,15 @@ from ..light import Ray
 
 
 class GeoLensVis:
-    """Mixin providing 2D lens layout and ray visualization for `GeoLens`.
+    """为 `GeoLens` 提供 2D 透镜布局与光线可视化的混入类。
 
-    Generates publication-quality cross-section plots showing lens surfaces
-    and traced ray bundles in either the meridional or sagittal plane.
+    生成出版质量的截面图，在子午面或弧矢面中显示透镜表面和追迹光束。
 
-    This class is not instantiated directly; it is mixed into
-    `GeoLens`.
+    本类不单独实例化，而是混入 `GeoLens`。
     """
 
     # ====================================================================================
-    # Ray sampling functions for 2D layout
+    # 2D 布局的光线采样函数
     # ====================================================================================
     @torch.no_grad()
     def sample_parallel_2D(
@@ -50,33 +48,32 @@ class GeoLensVis:
         entrance_pupil=True,
         depth=0.0,
     ):
-        """Sample parallel rays (2D) in object space.
+        """在物方采样平行光线（2D）。
 
-        Used for (1) drawing lens setup, (2) 2D geometric optics calculation, for example, refocusing to infinity
+        用于：(1) 绘制透镜系统；(2) 2D 几何光学计算，例如重新聚焦到无穷远。
 
-        Args:
-            fov (float, optional): Incident angle [degree]. Defaults to 0.0.
-            num_rays (int, optional): Number of rays. Defaults to 7.
-            wvln (float or None, optional): Ray wavelength [µm]. When None,
-                falls back to `self.primary_wvln`. Defaults to None.
-            plane (str, optional): Sampling plane, "meridional" (y-z plane) or
-                "sagittal" (x-z plane). Defaults to "meridional".
-            entrance_pupil (bool, optional): If True, sample on the entrance pupil;
-                otherwise sample on the first surface aperture. Defaults to True.
-            depth (float, optional): Sampling depth [mm] to propagate rays to.
-                Defaults to 0.0.
+        参数：
+            fov (float, optional)：入射角 [degree]。默认值为 0.0。
+            num_rays (int, optional)：光线数量。默认值为 7。
+            wvln (float or None, optional)：光线波长 [µm]。为 None 时回退到
+                `self.primary_wvln`。默认值为 None。
+            plane (str, optional)：采样平面，可为 "meridional"（y-z 平面）
+                或 "sagittal"（x-z 平面）。默认值为 "meridional"。
+            entrance_pupil (bool, optional)：为 True 时在入瞳上采样，否则在
+                首表面孔径上采样。默认值为 True。
+            depth (float, optional)：光线传播到的采样深度 [mm]。默认值为 0.0。
 
-        Returns:
-            rays (Ray): Sampled rays with origin/direction tensors of shape [num_rays, 3].
+        返回：
+            rays (Ray)：采样光线，其原点/方向张量的 shape 为 [num_rays, 3]。
         """
         wvln = self.primary_wvln if wvln is None else wvln
-        # Sample points on the pupil
+        # 在瞳孔上采样点
         if entrance_pupil:
             pupilz, pupilr = self.get_entrance_pupil()
         else:
             pupilz, pupilr = self.surfaces[0].d.item(), self.surfaces[0].r
 
-        # Sample ray origins, shape [num_rays, 3]
+        # 采样光线原点，shape [num_rays, 3]
         if plane == "sagittal":
             ray_o = torch.stack(
                 (
@@ -98,7 +95,7 @@ class GeoLensVis:
         else:
             raise ValueError(f"Invalid plane: {plane}")
 
-        # Sample ray directions, shape [num_rays, 3]
+        # 采样光线方向，shape [num_rays, 3]
         if plane == "sagittal":
             ray_d = torch.stack(
                 (
@@ -120,7 +117,7 @@ class GeoLensVis:
         else:
             raise ValueError(f"Invalid plane: {plane}")
 
-        # Form rays and propagate to the target depth
+        # 构造光线并传播到目标深度
         rays = Ray(ray_o, ray_d, wvln, device=self.device)
         rays.prop_to(depth)
         return rays
@@ -134,30 +131,30 @@ class GeoLensVis:
         wvln=None,
         entrance_pupil=True,
     ):
-        """Sample point source rays (2D) in object space.
+        """在物方采样点光源光线（2D）。
 
-        Used for (1) drawing lens setup.
+        用于绘制透镜系统。
 
-        Args:
-            fov (float, optional): Incident angle [degree]. Defaults to 0.0.
-            depth (float or None, optional): Object-plane depth [mm]. When None,
-                falls back to `self.obj_depth`. Defaults to None.
-            num_rays (int, optional): Number of rays. Defaults to 7.
-            wvln (float or None, optional): Ray wavelength [µm]. When None,
-                falls back to `self.primary_wvln`. Defaults to None.
-            entrance_pupil (bool, optional): If True, aim rays at the entrance pupil;
-                otherwise aim at the first surface aperture. Defaults to True.
+        参数：
+            fov (float, optional)：入射角 [degree]。默认值为 0.0。
+            depth (float or None, optional)：物面深度 [mm]。为 None 时回退到
+                `self.obj_depth`。默认值为 None。
+            num_rays (int, optional)：光线数量。默认值为 7。
+            wvln (float or None, optional)：光线波长 [µm]。为 None 时回退到
+                `self.primary_wvln`。默认值为 None。
+            entrance_pupil (bool, optional)：为 True 时将光线瞄准入瞳，否则
+                瞄准首表面孔径。默认值为 True。
 
-        Returns:
-            ray (Ray): Sampled rays with origin/direction tensors of shape [num_rays, 3].
+        返回：
+            ray (Ray)：采样光线，其原点/方向张量的 shape 为 [num_rays, 3]。
         """
         wvln = self.primary_wvln if wvln is None else wvln
         depth = self.obj_depth if depth is None else depth
-        # Sample point on the object plane
+        # 在物面上采样点
         ray_o = torch.tensor([depth * float(np.tan(np.deg2rad(fov))), 0.0, depth])
         ray_o = ray_o.unsqueeze(0).repeat(num_rays, 1)
 
-        # Sample points (second point) on the pupil
+        # 在瞳孔上采样点（第二点）
         if entrance_pupil:
             pupilz, pupilr = self.calc_entrance_pupil()
         else:
@@ -168,16 +165,16 @@ class GeoLensVis:
         z2 = torch.full_like(x2, pupilz)
         ray_o2 = torch.stack((x2, y2, z2), axis=1)
 
-        # Form the rays
+        # 构造光线
         ray_d = ray_o2 - ray_o
         ray = Ray(ray_o, ray_d, wvln, device=self.device)
 
-        # Propagate rays to the sampling depth
+        # 将光线传播到采样深度
         ray.prop_to(depth)
         return ray
 
     # ====================================================================================
-    # Lens 2D layout
+    # 透镜 2D 布局
     # ====================================================================================
     def draw_layout(
         self,
@@ -189,34 +186,31 @@ class GeoLensVis:
         show=False,
         return_fig=False,
     ):
-        """Plot 2D lens layout with ray tracing.
+        """绘制带光线追迹的 2D 透镜布局。
 
-        The title is auto-generated when ``lens_title`` is None: it includes
-        focal length, F-number, FoV, IMGH, RGB wavelengths, and a second line
-        with per-FoV RMS spot radii from ``analysis_spot()``.
+        ``lens_title`` 为 None 时自动生成标题，其中包含焦距、F 数、FoV、
+        IMGH、RGB 波长，以及由 ``analysis_spot()`` 得到的各 FoV RMS
+        光斑半径第二行。
 
-        Args:
-            filename (str): Output filename.
-            depth (float, optional): Object distance for ray tracing [mm]. Use ``float('inf')``
-                for collimated input. Defaults to ``float('inf')``.
-            zmx_format (bool, optional): If True, draw surfaces in Zemax style. Defaults to True.
-            multi_plot (bool, optional): If True, create one sub-plot per wavelength.
-                Defaults to False.
-            lens_title (str or None, optional): Title string. If None, auto-generated. Defaults to None.
-            show (bool, optional): If True, display the figure interactively instead of
-                saving. Defaults to False.
-            return_fig (bool, optional): If True, return the axes and figure without
-                saving or closing them (for overlay drawing by callers such as
-                `create_barrier`). Defaults to False.
+        参数：
+            filename (str)：输出文件名。
+            depth (float, optional)：光线追迹的物距 [mm]。准直输入使用
+                ``float('inf')``。默认值为 ``float('inf')``。
+            zmx_format (bool, optional)：为 True 时以 Zemax 风格绘制表面。默认值为 True。
+            multi_plot (bool, optional)：为 True 时为每个波长创建一个子图。默认值为 False。
+            lens_title (str or None, optional)：标题字符串。为 None 时自动生成。默认值为 None。
+            show (bool, optional)：为 True 时交互显示图像而非保存。默认值为 False。
+            return_fig (bool, optional)：为 True 时直接返回坐标轴和图像，不保存也不关闭，
+                供 `create_barrier` 等调用方继续叠加绘制。默认值为 False。
 
-        Returns:
-            result (tuple or None): When `return_fig` is True, returns (ax, fig)
-                matplotlib axes and figure objects; otherwise returns None.
+        返回：
+            result (tuple or None)：`return_fig` 为 True 时返回 matplotlib
+                坐标轴和图像对象 (ax, fig)，否则返回 None。
         """
         num_rays = 11
         num_views = 3
 
-        # Lens title
+        # 透镜标题
         if lens_title is None:
             eff_foclen = round(self.foclen, 2)
             fov_deg = round(2 * self.rfov * 180 / torch.pi, 1)
@@ -243,7 +237,7 @@ class GeoLensVis:
             line2 = f"RMS spot: 0.0FoV={rms0:.2f}\u03bcm  0.5FoV={rms5:.2f}\u03bcm  1.0FoV={rms10:.2f}\u03bcm"
             lens_title = f"{line1}\n{line2}"
 
-        # Draw lens layout
+        # 绘制透镜布局
         colors_list = ["#CC0000", "#006600", "#0066CC"]
         rfov_deg = float(np.rad2deg(self.rfov))
         fov_ls = np.linspace(0, rfov_deg * 0.99, num=num_views)
@@ -252,7 +246,7 @@ class GeoLensVis:
             ax, fig = self.draw_lens_2d(zmx_format=zmx_format)
             fig.suptitle(lens_title, fontsize=10, fontfamily="Nimbus Sans")
             for i, fov in enumerate(fov_ls):
-                # Sample rays, shape (num_rays, 3)
+            # 采样光线，shape (num_rays, 3)
                 if depth == float("inf"):
                     ray = self.sample_parallel_2D(
                         fov=fov,
@@ -270,7 +264,7 @@ class GeoLensVis:
                     )
                     ray.prop_to(-1.0)
 
-                # Trace rays to sensor and plot ray paths
+            # 将光线追迹到传感器并绘制光线路径
                 _, ray_o_record = self.trace2sensor(ray=ray, record=True)
                 ax, fig = self.draw_ray_2d(
                     ray_o_record, ax=ax, fig=fig, color=colors_list[i]
@@ -285,7 +279,7 @@ class GeoLensVis:
                 ax = axs[i]
                 ax, fig = self.draw_lens_2d(ax=ax, fig=fig, zmx_format=zmx_format)
                 for fov in fov_ls:
-                    # Sample rays, shape (num_rays, 3)
+                # 采样光线，shape (num_rays, 3)
                     if depth == float("inf"):
                         ray = self.sample_parallel_2D(
                             fov=fov,
@@ -301,15 +295,15 @@ class GeoLensVis:
                             wvln=wvln,
                         )
 
-                    # Trace rays to sensor and plot ray paths
+                # 将光线追迹到传感器并绘制光线路径
                     ray_out, ray_o_record = self.trace2sensor(ray=ray, record=True)
                     ax, fig = self.draw_ray_2d(
                         ray_o_record, ax=ax, fig=fig, color=colors_list[i]
                     )
                     ax.axis("off")
 
-        # Let an internal caller (e.g. create_barrier) keep drawing on the same
-        # axes instead of saving and closing the figure here.
+        # 允许内部调用方（如 create_barrier）继续在同一坐标轴上绘制，
+        # 而不是在此处保存并关闭图像。
         if return_fig:
             return ax, fig
 
@@ -317,7 +311,7 @@ class GeoLensVis:
             fig.show()
         else:
             fig.savefig(filename, format="png", dpi=300)
-            # Close the specific figure to avoid leaking it.
+        # 关闭当前图像，避免资源泄漏。
             plt.close(fig)
 
     def draw_lens_2d(
@@ -329,36 +323,35 @@ class GeoLensVis:
         zmx_format=False,
         fix_bound=False,
     ):
-        """Draw lens cross-section layout in a 2D plot.
+        """在 2D 图中绘制透镜截面布局。
 
-        Renders each surface profile, connects lens elements with edge lines,
-        and draws the sensor plane.
+        渲染各表面轮廓，以边缘线连接透镜元件，并绘制传感器平面。
 
-        Args:
-            ax (matplotlib.axes.Axes, optional): Existing axes to draw on. If None,
-                creates a new figure. Defaults to None.
-            fig (matplotlib.figure.Figure, optional): Existing figure. Defaults to None.
-            color (str, optional): Line colour for lens outlines. Defaults to 'k'.
-            linestyle (str, optional): Line style. Defaults to '-'.
-            zmx_format (bool, optional): If True, draw stepped edge connections
-                matching Zemax layout style. Defaults to False.
-            fix_bound (bool, optional): If True, use fixed axis limits [-1,7]x[-4,4].
-                Defaults to False.
+        参数：
+            ax (matplotlib.axes.Axes, optional)：用于绘制的现有坐标轴。为 None
+                时创建新图像。默认值为 None。
+            fig (matplotlib.figure.Figure, optional)：现有图像。默认值为 None。
+            color (str, optional)：透镜轮廓线颜色。默认值为 'k'。
+            linestyle (str, optional)：线型。默认值为 '-'。
+            zmx_format (bool, optional)：为 True 时绘制符合 Zemax 布局风格的
+                阶梯式边缘连接。默认值为 False。
+            fix_bound (bool, optional)：为 True 时使用固定坐标范围 [-1,7]x[-4,4]。
+                默认值为 False。
 
-        Returns:
-            ax (matplotlib.axes.Axes): The axes with the lens layout drawn.
-            fig (matplotlib.figure.Figure): The figure.
+        返回：
+            ax (matplotlib.axes.Axes)：已绘制透镜布局的坐标轴。
+            fig (matplotlib.figure.Figure)：图像。
         """
-        # If no ax is given, generate a new one.
+        # 若未提供 ax，则新建一个。
         if ax is None and fig is None:
             # fig, ax = plt.subplots(figsize=(6, 6))
             fig, ax = plt.subplots()
 
-        # Draw lens surfaces
+        # 绘制透镜表面
         for i, s in enumerate(self.surfaces):
             s.draw_widget(ax)
 
-        # Connect two surfaces
+                # 连接两个表面
         for i in range(len(self.surfaces)):
             if self.surfaces[i].mat2.n > 1.1:
                 s_prev = self.surfaces[i]
@@ -374,16 +367,16 @@ class GeoLensVis:
                 ).item()
 
                 if r_prev >= r:
-                    # Front surface wider: go axially forward at r_prev, then step radially inward
+                        # 前表面更宽：在 r_prev 处沿轴向前进，再沿径向向内
                     z = np.array([sag_prev, sag, sag])
                     x = np.array([r_prev, r_prev, r])
                 else:
-                    # Rear surface wider: step radially outward at z_prev, then go axially forward
+                        # 后表面更宽：在 z_prev 处沿径向向外，再沿轴向前进
                     z = np.array([sag_prev, sag_prev, sag])
                     x = np.array([r_prev, r, r])
 
                 if not zmx_format:
-                    # In non-zmx mode use a direct diagonal between the two outer edges
+                    # 非 zmx 模式下，直接以对角线连接两个外边缘
                     z = np.array([z[0], z[-1]])
                     x = np.array([x[0], x[-1]])
 
@@ -391,14 +384,14 @@ class GeoLensVis:
                 ax.plot(z, x, color, linewidth=0.75)
                 s_prev = s
 
-        # Draw sensor
+        # 绘制传感器
         ax.plot(
             [self.d_sensor.item(), self.d_sensor.item()],
             [-self.r_sensor, self.r_sensor],
             color,
         )
 
-        # Set figure size
+        # 设置图像尺寸
         if fix_bound:
             ax.set_aspect("equal")
             ax.set_xlim(-1, 7)
@@ -413,23 +406,22 @@ class GeoLensVis:
         return ax, fig
 
     def draw_ray_2d(self, ray_o_record, ax, fig, color="b"):
-        """Plot ray paths onto an existing 2D layout.
+        """在现有 2D 布局上绘制光线路径。
 
-        Each recorded ray origin is a [num_rays, 3] (or [num_view, num_rays, 3])
-        tensor; stacking them yields [num_view, num_rays, num_path, 3] where the
-        last axis holds (x, y, z) in [mm]. The z (axial) and x (radial) components
-        are drawn as polylines.
+        每个记录的光线原点都是 [num_rays, 3]（或 [num_view, num_rays, 3]）
+        张量；堆叠后得到 [num_view, num_rays, num_path, 3]，末轴存放
+        [mm] 下的 (x, y, z)。以折线绘制 z（轴向）和 x（径向）分量。
 
-        Args:
-            ray_o_record (list): List of ray-origin tensors, one per traced surface,
-                each of shape [num_rays, 3] or [num_view, num_rays, 3].
-            ax (matplotlib.axes.Axes): Matplotlib axes to draw on.
-            fig (matplotlib.figure.Figure): Matplotlib figure.
-            color (str, optional): Line colour for the ray paths. Defaults to 'b'.
+        参数：
+            ray_o_record (list)：光线原点张量列表，每个被追迹表面对应一个，
+                shape 为 [num_rays, 3] 或 [num_view, num_rays, 3]。
+            ax (matplotlib.axes.Axes)：用于绘制的 Matplotlib 坐标轴。
+            fig (matplotlib.figure.Figure)：Matplotlib 图像。
+            color (str, optional)：光线路径颜色。默认值为 'b'。
 
-        Returns:
-            ax (matplotlib.axes.Axes): The axes with ray paths drawn.
-            fig (matplotlib.figure.Figure): The figure.
+        返回：
+            ax (matplotlib.axes.Axes)：已绘制光线路径的坐标轴。
+            fig (matplotlib.figure.Figure)：图像。
         """
         # shape (num_view, num_rays, num_path, 2)
         ray_o_record = torch.stack(ray_o_record, dim=-2).cpu().numpy()
@@ -455,29 +447,28 @@ class GeoLensVis:
         return ax, fig
 
     # ====================================================================================
-    # Lens 3D barrier generation
+    # 透镜 3D 遮挡结构生成
     # ====================================================================================
     def create_barrier(
         self, filename, barrier_thickness=1.0, ring_height=0.5, ring_size=1.0
     ):
-        """Draw a lens barrel (barrier) overlay on the 2D lens layout and save it.
+        """在 2D 透镜布局上叠加绘制镜筒（遮挡结构）并保存。
 
-        Computes barrier segments spanning each air gap (extending to the midpoint
-        of the following air space, or to the sensor for the last segment), overlays
-        them in green on the layout from `draw_layout`, and saves the figure as a PNG.
+        计算跨越各空气间隔的遮挡段（延伸到后续空气间隔的中点，最后一段延伸到
+        传感器），以绿色叠加到 `draw_layout` 生成的布局上，并将图像保存为 PNG。
 
-        Args:
-            filename (str): Path to save the output PNG figure.
-            barrier_thickness (float, optional): Barrier thickness [mm]. Defaults to 1.0.
-            ring_height (float, optional): Annular ring height [mm]. Currently unused
-                (ring drawing is not implemented). Defaults to 0.5.
-            ring_size (float, optional): Annular ring size [mm]. Currently unused
-                (ring drawing is not implemented). Defaults to 1.0.
+        参数：
+            filename (str)：输出 PNG 图像的保存路径。
+            barrier_thickness (float, optional)：遮挡结构厚度 [mm]。默认值为 1.0。
+            ring_height (float, optional)：环形圈高度 [mm]。当前未使用
+                （尚未实现环形圈绘制）。默认值为 0.5。
+            ring_size (float, optional)：环形圈尺寸 [mm]。当前未使用
+                （尚未实现环形圈绘制）。默认值为 1.0。
         """
         barriers = []
         rings = []
 
-        # Create barriers
+        # 创建遮挡结构
         barrier_z = 0.0
         barrier_r = 0.0
         barrier_length = 0.0
@@ -485,11 +476,11 @@ class GeoLensVis:
             barrier_r = max(self.surfaces[i].r, barrier_r)
 
             if self.surfaces[i].mat2.get_name() != "air":
-                # Update the barrier radius
+            # 更新遮挡结构半径
                 # barrier_r = max(geolens.surfaces[i].r, barrier_r)
                 pass
             else:
-                # Extend the barrier till middle of the air space to the next surface
+                # 将遮挡结构延伸至当前表面与下一表面之间空气间隔的中点
                 max_curr_surf_d = self.surfaces[i].d.item() + max(
                     self.surfaces[i].surface_sag(0.0, self.surfaces[i].r), 0.0
                 )
@@ -505,7 +496,7 @@ class GeoLensVis:
 
                 barrier_length = max_curr_surf_d + extra_space - barrier_z
 
-                # Create a barrier
+                # 创建遮挡结构
                 barrier = {
                     "pos_z": barrier_z,
                     "pos_r": barrier_r,
@@ -514,21 +505,21 @@ class GeoLensVis:
                 }
                 barriers.append(barrier)
 
-                # Reset the barrier parameters
+                # 重置遮挡结构参数
                 barrier_z = barrier_length + barrier_z
                 barrier_r = 0.0
                 barrier_length = 0.0
 
-        # # Create rings
+        # # 创建环形圈
         # for i in range(len(geolens.surfaces)):
         #     if geolens.surfaces[i].mat2.get_name() != "air":
         #         ring = {
         #             "pos_z": geolens.surfaces[i].d.item(),
 
-        # Plot lens layout (keep the figure open so we can overlay the barrier)
+        # 绘制透镜布局（保持图像打开，以便叠加遮挡结构）
         ax, fig = self.draw_layout(filename, return_fig=True)
 
-        # Plot barrier
+        # 绘制遮挡结构
         barrier_z_ls = []
         barrier_r_ls = []
         for b in barriers:
@@ -539,7 +530,7 @@ class GeoLensVis:
         ax.plot(barrier_z_ls, barrier_r_ls, "green", linewidth=1.0)
         ax.plot(barrier_z_ls, [-i for i in barrier_r_ls], "green", linewidth=1.0)
 
-        # Plot rings
+        # 绘制环形圈
 
         fig.savefig(filename, format="png", dpi=300)
         plt.close()

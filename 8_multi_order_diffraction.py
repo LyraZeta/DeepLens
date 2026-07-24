@@ -1,6 +1,8 @@
-"""Visualize multi-order diffraction from the PSF of a hybrid refractive-diffractive lens.
+"""通过折射—衍射混合镜头的 PSF 可视化多级衍射。
 
-When using ray tracing model (e.g., ZEMAX), we can only trace one diffraction order at a time. We have to run multiple times with assigning different diffraction efficiencies to different orders to obtain the full results. While with ray-wave model, the information of all diffraction orders is contained in the wavefront, and we can calculate the PSF with the contribution of all diffraction orders.
+使用光线追迹模型（如 ZEMAX）时，一次只能追迹一个衍射级次。要获得完整结果，必须
+多次运行，并为不同级次指定不同的衍射效率。而在光线—波动模型中，波前包含所有
+衍射级次的信息，因此可以计算包含所有衍射级次贡献的 PSF。
 """
 
 import matplotlib.pyplot as plt
@@ -11,25 +13,25 @@ from deeplens import HybridLens
 
 
 def analyze_psf(psf, save_name="./psf"):
-    """Analyze and visualize PSF with both 1D center line profile and 2D plots.
+    """使用一维中心线剖面和二维图分析并可视化 PSF。
 
-    Args:
-        psf: PSF tensor with shape [H, W]
-        save_name: Base name for saving output files (default: "./psf")
+    参数：
+        psf: shape 为 [H, W] 的 PSF 张量
+        save_name: 保存输出文件的基础名称（默认值："./psf"）
     """
-    # Plot PSF values along the Y direction (center column)
+    # 绘制 PSF 沿 Y 方向（中心列）的值
     center_x = psf.shape[-1] // 2
 
-    # Extract center column profile (along y-direction)
+    # 提取中心列剖面（沿 y 方向）
     psf_center = psf[:, center_x].detach().cpu().numpy()
 
-    # Create the plot with linear and log scale
+    # 创建线性和对数尺度图
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
-    # y-axis in pixels
+    # 以像素为单位的 y 轴
     y_pixels = range(len(psf_center))
 
-    # Linear scale plot
+    # 线性尺度图
     axes[0].plot(y_pixels, psf_center, color="#3498db", alpha=0.8)
     axes[0].set_xlabel("Y Pixel Position")
     axes[0].set_ylabel("Intensity")
@@ -43,7 +45,7 @@ def analyze_psf(psf, save_name="./psf"):
         label="Center",
     )
 
-    # Log scale plot to better visualize high-order diffraction peaks
+    # 对数尺度图，以便更清楚地观察高阶衍射峰
     axes[1].semilogy(
         y_pixels,
         psf_center + 1e-10,
@@ -67,20 +69,20 @@ def analyze_psf(psf, save_name="./psf"):
     plt.close()
     print(f"Saved center column profile to {save_name}_center_line.png")
 
-    # Plot 2D PSF
+    # 绘制二维 PSF
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
 
-    # Convert to numpy
+    # 转换为 numpy
     psf_2d = psf.detach().cpu().numpy()
 
-    # Linear scale 2D PSF
+    # 线性尺度二维 PSF
     im0 = axes[0].imshow(psf_2d, cmap="hot")
     axes[0].set_title("PSF (Linear)")
     axes[0].set_xlabel("X (pixels)")
     axes[0].set_ylabel("Y (pixels)")
     plt.colorbar(im0, ax=axes[0], label="Intensity")
 
-    # Log scale 2D PSF - reveals high-order diffraction
+    # 对数尺度二维 PSF——显示高阶衍射
     psf_log = np.log10(psf_2d + 1e-10)
     im1 = axes[1].imshow(psf_log, cmap="hot")
     axes[1].set_title("PSF (Log)")
@@ -95,13 +97,13 @@ def analyze_psf(psf, save_name="./psf"):
 
 
 def main():
-    # Load a hybrid refractive-diffractive lens
-    # The grating (DOE) is designed for 0.55um by default. So the 0.55um PSF has the highest 1sr-order diffraction efficiency.
+    # 加载折射—衍射混合镜头
+    # 光栅（DOE）默认针对 0.55um 设计，因此 0.55um PSF 的一阶衍射效率最高。
     lens = HybridLens(
         filename="./datasets/lenses/hybridlens/a489_grating.json", dtype=torch.float64
     )
 
-    # Calculate PSF at the specified point for multiple wavelengths
+    # 计算多个波长在指定点处的 PSF
     ks = 1024
     point = [0.0, 0.0, -10000.0]
     wvln_ls = [0.48, 0.55, 0.65]

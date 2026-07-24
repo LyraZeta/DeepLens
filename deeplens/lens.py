@@ -4,7 +4,8 @@
 # Licensed under the Apache License, Version 2.0.
 # See LICENSE file in the project root for full license information.
 
-"""Base class for optical lens. When creating a new lens (geolens, diffractivelens, etc.), it should inherit from the Lens class and rewrite core functions."""
+"""光学镜头基类。创建新镜头（geolens、diffractivelens 等）时，应继承 Lens 类
+并重写核心函数。"""
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -29,19 +30,17 @@ from .imgsim import (
 
 
 class Lens(DeepObj):
-    """Abstract base class for all lens models in DeepLens.
+    """DeepLens 中所有镜头模型的抽象基类。
 
-    `Lens` defines the shared interface — PSF computation (`psf`, `psf_rgb`),
-    image rendering (`render`), sensor configuration, and JSON file I/O — that
-    `GeoLens`, `HybridLens`, `DiffractiveLens`, `PSFNetLens`, and `DefocusLens`
-    all inherit. Subclasses override the core optical methods (e.g. `psf`) with
-    their own differentiable implementations.
+    `Lens` 定义由 `GeoLens`、`HybridLens`、`DiffractiveLens`、`PSFNetLens`
+    和 `DefocusLens` 共同继承的接口，包括 PSF 计算（`psf`、`psf_rgb`）、图像
+    渲染（`render`）、传感器配置和 JSON 文件 I/O。子类使用各自的可微实现覆盖
+    核心光学方法（例如 `psf`）。
     """
 
-    # Default image-simulation method used by `render()` when ``method`` is not
-    # given. Kept as a class attribute (rather than a diverging signature
-    # default) so every lens type shares one uniform `render()` signature;
-    # subclasses override this to change their default (e.g. ``GeoLens``).
+    # 未提供 ``method`` 时，`render()` 使用的默认图像仿真方法。将其保留为类属性
+    #（而非各不相同的签名默认值），使每种镜头类型共用统一的 `render()` 签名；
+    # 子类可覆盖此属性以更改默认值（例如 ``GeoLens``）。
     _default_render_method = "psf_patch"
 
     def __init__(
@@ -52,29 +51,26 @@ class Lens(DeepObj):
         wvln_rgb=WAVE_RGB,
         obj_depth=DEPTH,
     ):
-        """Initialize a lens class.
+        """初始化镜头类。
 
-        Args:
-            dtype (torch.dtype, optional): Data type. Defaults to torch.float32.
-            device (str, optional): Device to run the lens. Defaults to None.
-            primary_wvln (float, optional): Primary design wavelength [µm].
-                Used as fallback when a method is called without an explicit
-                ``wvln``.  Defaults to ``DEFAULT_WAVE`` (0.587, d-line).
-            wvln_rgb (sequence of float, optional): Three wavelengths used for
-                RGB (polychromatic) computations, ordered ``[R, G, B]`` in
-                µm.  Defaults to ``WAVE_RGB``.
-            obj_depth (float, optional): Default object depth [mm] used as
-                fallback when a method is called without an explicit
-                ``depth``.  Should be negative (object in front of the lens).
-                Defaults to ``DEPTH`` (−20 000 mm, practical infinity).
+        参数:
+            dtype (torch.dtype, optional): 数据类型。默认为 torch.float32。
+            device (str, optional): 镜头运行设备。默认为 None。
+            primary_wvln (float, optional): 主要设计波长 [µm]。调用方法时未显式
+                提供 ``wvln``，则使用此值。默认为 ``DEFAULT_WAVE``（0.587，d-line）。
+            wvln_rgb (sequence of float, optional): RGB（多色）计算所用的三个波长，
+                按 ``[R, G, B]`` 排列，单位为 µm。默认为 ``WAVE_RGB``。
+            obj_depth (float, optional): 默认物体深度 [mm]。调用方法时未显式提供
+                ``depth``，则使用此值。应为负值（物体位于镜头前方）。默认为
+                ``DEPTH``（−20 000 mm，实际无穷远）。
         """
-        # Lens device
+        # 镜头设备
         if device is None:
             self.device = init_device()
         else:
             self.device = torch.device(device)
 
-        # Lens default dtype
+        # 镜头默认 dtype
         self.dtype = dtype
 
         primary_wvln = torch.as_tensor(primary_wvln, dtype=torch.float64)
@@ -95,41 +91,41 @@ class Lens(DeepObj):
         if not obj_depth.item() < 0.0:
             raise ValueError("obj_depth must be negative [mm], with the object in front of the lens.")
 
-        # Design wavelengths [µm].  IO may override.
+        # 设计波长 [µm]。I/O 可能覆盖这些值。
         self.primary_wvln = float(primary_wvln.item())
         self.wvln_rgb = [float(w) for w in wvln_rgb.tolist()]
 
-        # Default object depth [mm].
+        # 默认物体深度 [mm]。
         self.obj_depth = float(obj_depth.item())
 
     def read_lens_json(self, filename):
-        """Read the lens from a JSON file. Must be overridden by subclasses.
+        """从 JSON 文件读取镜头。必须由子类覆盖。
 
-        Args:
-            filename (str): Path to the JSON lens file.
+        参数:
+            filename (str): JSON 镜头文件路径。
 
-        Raises:
-            NotImplementedError: This base implementation must be overridden.
+        异常:
+            NotImplementedError: 此基础实现必须被覆盖。
         """
         raise NotImplementedError
 
     def write_lens_json(self, filename):
-        """Write the lens to a JSON file. Must be overridden by subclasses.
+        """将镜头写入 JSON 文件。必须由子类覆盖。
 
-        Args:
-            filename (str): Destination path for the JSON lens file.
+        参数:
+            filename (str): JSON 镜头文件的目标路径。
 
-        Raises:
-            NotImplementedError: This base implementation must be overridden.
+        异常:
+            NotImplementedError: 此基础实现必须被覆盖。
         """
         raise NotImplementedError
 
     def set_sensor(self, sensor_size, sensor_res):
-        """Set sensor size and resolution.
+        """设置传感器尺寸和分辨率。
 
-        Args:
-            sensor_size (tuple): Sensor size (w, h) in [mm].
-            sensor_res (tuple): Sensor resolution (W, H) in [pixels].
+        参数:
+            sensor_size (tuple): 传感器尺寸 (w, h) [mm]。
+            sensor_res (tuple): 传感器分辨率 (W, H) [pixels]。
         """
         assert sensor_size[0] * sensor_res[1] == sensor_size[1] * sensor_res[0], (
             "Sensor resolution aspect ratio does not match sensor size aspect ratio."
@@ -141,15 +137,15 @@ class Lens(DeepObj):
         self.calc_fov()
 
     def set_sensor_res(self, sensor_res):
-        """Set sensor resolution (and aspect ratio) while keeping sensor radius unchanged.
+        """在保持传感器半径不变的情况下设置传感器分辨率（及宽高比）。
 
-        Args:
-            sensor_res (tuple): Sensor resolution (W, H) in [pixels].
+        参数:
+            sensor_res (tuple): 传感器分辨率 (W, H) [pixels]。
         """
-        # Change sensor resolution
+        # 更改传感器分辨率
         self.sensor_res = sensor_res
 
-        # Change sensor size (r_sensor is fixed)
+        # 更改传感器尺寸（r_sensor 保持不变）
         diam_res = float(np.sqrt(self.sensor_res[0] ** 2 + self.sensor_res[1] ** 2))
         self.sensor_size = (
             2 * self.r_sensor * self.sensor_res[0] / diam_res,
@@ -160,9 +156,9 @@ class Lens(DeepObj):
 
     @torch.no_grad()
     def calc_fov(self):
-        """Compute FoV (radian) of the lens.
+        """计算镜头的 FoV [radian]。
 
-        Reference:
+        参考:
             [1] https://en.wikipedia.org/wiki/Angle_of_view_(photography)
         """
         if not hasattr(self, "foclen"):
@@ -171,47 +167,42 @@ class Lens(DeepObj):
         self.vfov = 2 * float(np.arctan(self.sensor_size[0] / 2 / self.foclen))
         self.hfov = 2 * float(np.arctan(self.sensor_size[1] / 2 / self.foclen))
         self.dfov = 2 * float(np.arctan(self.r_sensor / self.foclen))
-        self.rfov_eff = self.dfov / 2  # effective (paraxial) half-diagonal FoV
-        self.rfov = self.rfov_eff  # default to effective; GeoLens overrides with ray-traced value
+        self.rfov_eff = self.dfov / 2  # 有效（近轴）半对角 FoV
+        self.rfov = self.rfov_eff  # 默认使用有效值；GeoLens 会用光线追迹值覆盖
 
     # ===========================================
-    # PSF-ralated functions
-    # 1. Point PSF
-    # 2. PSF map
-    # 3. PSF radial
+    # PSF 相关函数
+    # 1. 点 PSF
+    # 2. PSF 图
+    # 3. 径向 PSF
     # ===========================================
     def psf(self, points, wvln=None, ks=PSF_KS, **kwargs):
-        """Compute the monochromatic PSF for one or more point sources.
+        """计算一个或多个点光源的单色 PSF。
 
-        Subclasses must override this method with a differentiable
-        implementation.  Three computation models are common in practice:
-        geometric ray binning, coherent ray-wave, and Huygens spherical-wave
-        integration.
+        子类必须用可微实现覆盖此方法。实际中常用三种计算模型：几何光线分箱、
+        相干光线-波动模型和惠更斯球面波积分。
 
-        Args:
-            points (torch.Tensor): Point source coordinates, shape ``[N, 3]``
-                or ``[3]``.  ``x, y`` are normalised to ``[-1, 1]``
-                (relative to the sensor half-diagonal); ``z`` is depth in mm
-                (must be negative, i.e. in front of the lens).
-            wvln (float, optional): Wavelength in micrometers.  When ``None``
-                (default), falls back to ``self.primary_wvln``.
-            ks (int, optional): Output PSF kernel size in pixels.  Defaults
-                to ``PSF_KS`` (64).
-            **kwargs: Additional keyword arguments forwarded to the underlying
-                PSF computation (e.g. ``spp``, ``model``, ``recenter``).
+        参数:
+            points (torch.Tensor): 点光源坐标，shape ``[N, 3]`` 或 ``[3]``。
+                ``x, y`` 归一化到 ``[-1, 1]``（相对于传感器半对角线）；``z``
+                为以 mm 表示的深度（必须为负，即位于镜头前方）。
+            wvln (float, optional): 波长 [µm]。为 ``None``（默认）时使用
+                ``self.primary_wvln``。
+            ks (int, optional): 输出 PSF 核尺寸 [pixels]。默认为 ``PSF_KS``（64）。
+            **kwargs: 转发给底层 PSF 计算的附加关键字参数（例如 ``spp``、``model``、
+                ``recenter``）。
 
-        Returns:
-            psf (torch.Tensor): PSF intensity map, shape ``[ks, ks]`` for a single
-                point or ``[N, ks, ks]`` for a batch.
+        返回:
+            psf (torch.Tensor): PSF 强度图；单点时 shape ``[ks, ks]``，批量输入时
+                shape ``[N, ks, ks]``。
 
-        Raises:
-            NotImplementedError: This base implementation must be overridden.
+        异常:
+            NotImplementedError: 此基础实现必须被覆盖。
 
-        Note:
-            The method is differentiable with respect to all optimisable lens
-            parameters so it can be used directly inside a training loop.
+        说明:
+            此方法对所有可优化镜头参数均可微，因此可直接在训练循环中使用。
 
-        Example:
+        示例:
             ```python
             point = torch.tensor([0.0, 0.0, -10000.0])
             psf = lens.psf(points=point, ks=64, model="geometric")
@@ -221,20 +212,20 @@ class Lens(DeepObj):
         raise NotImplementedError
 
     def psf_rgb(self, points, ks=PSF_KS, **kwargs):
-        """Compute the RGB (tri-chromatic) PSF by stacking three wavelength calls.
+        """堆叠三个波长的调用结果，计算 RGB（三色）PSF。
 
-        Calls `psf` three times for the RGB primary wavelengths stored
-        in ``self.wvln_rgb`` and stacks the results along the channel axis.
+        对存储在 ``self.wvln_rgb`` 中的 RGB 主波长分别调用三次 `psf`，并沿通道轴
+        堆叠结果。
 
-        Args:
-            points (torch.Tensor): Point source coordinates, shape ``[N, 3]``
-                or ``[3]``.  Same convention as `psf`.
-            ks (int, optional): PSF kernel size. Defaults to ``PSF_KS``.
-            **kwargs: Forwarded to `psf` (e.g. ``spp``, ``model``).
+        参数:
+            points (torch.Tensor): 点光源坐标，shape ``[N, 3]`` 或 ``[3]``。
+                约定与 `psf` 相同。
+            ks (int, optional): PSF 核尺寸。默认为 ``PSF_KS``。
+            **kwargs: 转发给 `psf`（例如 ``spp``、``model``）。
 
-        Returns:
-            psf_rgb (torch.Tensor): RGB PSF, shape ``[3, ks, ks]`` for a single point
-                or ``[N, 3, ks, ks]`` for a batch.
+        返回:
+            psf_rgb (torch.Tensor): RGB PSF；单点时 shape ``[3, ks, ks]``，
+                批量输入时 shape ``[N, 3, ks, ks]``。
         """
         psfs = []
         for wvln in self.wvln_rgb:
@@ -245,34 +236,31 @@ class Lens(DeepObj):
     def point_source_grid(
         self, depth, grid=(9, 9), normalized=True, quater=False, center=True
     ):
-        """Generate a grid of point sources for PSF calculation.
+        """生成用于 PSF 计算的点光源网格。
 
-        Args:
-            depth (float): Depth (z-coordinate) of the point sources [mm]
-                (negative, in front of the lens).
-            grid (tuple, optional): Grid size (grid_w, grid_h). Defaults to
-                (9, 9), meaning a 9x9 grid.
-            normalized (bool, optional): If True, return normalized object-space
-                xy coordinates in [-1, 1]; if False, scale to physical positions
-                [mm]. Defaults to True.
-            quater (bool, optional): If True, return only one quarter of the grid
-                to save memory. Defaults to False.
-            center (bool, optional): If True, place points at the center of each
-                patch; otherwise sample to the field corners. Defaults to True.
+        参数:
+            depth (float): 点光源深度（z 坐标）[mm]（负值，位于镜头前方）。
+            grid (tuple, optional): 网格尺寸 (grid_w, grid_h)。默认为 (9, 9)，
+                即 9x9 网格。
+            normalized (bool, optional): 为 True 时返回 [-1, 1] 范围内的归一化物方
+                xy 坐标；为 False 时缩放到物理位置 [mm]。默认为 True。
+            quater (bool, optional): 为 True 时仅返回网格的四分之一以节省内存。
+                默认为 False。
+            center (bool, optional): 为 True 时将点置于各图块中心；否则采样到视场
+                角点。默认为 True。
 
-        Returns:
-            point_source (torch.Tensor): Object source coordinates, shape
-                [grid_h, grid_w, 3] with the last dim ordered (x, y, z). When
-                `quater` is True, the first two dimensions are reduced to the
-                returned quarter.
+        返回:
+            point_source (torch.Tensor): 物方光源坐标，shape [grid_h, grid_w, 3]，
+                最后一维顺序为 (x, y, z)。`quater` 为 True 时，前两维缩减为返回的
+                四分之一区域。
         """
-        # Compute point source grid
+        # 计算点光源网格
         if grid[0] == 1:
             x, y = torch.tensor([[0.0]], device=self.device), torch.tensor([[0.0]], device=self.device)
             assert not quater, "Quater should be False when grid is 1."
         else:
             if center:
-                # Use center of each patch
+            # 使用每个图块的中心
                 half_bin_size = 1 / 2 / (grid[0] - 1)
                 x, y = torch.meshgrid(
                     torch.linspace(-1 + half_bin_size, 1 - half_bin_size, grid[0], device=self.device),
@@ -280,7 +268,7 @@ class Lens(DeepObj):
                     indexing="xy",
                 )
             else:
-                # Use corner of image sensor
+            # 使用图像传感器角点
                 x, y = torch.meshgrid(
                     torch.linspace(-0.98, 0.98, grid[0], device=self.device),
                     torch.linspace(0.98, -0.98, grid[1], device=self.device),
@@ -290,13 +278,13 @@ class Lens(DeepObj):
         z = torch.full_like(x, depth)
         point_source = torch.stack([x, y, z], dim=-1)
 
-        # Use quater of the sensor plane to save memory
+        # 使用传感器平面的四分之一以节省内存
         if quater:
             bound_i = grid[0] // 2 if grid[0] % 2 == 0 else grid[0] // 2 + 1
             bound_j = grid[1] // 2
             point_source = point_source[0:bound_i, bound_j:, :]
 
-        # De-normalize object source coordinates to physical coordinates
+        # 将物方光源坐标反归一化到物理坐标
         if not normalized:
             scale = self.calc_scale(depth)
             point_source[..., 0] *= scale * self.sensor_size[0] / 2
@@ -305,28 +293,27 @@ class Lens(DeepObj):
         return point_source
 
     def psf_map(self, grid=(5, 5), wvln=None, depth=None, ks=PSF_KS, **kwargs):
-        """Compute monochrome PSF map.
+        """计算单色 PSF 图。
 
-        Args:
-            grid (tuple): Grid size (grid_w, grid_h). Defaults to (5, 5), meaning 5x5 grid.
-            wvln (float): Wavelength in µm. When ``None`` (default), falls back
-                to ``self.primary_wvln``.
-            depth (float): Depth of the object. When ``None`` (default), falls
-                back to ``self.obj_depth``.
-            ks (int): Kernel size. Defaults to PSF_KS.
+        参数:
+            grid (tuple): 网格尺寸 (grid_w, grid_h)。默认为 (5, 5)，即 5x5 网格。
+            wvln (float): 波长 [µm]。为 ``None``（默认）时使用
+                ``self.primary_wvln``。
+            depth (float): 物体深度。为 ``None``（默认）时使用 ``self.obj_depth``。
+            ks (int): 核尺寸。默认为 PSF_KS。
 
-        Returns:
-            psf_map (torch.Tensor): Monochrome PSF map, shape
-                [grid_h, grid_w, 1, ks, ks].
+        返回:
+            psf_map (torch.Tensor): 单色 PSF 图，shape
+                [grid_h, grid_w, 1, ks, ks]。
         """
         wvln = self.primary_wvln if wvln is None else wvln
         depth = self.obj_depth if depth is None else depth
 
-        # PSF map grid
+        # PSF 图网格
         points = self.point_source_grid(depth=depth, grid=grid, center=True)
         points = points.reshape(-1, 3)
 
-        # Compute PSF map
+        # 计算 PSF 图
         psfs = []
         for i in range(points.shape[0]):
             point = points[i, ...]
@@ -334,22 +321,21 @@ class Lens(DeepObj):
             psfs.append(psf)
         psf_map = torch.stack(psfs).unsqueeze(1)  # shape [grid_h * grid_w, 1, ks, ks]
 
-        # Reshape PSF map from [grid_h * grid_w, 1, ks, ks] -> [grid_h, grid_w, 1, ks, ks]
+        # 将 PSF 图从 [grid_h * grid_w, 1, ks, ks] 变形为 [grid_h, grid_w, 1, ks, ks]
         psf_map = psf_map.reshape(grid[1], grid[0], 1, ks, ks)
         return psf_map
 
     def psf_map_rgb(self, grid=(5, 5), ks=PSF_KS, depth=None, **kwargs):
-        """Compute RGB PSF map.
+        """计算 RGB PSF 图。
 
-        Args:
-            grid (tuple): Grid size (grid_w, grid_h). Defaults to (5, 5), meaning 5x5 grid.
-            ks (int): Kernel size. Defaults to PSF_KS, meaning PSF_KS x PSF_KS kernel size.
-            depth (float): Depth of the object. When ``None`` (default), falls
-                back to ``self.obj_depth``.
-            **kwargs: Additional arguments for psf_map().
+        参数:
+            grid (tuple): 网格尺寸 (grid_w, grid_h)。默认为 (5, 5)，即 5x5 网格。
+            ks (int): 核尺寸。默认为 PSF_KS，即 PSF_KS x PSF_KS 核尺寸。
+            depth (float): 物体深度。为 ``None``（默认）时使用 ``self.obj_depth``。
+            **kwargs: 传给 psf_map() 的附加参数。
 
-        Returns:
-            psf_map (torch.Tensor): Shape of [grid_h, grid_w, 3, ks, ks].
+        返回:
+            psf_map (torch.Tensor): shape [grid_h, grid_w, 3, ks, ks]。
         """
         depth = self.obj_depth if depth is None else depth
         psfs = []
@@ -369,67 +355,65 @@ class Lens(DeepObj):
         save_name="./psf_map.png",
         show=False,
     ):
-        """Draw the RGB PSF map of the lens and save it (or return the figure).
+        """绘制镜头的 RGB PSF 图并保存（或返回图形）。
 
-        Args:
-            grid (tuple, optional): Grid size (grid_w, grid_h). Defaults to (7, 7).
-            ks (int, optional): PSF kernel size in pixels. Defaults to PSF_KS.
-            depth (float, optional): Object depth [mm]. When None (default),
-                falls back to `self.obj_depth`.
-            log_scale (bool, optional): If True, normalize each PSF in log scale
-                for better visualization. Defaults to False.
-            save_name (str, optional): Output image path. Defaults to
-                "./psf_map.png".
-            show (bool, optional): If True, return (fig, ax) instead of saving.
-                Defaults to False.
+        参数:
+            grid (tuple, optional): 网格尺寸 (grid_w, grid_h)。默认为 (7, 7)。
+            ks (int, optional): PSF 核尺寸 [pixels]。默认为 PSF_KS。
+            depth (float, optional): 物体深度 [mm]。为 None（默认）时使用
+                `self.obj_depth`。
+            log_scale (bool, optional): 为 True 时以对数尺度归一化每个 PSF，以改善
+                可视化效果。默认为 False。
+            save_name (str, optional): 输出图像路径。默认为 "./psf_map.png"。
+            show (bool, optional): 为 True 时返回 (fig, ax)，而不保存。默认为 False。
 
-        Returns:
-            result (tuple or None): (fig, ax) if `show` is True, otherwise None
-                (the figure is saved to `save_name`).
+        返回:
+            result (tuple or None): `show` 为 True 时返回 (fig, ax)，否则返回 None
+                （图形保存到 `save_name`）。
         """
         depth = self.obj_depth if depth is None else depth
-        # Calculate RGB PSF map, shape [grid_h, grid_w, 3, ks, ks]
+        # 计算 RGB PSF 图，shape [grid_h, grid_w, 3, ks, ks]
         psf_map = self.psf_map_rgb(depth=depth, grid=grid, ks=ks)
 
-        # Create a grid visualization (vis_map: shape [3, grid_h * ks, grid_w * ks])
+        # 创建网格可视化（vis_map：shape [3, grid_h * ks, grid_w * ks]）
         grid_w, grid_h = grid if isinstance(grid, tuple) else (grid, grid)
         h, w = grid_h * ks, grid_w * ks
         vis_map = torch.zeros((3, h, w), device=psf_map.device, dtype=psf_map.dtype)
 
-        # Put each PSF into the vis_map
+        # 将每个 PSF 放入 vis_map
         for i in range(grid_h):
             for j in range(grid_w):
-                # Extract the PSF at this grid position
+                # 提取此网格位置的 PSF
                 psf = psf_map[i, j]  # shape [3, ks, ks]
 
-                # Normalize the PSF
+                # 归一化 PSF
                 if log_scale:
-                    # Log scale normalization for better visualization
-                    psf = torch.log(psf + 1e-4)  # 1e-4 is an empirical value
+                    # 对数尺度归一化，以改善可视化效果
+                    psf = torch.log(psf + 1e-4)  # 1e-4 为经验值
                     psf = (psf - psf.min()) / (psf.max() - psf.min() + 1e-8)
                 else:
-                    # Linear normalization
+                    # 线性归一化
                     local_max = psf.max()
                     if local_max > 0:
                         psf = psf / local_max
 
-                # Place the normalized PSF in the visualization map
+                # 将归一化 PSF 放入可视化图
                 y_start, y_end = i * ks, (i + 1) * ks
                 x_start, x_end = j * ks, (j + 1) * ks
                 vis_map[:, y_start:y_end, x_start:x_end] = psf
 
-        # Create the figure and display
+        # 创建并显示图形
         fig, ax = plt.subplots(figsize=(10, 10))
 
-        # Convert to numpy for plotting
+        # 转换为 numpy 以便绘图
         vis_map = vis_map.permute(1, 2, 0).cpu().numpy()
         ax.imshow(vis_map)
 
-        # Add scale bar near bottom-left
+        # 在左下角附近添加比例尺
         H, W, _ = vis_map.shape
         scale_bar_length = 100
         arrow_length = scale_bar_length / (self.pixel_size * 1e3)
-        y_position = H - 20  # a little above the lower edge
+        y_position = H - 20  # 略高于下边缘
         x_start = 20
         x_end = x_start + arrow_length
 
@@ -451,7 +435,7 @@ class Lens(DeepObj):
             clip_on=False,
         )
 
-        # Clean up axes and save
+        # 清理坐标轴并保存
         ax.axis("off")
         plt.tight_layout(pad=0)
 
@@ -462,39 +446,34 @@ class Lens(DeepObj):
             plt.close(fig)
 
     def point_source_radial(self, depth, grid=9, center=False, direction="diagonal", normalized=True):
-        """Generate radial point sources from center to edge of the field.
+        """生成从视场中心到边缘的径向点光源。
 
-        Produces ``grid`` evenly-spaced points along a chosen radial direction
-        (diagonal, meridional, or sagittal) in normalized or physical object-space
-        coordinates.
+        沿选定径向方向（对角、子午或弧矢方向）生成 ``grid`` 个等间隔点，坐标可为
+        归一化物方坐标或物理物方坐标。
 
-        Args:
-            depth (float): Object depth (z-coordinate) in mm.
-            grid (int): Number of sample points. Defaults to 9.
-            center (bool): If ``True``, offset positions to bin centers.
-                Defaults to ``False``.
-            direction (str): Sampling direction —
-                ``"diagonal"`` (x = y, 45°, default),
-                ``"y"`` (meridional, x = 0),
-                ``"x"`` (sagittal, y = 0).
-            normalized (bool): If ``True``, return coordinates in [0, 1].
-                If ``False``, scale to physical object-space positions (mm).
-                Defaults to ``True``.
+        参数:
+            depth (float): 物体深度（z 坐标）[mm]。
+            grid (int): 采样点数。默认为 9。
+            center (bool): 为 ``True`` 时将位置偏移到分箱中心。默认为 ``False``。
+            direction (str): 采样方向——``"diagonal"``（x = y，45°，默认）、
+                ``"y"``（子午方向，x = 0）、``"x"``（弧矢方向，y = 0）。
+            normalized (bool): 为 ``True`` 时返回 [0, 1] 范围内的坐标；为 ``False``
+                时缩放到物理物方位置 [mm]。默认为 ``True``。
 
-        Returns:
-            point_source (torch.Tensor): Point source positions, shape ``[grid, 3]``.
+        返回:
+            point_source (torch.Tensor): 点光源位置，shape ``[grid, 3]``。
         """
         if grid == 1:
             r = torch.tensor([0.0], device=self.device)
         else:
-            # Select center of bin to calculate PSF
+        # 选择分箱中心以计算 PSF
             if center:
                 half_bin_size = 1 / 2 / (grid - 1)
                 r = torch.linspace(0, 1 - half_bin_size, grid, device=self.device)
             else:
                 r = torch.linspace(0, 0.98, grid, device=self.device)
 
-        # Map radial coordinate to (x, y) based on direction
+        # 根据方向将径向坐标映射到 (x, y)
         if direction == "diagonal":
             px, py = r, r
         elif direction == "y":
@@ -518,20 +497,18 @@ class Lens(DeepObj):
     def draw_psf_radial(
         self, M=3, depth=None, ks=PSF_KS, log_scale=False, save_name="./psf_radial.png"
     ):
-        """Draw a radial (45 deg, diagonal) sequence of RGB PSFs and save it.
+        """绘制并保存径向（45 deg，对角）RGB PSF 序列。
 
-        Draws M PSFs evenly spaced from the field center to the corner, each of
-        size ks x ks, arranged in a single row.
+        从视场中心到角点等间隔绘制 M 个 PSF，每个尺寸为 ks x ks，并排列成一行。
 
-        Args:
-            M (int, optional): Number of PSFs to draw. Defaults to 3.
-            depth (float, optional): Object depth [mm]. When None (default),
-                falls back to `self.obj_depth`.
-            ks (int, optional): PSF kernel size in pixels. Defaults to PSF_KS.
-            log_scale (bool, optional): If True, normalize each PSF in log scale
-                for better visualization. Defaults to False.
-            save_name (str, optional): Output image path. Defaults to
-                "./psf_radial.png".
+        参数:
+            M (int, optional): 要绘制的 PSF 数。默认为 3。
+            depth (float, optional): 物体深度 [mm]。为 None（默认）时使用
+                `self.obj_depth`。
+            ks (int, optional): PSF 核尺寸 [pixels]。默认为 PSF_KS。
+            log_scale (bool, optional): 为 True 时以对数尺度归一化每个 PSF，以改善
+                可视化效果。默认为 False。
+            save_name (str, optional): 输出图像路径。默认为 "./psf_radial.png"。
         """
         from torchvision.utils import make_grid, save_image
         depth = self.obj_depth if depth is None else depth
@@ -542,7 +519,7 @@ class Lens(DeepObj):
 
         psfs = []
         for i in range(M):
-            # Scale PSF for a better visualization
+        # 缩放 PSF 以改善可视化效果
             psf = self.psf_rgb(points=points[i], ks=ks, recenter=True, spp=SPP_PSF)
             psf /= psf.max()
 
@@ -556,56 +533,53 @@ class Lens(DeepObj):
         save_image(psf_grid, save_name, normalize=True)
 
     # ===========================================
-    # Image simulation-ralated functions
+    # 图像仿真相关函数
     # ===========================================
 
     # -------------------------------------------
-    # Simulate 2D scene
+    # 模拟二维场景
     # -------------------------------------------
     def render(self, img_obj, depth=None, method=None, **kwargs):
-        """Differentiable image simulation for a 2D (flat) scene.
+        """二维（平面）场景的可微图像仿真。
 
-        Performs only the optical component of image simulation and is fully
-        differentiable.
+        仅执行图像仿真的光学部分，并且完全可微。
 
-        For incoherent imaging the intensity PSF is convolved with the
-        object-space image.  For coherent imaging the complex PSF is convolved
-        with the complex object image before squaring for intensity.
+        对非相干成像，使用强度 PSF 与物方图像卷积；对相干成像，先使用复 PSF
+        与复物体图像卷积，再取平方得到强度。
 
-        Args:
-            img_obj (torch.Tensor): Input image in linear (raw) space,
-                shape ``[B, C, H, W]``.
-            depth (float, optional): Object depth in mm (negative value).
-                When ``None`` (default), falls back to ``self.obj_depth``.
-            method (str, optional): Rendering method.  When ``None`` (default),
-                falls back to ``self._default_render_method``
-                (``"psf_patch"`` for the base `Lens`).  One of:
+        参数:
+            img_obj (torch.Tensor): 线性（raw）空间中的输入图像，
+                shape ``[B, C, H, W]``。
+            depth (float, optional): 物体深度 [mm]（负值）。为 ``None``（默认）时
+                使用 ``self.obj_depth``。
+            method (str, optional): 渲染方法。为 ``None``（默认）时使用
+                ``self._default_render_method``（基类 `Lens` 为 ``"psf_patch"``）。
+                可选方法：
 
-                * ``"psf_patch"`` – convolve a single PSF evaluated at
-                  *patch_center*.
-                * ``"psf_map"`` – spatially-varying PSF block convolution.
+                * ``"psf_patch"``——使用在 *patch_center* 处计算的单个 PSF 做卷积。
+                * ``"psf_map"``——空间变化 PSF 分块卷积。
 
-            **kwargs: Method-specific keyword arguments:
+            **kwargs: 方法特定的关键字参数：
 
-                * For ``"psf_map"``: ``psf_grid`` (tuple, default ``(10, 10)``),
-                  ``psf_ks`` (int, default ``PSF_KS``), ``psf_spp`` (int,
-                  default ``SPP_PSF``).
-                * For ``"psf_patch"``: ``patch_center`` (tuple or Tensor,
-                  default ``(0.0, 0.0)``), ``psf_ks`` (int).
+                * 对 ``"psf_map"``：``psf_grid``（tuple，默认 ``(10, 10)``）、
+                  ``psf_ks``（int，默认 ``PSF_KS``）、``psf_spp``（int，默认
+                  ``SPP_PSF``）。
+                * 对 ``"psf_patch"``：``patch_center``（tuple 或 Tensor，默认
+                  ``(0.0, 0.0)``）、``psf_ks``（int）。
 
-        Returns:
-            img_render (torch.Tensor): Rendered image, shape ``[B, C, H, W]``.
+        返回:
+            img_render (torch.Tensor): 渲染图像，shape ``[B, C, H, W]``。
 
-        Raises:
-            AssertionError: If *method* is ``"psf_map"`` and the image
-                resolution does not match the sensor resolution.
-            Exception: If *method* is not recognised.
+        异常:
+            AssertionError: *method* 为 ``"psf_map"`` 且图像分辨率与传感器
+                分辨率不匹配时抛出。
+            Exception: 无法识别 *method* 时抛出。
 
-        Reference:
+        参考:
             [1] "Optical Aberration Correction in Postprocessing using Imaging Simulation", TOG 2021.
             [2] "Efficient depth- and spatially-varying image simulation for defocus deblur", ICCVW 2025.
 
-        Example:
+        示例:
             ```python
             img_rendered = lens.render(
                 img, depth=-10000.0, method="psf_patch",
@@ -615,13 +589,13 @@ class Lens(DeepObj):
         """
         method = self._default_render_method if method is None else method
         depth = self.obj_depth if depth is None else depth
-        # Check sensor resolution
+        # 检查传感器分辨率
         B, C, Himg, Wimg = img_obj.shape
         Wsensor, Hsensor = self.sensor_res
 
-        # Image simulation (in RAW space)
+        # 图像仿真（在 RAW 空间中）
         if method == "psf_map":
-            # Render full resolution image with PSF map convolution
+            # 使用 PSF 图卷积渲染全分辨率图像
             assert Wimg == Wsensor and Himg == Hsensor, (
                 f"Sensor resolution {Wsensor}x{Hsensor} must match input image {Wimg}x{Himg}."
             )
@@ -637,7 +611,7 @@ class Lens(DeepObj):
             )
 
         elif method == "psf_patch":
-            # Render an image patch with its corresponding PSF
+            # 使用对应 PSF 渲染图像图块
             patch_center = kwargs.get("patch_center", (0.0, 0.0))
             psf_ks = kwargs.get("psf_ks", PSF_KS)
             img_render = self.render_psf_patch(
@@ -655,21 +629,20 @@ class Lens(DeepObj):
         return img_render
 
     def render_psf(self, img_obj, depth=None, patch_center=(0, 0), psf_ks=PSF_KS):
-        """Render an image patch using PSF convolution (deprecated alias).
+        """使用 PSF 卷积渲染图像图块（已弃用的别名）。
 
-        Thin wrapper around `render_psf_patch`. Prefer calling `render_psf_patch`
-        directly to avoid confusion.
+        `render_psf_patch` 的简单封装。为避免混淆，建议直接调用 `render_psf_patch`。
 
-        Args:
-            img_obj (torch.Tensor): Input image in raw space, shape [B, C, H, W].
-            depth (float, optional): Object depth [mm]. When None (default),
-                falls back to `self.obj_depth`.
-            patch_center (tuple, optional): Patch center (x, y) in normalized
-                object coordinates. Defaults to (0, 0).
-            psf_ks (int, optional): PSF kernel size in pixels. Defaults to PSF_KS.
+        参数:
+            img_obj (torch.Tensor): raw 空间中的输入图像，shape [B, C, H, W]。
+            depth (float, optional): 物体深度 [mm]。为 None（默认）时使用
+                `self.obj_depth`。
+            patch_center (tuple, optional): 归一化物体坐标中的图块中心 (x, y)。
+                默认为 (0, 0)。
+            psf_ks (int, optional): PSF 核尺寸 [pixels]。默认为 PSF_KS。
 
-        Returns:
-            img_render (torch.Tensor): Rendered image, shape [B, C, H, W].
+        返回:
+            img_render (torch.Tensor): 渲染图像，shape [B, C, H, W]。
         """
         depth = self.obj_depth if depth is None else depth
         return self.render_psf_patch(
@@ -677,25 +650,24 @@ class Lens(DeepObj):
         )
 
     def render_psf_patch(self, img_obj, depth=None, patch_center=(0, 0), psf_ks=PSF_KS):
-        """Render an image patch using a single PSF evaluated at the patch center.
+        """使用在图块中心计算的单个 PSF 渲染图像图块。
 
-        Computes the RGB PSF at `patch_center` and convolves it with the input
-        image. All pixels in the patch share the same PSF (valid for a small,
-        roughly isoplanatic patch).
+        在 `patch_center` 处计算 RGB PSF，并将其与输入图像卷积。图块内所有像素
+        共用同一个 PSF（适用于较小且近似等晕的图块）。
 
-        Args:
-            img_obj (torch.Tensor): Input image in raw space, shape [B, C, H, W].
-            depth (float, optional): Object depth [mm]. When None (default),
-                falls back to `self.obj_depth`.
-            patch_center (tuple or torch.Tensor): Patch center (x, y) in
-                normalized object coordinates, shape [2] or [B, 2].
-            psf_ks (int, optional): PSF kernel size in pixels. Defaults to PSF_KS.
+        参数:
+            img_obj (torch.Tensor): raw 空间中的输入图像，shape [B, C, H, W]。
+            depth (float, optional): 物体深度 [mm]。为 None（默认）时使用
+                `self.obj_depth`。
+            patch_center (tuple or torch.Tensor): 归一化物体坐标中的图块中心
+                (x, y)，shape [2] 或 [B, 2]。
+            psf_ks (int, optional): PSF 核尺寸 [pixels]。默认为 PSF_KS。
 
-        Returns:
-            img_render (torch.Tensor): Rendered image, shape [B, C, H, W].
+        返回:
+            img_render (torch.Tensor): 渲染图像，shape [B, C, H, W]。
         """
         depth = self.obj_depth if depth is None else depth
-        # Convert patch_center to tensor
+        # 将 patch_center 转换为张量
         if isinstance(patch_center, (list, tuple)):
             points = (patch_center[0], patch_center[1], depth)
             points = torch.tensor(points).unsqueeze(0)
@@ -709,7 +681,7 @@ class Lens(DeepObj):
                 f"Patch center must be a list or tuple or tensor, but got {type(patch_center)}."
             )
 
-        # Compute PSF and perform PSF convolution
+        # 计算 PSF 并执行 PSF 卷积
         psf = self.psf_rgb(points=points, ks=psf_ks).squeeze(0)
         img_render = conv_psf(img_obj, psf=psf)
         return img_render
@@ -722,22 +694,21 @@ class Lens(DeepObj):
         psf_ks=PSF_KS,
         psf_spp=SPP_PSF,
     ):
-        """Render a full-resolution image using spatially-varying PSF block convolution.
+        """使用空间变化 PSF 分块卷积渲染全分辨率图像。
 
-        Note:
-            Larger `psf_grid` and `psf_ks` give more accurate rendering but are slower.
+        说明:
+            较大的 `psf_grid` 和 `psf_ks` 可提高渲染精度，但速度更慢。
 
-        Args:
-            img_obj (torch.Tensor): Input image in raw space, shape [B, C, H, W].
-            depth (float, optional): Object depth [mm]. When None (default),
-                falls back to `self.obj_depth`.
-            psf_grid (int or tuple, optional): PSF grid size. Defaults to 7.
-            psf_ks (int, optional): PSF kernel size in pixels. Defaults to PSF_KS.
-            psf_spp (int, optional): Samples per point for PSF computation.
-                Defaults to SPP_PSF.
+        参数:
+            img_obj (torch.Tensor): raw 空间中的输入图像，shape [B, C, H, W]。
+            depth (float, optional): 物体深度 [mm]。为 None（默认）时使用
+                `self.obj_depth`。
+            psf_grid (int or tuple, optional): PSF 网格尺寸。默认为 7。
+            psf_ks (int, optional): PSF 核尺寸 [pixels]。默认为 PSF_KS。
+            psf_spp (int, optional): PSF 计算中每个点的采样数。默认为 SPP_PSF。
 
-        Returns:
-            img_render (torch.Tensor): Rendered image, shape [B, C, H, W].
+        返回:
+            img_render (torch.Tensor): 渲染图像，shape [B, C, H, W]。
         """
         depth = self.obj_depth if depth is None else depth
         psf_map = self.psf_map_rgb(grid=psf_grid, ks=psf_ks, depth=depth, spp=psf_spp)
@@ -745,42 +716,40 @@ class Lens(DeepObj):
         return img_render
 
     # -------------------------------------------
-    # Simulate 3D scene
+    # 模拟三维场景
     # -------------------------------------------
     def _sample_depth_layers(self, depth_min, depth_max, num_layers):
-        """Sample depth layers centered on the focal plane in disparity space.
+        """在视差空间中采样以焦平面为中心的深度层。
 
-        If the lens has a `calc_focal_plane` method, samples are split around the
-        focal plane so that it is always an explicit sample point. Otherwise falls
-        back to uniform disparity sampling.
+        若镜头具有 `calc_focal_plane` 方法，则在焦平面两侧划分样本，使焦平面
+        始终为显式采样点；否则退回到均匀视差采样。
 
-        Args:
-            depth_min (float): Minimum (nearest) depth [mm] (positive).
-            depth_max (float): Maximum (farthest) depth [mm] (positive).
-            num_layers (int): Number of depth layers to sample.
+        参数:
+            depth_min (float): 最小（最近）深度 [mm]（正值）。
+            depth_max (float): 最大（最远）深度 [mm]（正值）。
+            num_layers (int): 要采样的深度层数。
 
-        Returns:
-            disp_ref (torch.Tensor): Sampled disparities (1/depth), shape
-                [num_layers].
-            depths_ref (torch.Tensor): Corresponding depths [mm] for PSF
-                computation, equal to -1 / disp_ref (negative), shape [num_layers].
+        返回:
+            disp_ref (torch.Tensor): 采样视差（1/depth），shape [num_layers]。
+            depths_ref (torch.Tensor): 用于 PSF 计算的相应深度 [mm]，等于
+                -1 / disp_ref（负值），shape [num_layers]。
         """
-        # Try to get focal depth from the lens
+        # 尝试从镜头获取焦点深度
         if hasattr(self, 'calc_focal_plane'):
-            focal_depth = abs(self.calc_focal_plane())  # positive mm
+            focal_depth = abs(self.calc_focal_plane())  # 正值 [mm]
         else:
             focal_depth = None
 
         if focal_depth is not None:
-            # Extend range to include the focal depth
+            # 扩展范围以包含焦点深度
             depth_min_ext = min(float(depth_min), focal_depth)
             depth_max_ext = max(float(depth_max), focal_depth)
 
-            disp_near = 1.0 / depth_min_ext   # large disparity = near
-            disp_far  = 1.0 / depth_max_ext   # small disparity = far
+            disp_near = 1.0 / depth_min_ext   # 大视差 = 近处
+            disp_far  = 1.0 / depth_max_ext   # 小视差 = 远处
             focal_disp = 1.0 / focal_depth
 
-            # Allocate samples proportionally to range on each side
+            # 按两侧范围比例分配样本
             near_range = disp_near - focal_disp
             far_range  = focal_disp - disp_far
             total_range = near_range + far_range
@@ -791,39 +760,39 @@ class Lens(DeepObj):
                 n_far  = max(1, round((num_layers - 1) * far_range / total_range))
                 n_near = num_layers - 1 - n_far
 
-                far_disps  = torch.linspace(disp_far, focal_disp, n_far + 1, device=self.device)        # includes focal
-                near_disps = torch.linspace(focal_disp, disp_near, n_near + 1, device=self.device)[1:]   # exclude duplicate focal
+                far_disps  = torch.linspace(disp_far, focal_disp, n_far + 1, device=self.device)        # 包含焦点
+                near_disps = torch.linspace(focal_disp, disp_near, n_near + 1, device=self.device)[1:]   # 排除重复焦点
                 disp_ref = torch.cat([far_disps, near_disps])
         else:
-            # Fallback: uniform disparity sampling
+            # 后备方案：均匀视差采样
             disp_ref = torch.linspace(1.0 / float(depth_max), 1.0 / float(depth_min), num_layers, device=self.device)
 
         depths_ref = -1.0 / disp_ref
         return disp_ref, depths_ref
 
     def render_rgbd(self, img_obj, depth_map, method="psf_patch", **kwargs):
-        """Render RGBD image.
+        """渲染 RGBD 图像。
 
-        TODO: add obstruction-aware image simulation.
+        TODO：添加遮挡感知图像仿真。
 
-        Args:
-            img_obj (torch.Tensor): Object image, shape [B, C, H, W].
-            depth_map (torch.Tensor): Depth map [mm], shape [B, 1, H, W] (also
-                accepts [B, H, W]). Values should be positive.
-            method (str, optional): Image simulation method, one of "psf_patch",
-                "psf_map", or "psf_pixel". Defaults to "psf_patch".
-            **kwargs: Method-specific keyword arguments, e.g. interp_mode (str):
-                "depth" or "disparity", defaults to "disparity"; num_layers (int):
-                number of depth layers, defaults to 16.
+        参数:
+            img_obj (torch.Tensor): 物体图像，shape [B, C, H, W]。
+            depth_map (torch.Tensor): 深度图 [mm]，shape [B, 1, H, W]（也接受
+                [B, H, W]）。值应为正。
+            method (str, optional): 图像仿真方法，可为 "psf_patch"、"psf_map"
+                或 "psf_pixel"。默认为 "psf_patch"。
+            **kwargs: 方法特定的关键字参数，例如 interp_mode (str)："depth" 或
+                "disparity"，默认为 "disparity"；num_layers (int)：深度层数，
+                默认为 16。
 
-        Returns:
-            img_render (torch.Tensor): Rendered image, shape [B, C, H, W].
+        返回:
+            img_render (torch.Tensor): 渲染图像，shape [B, C, H, W]。
 
-        Raises:
-            ValueError: If depth_map contains negative values.
-            Exception: If method is not recognised.
+        异常:
+            ValueError: depth_map 包含负值时抛出。
+            Exception: 无法识别 method 时抛出。
 
-        Reference:
+        参考:
             [1] "Aberration-Aware Depth-from-Focus", TPAMI 2023.
             [2] "Efficient Depth- and Spatially-Varying Image Simulation for Defocus Deblur", ICCVW 2025.
         """
@@ -835,7 +804,7 @@ class Lens(DeepObj):
             depth_map = depth_map.unsqueeze(1)
 
         if method == "psf_patch":
-            # Render an image patch (same FoV, different depth)
+            # 渲染图像图块（相同 FoV，不同深度）
             patch_center = kwargs.get("patch_center", (0.0, 0.0))
             psf_ks = kwargs.get("psf_ks", PSF_KS)
             depth_min = kwargs.get("depth_min", depth_map.min())
@@ -843,7 +812,7 @@ class Lens(DeepObj):
             num_layers = kwargs.get("num_layers", 16)
             interp_mode = kwargs.get("interp_mode", "disparity")
 
-            # Calculate PSF at different depths, (num_layers, 3, ks, ks)
+            # 计算不同深度处的 PSF，(num_layers, 3, ks, ks)
             disp_ref, depths_ref = self._sample_depth_layers(depth_min, depth_max, num_layers)
 
             points = torch.stack(
@@ -856,12 +825,12 @@ class Lens(DeepObj):
             )
             psfs = self.psf_rgb(points=points, ks=psf_ks) # (num_layers, 3, ks, ks)
 
-            # Image simulation
+            # 图像仿真
             img_render = conv_psf_depth_interp(img_obj, -depth_map, psfs, depths_ref, interp_mode=interp_mode)
             return img_render
 
         elif method == "psf_map":
-            # Render full resolution image with PSF map convolution (different FoV, different depth)
+            # 使用 PSF 图卷积渲染全分辨率图像（不同 FoV、不同深度）
             psf_grid = kwargs.get("psf_grid", (8, 8))  # (grid_w, grid_h)
             psf_ks = kwargs.get("psf_ks", PSF_KS)
             depth_min = kwargs.get("depth_min", depth_map.min())
@@ -869,7 +838,7 @@ class Lens(DeepObj):
             num_layers = kwargs.get("num_layers", 16)
             interp_mode = kwargs.get("interp_mode", "disparity")
 
-            # Calculate PSF map at different depths (convert to negative for PSF calculation)
+            # 计算不同深度处的 PSF 图（转换为负值以进行 PSF 计算）
             disp_ref, depths_ref = self._sample_depth_layers(depth_min, depth_max, num_layers)
 
             psf_maps = []
@@ -881,18 +850,18 @@ class Lens(DeepObj):
                 psf_maps, dim=2
             )  # shape [grid_h, grid_w, num_layers, 3, ks, ks]
 
-            # Image simulation
+            # 图像仿真
             img_render = conv_psf_map_depth_interp(
                 img_obj, -depth_map, psf_map, depths_ref, interp_mode=interp_mode
             )
             return img_render
 
         elif method == "psf_pixel":
-            # Render full resolution image with per-pixel PSF splatting. This method is computationally expensive.
+            # 使用逐像素 PSF splatting 渲染全分辨率图像。此方法计算开销较大。
             psf_ks = kwargs.get("psf_ks", PSF_KS)
             assert img_obj.shape[0] == 1, "Now only support batch size 1"
 
-            # Calculate points in the object space
+            # 计算物方中的点
             points_xy = torch.meshgrid(
                 torch.linspace(-1, 1, img_obj.shape[-1], device=self.device),
                 torch.linspace(1, -1, img_obj.shape[-2], device=self.device),
@@ -901,14 +870,14 @@ class Lens(DeepObj):
             points_xy = torch.stack(points_xy, dim=0).unsqueeze(0)
             points = torch.cat([points_xy, -depth_map], dim=1)  # shape [B, 3, H, W]
 
-            # Calculate PSF at different pixels. This step is the most time-consuming.
+            # 计算不同像素处的 PSF。此步骤最耗时。
             points = points.permute(0, 2, 3, 1).reshape(-1, 3)  # shape [H*W, 3]
             psfs = self.psf_rgb(points=points, ks=psf_ks)  # shape [H*W, 3, ks, ks]
             psfs = psfs.reshape(
                 img_obj.shape[-2], img_obj.shape[-1], 3, psf_ks, psf_ks
             )  # shape [H, W, 3, ks, ks]
 
-            # Image simulation
+            # 图像仿真
             img_render = splat_psf_per_pixel(img_obj, psfs)  # shape [1, C, H, W]
             return img_render
 
@@ -916,45 +885,45 @@ class Lens(DeepObj):
             raise Exception(f"Image simulation method {method} is not supported.")
 
     # ===========================================
-    # Optimization-ralated functions
+    # 优化相关函数
     # ===========================================
     def activate_grad(self, activate=True):
-        """Activate (or deactivate) gradients for each surface.
+        """激活（或停用）每个表面的梯度。
 
-        Must be overridden by subclasses.
+        必须由子类覆盖。
 
-        Args:
-            activate (bool, optional): Whether to enable gradients. Defaults to True.
+        参数:
+            activate (bool, optional): 是否启用梯度。默认为 True。
 
-        Raises:
-            NotImplementedError: This base implementation must be overridden.
+        异常:
+            NotImplementedError: 此基础实现必须被覆盖。
         """
         raise NotImplementedError
 
     def get_optimizer_params(self, lr=[1e-4, 1e-4, 1e-1, 1e-3]):
-        """Build per-parameter-group optimizer params. Must be overridden.
+        """构建按参数组划分的优化器参数。必须由子类覆盖。
 
-        Args:
-            lr (list, optional): Per-group learning rates for the different lens
-                parameters. Defaults to [1e-4, 1e-4, 1e-1, 1e-3].
+        参数:
+            lr (list, optional): 不同镜头参数组的学习率。默认为
+                [1e-4, 1e-4, 1e-1, 1e-3]。
 
-        Returns:
-            params (list): List of parameter-group dicts for a torch optimizer.
+        返回:
+            params (list): torch 优化器的参数组字典列表。
 
-        Raises:
-            NotImplementedError: This base implementation must be overridden.
+        异常:
+            NotImplementedError: 此基础实现必须被覆盖。
         """
         raise NotImplementedError
 
     def get_optimizer(self, lr=[1e-4, 1e-4, 0, 1e-3]):
-        """Build an Adam optimizer over the lens parameter groups.
+        """为镜头参数组构建 Adam 优化器。
 
-        Args:
-            lr (list, optional): Per-group learning rates passed to
-                `get_optimizer_params`. Defaults to [1e-4, 1e-4, 0, 1e-3].
+        参数:
+            lr (list, optional): 传给 `get_optimizer_params` 的各参数组学习率。
+                默认为 [1e-4, 1e-4, 0, 1e-3]。
 
-        Returns:
-            optimizer (torch.optim.Adam): Configured Adam optimizer.
+        返回:
+            optimizer (torch.optim.Adam): 配置好的 Adam 优化器。
         """
         params = self.get_optimizer_params(lr)
         optimizer = torch.optim.Adam(params)

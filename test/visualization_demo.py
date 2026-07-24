@@ -20,7 +20,7 @@ lens = GeoLens(lens_config)
 rfov = lens.rfov
 
 # =============================================================================
-# Test 1: Save lens OBJ files (does NOT require PyVista)
+# 测试 1：保存镜头 OBJ 文件（不需要 PyVista）
 # =============================================================================
 print("=" * 60)
 print("Test 1: save_lens_obj (no PyVista required)")
@@ -33,24 +33,24 @@ print("Test 1 passed!\n")
 breakpoint()
 
 # =============================================================================
-# Test 2: Draw lens 3D layout (requires PyVista - lazy loaded)
+# 测试 2：绘制镜头三维布局（需要延迟加载的 PyVista）
 # =============================================================================
 print("=" * 60)
 print("Test 2: draw_lens_3d (PyVista required - lazy loaded)")
 print("=" * 60)
 
-# PyVista setup for headless rendering
-os.environ["PYVISTA_OFF_SCREEN"] = "1"  # force off-screen renders
-os.environ["PYVISTA_JUPYTER_BACKEND"] = "static"  # avoid widgets/CDN
-# Optional: if you previously had DISPLAY set, clear it to prevent Qt/GLX tries
+# 用于无头渲染的 PyVista 设置
+os.environ["PYVISTA_OFF_SCREEN"] = "1"  # 强制离屏渲染
+os.environ["PYVISTA_JUPYTER_BACKEND"] = "static"  # 避免使用小组件/CDN
+# 可选：若此前设置了 DISPLAY，请将其清除，以避免 Qt/GLX 尝试启动
 os.environ.pop("DISPLAY", None)
 
 import pyvista as pv
 
-# If Xvfb happens to be available, this helps many headless cases.
-# (It's no-op if Xvfb isn't installed.)
+# 若 Xvfb 恰好可用，此设置对许多无头环境有帮助。
+# （若未安装 Xvfb，则不执行任何操作。）
 try:
-    pv.start_xvfb()  # starts a virtual X server if present
+    pv.start_xvfb()  # 若存在则启动虚拟 X 服务器
     print("xvfb started")
 except Exception as e:
     print("xvfb not started:", e)

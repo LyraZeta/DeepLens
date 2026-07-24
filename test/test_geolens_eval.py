@@ -1,6 +1,6 @@
-"""Tests for deeplens/optics/geolens_pkg/eval.py — GeoLensEval mixin.
+"""deeplens/optics/geolens_pkg/eval.py 测试——GeoLensEval mixin。
 
-All methods are tested via GeoLens instances (mixin architecture).
+所有方法均通过 GeoLens 实例测试（mixin 架构）。
 """
 
 import os
@@ -11,10 +11,10 @@ import torch
 
 
 class TestRMSMap:
-    """Tests for rms_map and rms_map_rgb."""
+    """测试 rms_map 和 rms_map_rgb。"""
 
     def test_rms_map_shape(self, sample_singlet_lens):
-        """rms_map returns a grid of positive RMS values."""
+        """rms_map 返回由正 RMS 值组成的网格。"""
         lens = sample_singlet_lens
         rms, centroid = lens.rms_map(num_grid=(3, 3))
         assert rms.shape == (3, 3)
@@ -22,7 +22,7 @@ class TestRMSMap:
         assert centroid.shape == (3, 3, 2)
 
     def test_rms_map_rgb_shape(self, sample_singlet_lens):
-        """rms_map_rgb returns [3, grid_h, grid_w] with 3 RGB channels."""
+        """rms_map_rgb 返回含 3 个 RGB 通道的 [3, grid_h, grid_w]。"""
         lens = sample_singlet_lens
         rms_rgb = lens.rms_map_rgb(num_grid=(3, 3))
         assert rms_rgb.shape == (3, 3, 3)
@@ -30,10 +30,10 @@ class TestRMSMap:
 
 
 class TestDistortion:
-    """Tests for distortion analysis."""
+    """测试畸变分析。"""
 
     def test_calc_distortion_radial(self, sample_singlet_lens):
-        """calc_distortion_radial returns field angles and distortion arrays."""
+        """calc_distortion_radial 返回视场角和畸变数组。"""
         lens = sample_singlet_lens
         rfov_samples, distortions = lens.calc_distortion_radial(num_points=5)
         assert len(rfov_samples) == 5
@@ -42,17 +42,17 @@ class TestDistortion:
         assert rfov_samples[-1] > 0.0
 
     def test_calc_distortion_map_shape(self, sample_singlet_lens):
-        """calc_distortion_map returns [grid_h, grid_w, 2]."""
+        """calc_distortion_map 返回 [grid_h, grid_w, 2]。"""
         lens = sample_singlet_lens
         dist_map = lens.calc_distortion_map(num_grid=(3, 3))
         assert dist_map.shape == (3, 3, 2)
 
 
 class TestMTF:
-    """Tests for MTF computation."""
+    """测试 MTF 计算。"""
 
     def test_mtf_returns_three_arrays(self, sample_singlet_lens):
-        """mtf() returns (freq, mtf_tan, mtf_sag)."""
+        """mtf() 返回 (freq, mtf_tan, mtf_sag)。"""
         lens = sample_singlet_lens
         freq, mtf_tan, mtf_sag = lens.mtf(fov=0.0)
         assert len(freq) > 0
@@ -60,14 +60,14 @@ class TestMTF:
         assert len(mtf_sag) == len(freq)
 
     def test_mtf_values_in_range(self, sample_singlet_lens):
-        """MTF values should be in [0, 1]."""
+        """MTF 值应位于 [0, 1]。"""
         lens = sample_singlet_lens
         freq, mtf_tan, mtf_sag = lens.mtf(fov=0.0)
         assert all(0 <= v <= 1.01 for v in mtf_tan)
         assert all(0 <= v <= 1.01 for v in mtf_sag)
 
     def test_psf2mtf_static(self, sample_singlet_lens):
-        """psf2mtf is a static method that converts PSF to MTF."""
+        """psf2mtf 是将 PSF 转换为 MTF 的静态方法。"""
         lens = sample_singlet_lens
         psf = torch.rand(64, 64)
         psf /= psf.sum()
@@ -77,7 +77,7 @@ class TestMTF:
     def test_draw_mtf_plots_tangential_and_sagittal_curves(
         self, sample_singlet_lens, test_output_dir, monkeypatch
     ):
-        """draw_mtf plots both T and S curves for every RGB wavelength."""
+        """draw_mtf 为每个 RGB 波长绘制 T 和 S 曲线。"""
         from matplotlib.axes import Axes
 
         lens = sample_singlet_lens
@@ -120,10 +120,10 @@ class TestMTF:
 
 
 class TestSpotSampling:
-    """Regression tests for field-angle spot diagram sampling."""
+    """视场角光斑图采样的回归测试。"""
 
     def test_radial_sampling_reaches_full_rfov(self, sample_singlet_lens):
-        """The final radial sample reaches the lens half-diagonal FoV."""
+        """最后一个径向采样点应到达镜头半对角 FoV。"""
         lens = sample_singlet_lens
         ray = lens.sample_radial_rays(
             num_field=3,
@@ -144,53 +144,53 @@ class TestSpotSampling:
 
 
 class TestVignetting:
-    """Tests for vignetting analysis."""
+    """测试渐晕分析。"""
 
     def test_vignetting_shape_and_range(self, sample_singlet_lens):
-        """vignetting() returns values in [0, 1] with center ~ 1."""
+        """vignetting() 返回 [0, 1] 范围内的值，中心约为 1。"""
         lens = sample_singlet_lens
         vig = lens.vignetting(num_grid=(3, 3))
         assert vig.shape == (3, 3)
         assert (vig >= 0).all()
         assert (vig <= 1.01).all()
-        # Center vignetting should be close to 1
+        # 中心渐晕值应接近 1
         center = vig[1, 1]
         assert center > 0.5
 
 
 class TestDrawSmoke:
-    """Smoke tests for visualization methods (just verify they don't crash)."""
+    """可视化方法的冒烟测试（仅验证它们不会崩溃）。"""
 
     def test_draw_spot_radial(self, sample_singlet_lens, test_output_dir):
-        """draw_spot_radial produces a file."""
+        """draw_spot_radial 应生成文件。"""
         lens = sample_singlet_lens
         path = os.path.join(test_output_dir, "test_spot_radial.png")
         lens.draw_spot_radial(save_name=path, num_fov=2, num_rays=64)
         assert os.path.exists(path)
 
     def test_draw_spot_map(self, sample_singlet_lens, test_output_dir):
-        """draw_spot_map produces a file."""
+        """draw_spot_map 应生成文件。"""
         lens = sample_singlet_lens
         path = os.path.join(test_output_dir, "test_spot_map.png")
         lens.draw_spot_map(save_name=path, num_grid=2, num_rays=64)
         assert os.path.exists(path)
 
     def test_draw_distortion_radial(self, sample_singlet_lens, test_output_dir):
-        """draw_distortion_radial produces a file."""
+        """draw_distortion_radial 应生成文件。"""
         lens = sample_singlet_lens
         path = os.path.join(test_output_dir, "test_distortion_radial.png")
         lens.draw_distortion_radial(save_name=path)
         assert os.path.exists(path)
 
     def test_draw_mtf(self, sample_singlet_lens, test_output_dir):
-        """draw_mtf produces a file."""
+        """draw_mtf 应生成文件。"""
         lens = sample_singlet_lens
         path = os.path.join(test_output_dir, "test_mtf.png")
         lens.draw_mtf(save_name=path)
         assert os.path.exists(path)
 
     def test_draw_vignetting(self, sample_singlet_lens, test_output_dir):
-        """draw_vignetting produces a file."""
+        """draw_vignetting 应生成文件。"""
         lens = sample_singlet_lens
         path = os.path.join(test_output_dir, "test_vignetting.png")
         lens.draw_vignetting(filename=path)

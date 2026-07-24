@@ -4,9 +4,10 @@
 # Licensed under the Apache License, Version 2.0.
 # See LICENSE file in the project root for full license information.
 
-"""Paraxial diffractive lens model. Each optical element (lens, DOE, metasurface, etc.) in the paraxial diffractive model is modeled as a phase function. This simplified optical model is easy to use (but typically not accurate enough) for many real-world applications.
+"""近轴衍射镜头模型。近轴衍射模型中的每个光学元件（镜片、DOE、超表面等）
+都建模为相位函数。这种简化光学模型易于使用，但对许多实际应用而言通常精度不足。
 
-Reference:
+参考:
     [1] Vincent Sitzmann*, Steven Diamond*, Yifan Peng*, Xiong Dun, Stephen Boyd, Wolfgang Heidrich, Felix Heide, Gordon Wetzstein, "End-to-end optimization of optics and image processing for achromatic extended depth of field and super-resolution imaging," Siggraph 2018.
     [2] Qilin Sun, Ethan Tseng, Qiang Fu, Wolfgang Heidrich, Felix Heide. "Learning Rank-1 Diffractive Optics for Single-shot High Dynamic Range Imaging," CVPR 2020.
 """
@@ -37,24 +38,20 @@ from .light import ComplexWave
 
 
 class DiffractiveLens(Lens):
-    """Paraxial diffractive lens in which each element is modelled as a phase surface.
+    """将每个元件建模为相位面的近轴衍射镜头。
 
-    Every optical element (converging lens, DOE, metasurface, …) is
-    represented by a phase function applied to an incoming complex wavefront.
-    Free-space propagation between surfaces and to the sensor is handled by
-    `ComplexWave.prop_to`, which selects band-limited ASM or single-FFT
-    Fresnel diffraction based on the propagation distance. This model is
-    simple and fast, but accurate only in the paraxial regime (it does not
-    account for higher-order geometric aberrations).
+    每个光学元件（会聚镜片、DOE、超表面等）均表示为作用于入射复波前的相位函数。
+    表面之间以及到传感器的自由空间传播由 `ComplexWave.prop_to` 处理；该方法根据
+    传播距离选择带限 ASM 或单 FFT Fresnel 衍射。此模型简单且快速，但仅在近轴
+    区域内准确（不考虑高阶几何像差）。
 
-    Attributes:
-        surfaces (list): Ordered list of diffractive/phase surfaces.
-        d_sensor (torch.Tensor): Distance from the first surface (z=0) to the
-            sensor plane [mm].
+    属性:
+        surfaces (list): 按顺序排列的衍射/相位面列表。
+        d_sensor (torch.Tensor): 从第一表面 (z=0) 到传感器平面的距离 [mm]。
 
-    Note:
-        Lens parameters default to `torch.float32`; pass `dtype=torch.float64`
-        for higher-precision wave propagation.
+    说明:
+        镜头参数默认为 `torch.float32`；如需更高精度的波传播，请传入
+        `dtype=torch.float64`。
     """
 
     def __init__(
@@ -66,27 +63,22 @@ class DiffractiveLens(Lens):
         wvln_rgb=WAVE_RGB,
         obj_depth=DEPTH,
     ):
-        """Initialize a diffractive lens.
+        """初始化衍射镜头。
 
-        Args:
-            filename (str or None, optional): Path to the lens configuration
-                JSON file. If provided, loads the lens configuration from file;
-                otherwise an empty surface list and a default 8x8 mm,
-                2000x2000 px sensor are used. Defaults to None.
-            device (str or None, optional): Computation device ('cpu' or
-                'cuda'). When None, resolved by the base `Lens`. Defaults to None.
-            dtype (torch.dtype, optional): Data type for the lens parameters.
-                Pass `torch.float64` for higher-precision wave propagation.
-                Defaults to `torch.float32`.
-            primary_wvln (float, optional): Primary design wavelength [µm].
-                Used as fallback when a method is called without an explicit
-                `wvln`. Defaults to `DEFAULT_WAVE`.
-            wvln_rgb (sequence of float, optional): Three wavelengths used
-                for RGB computations, ordered [R, G, B] in µm. Defaults to
-                `WAVE_RGB`.
-            obj_depth (float, optional): Default object depth [mm], used
-                when a method is called without an explicit `depth`. Defaults
-                to `DEPTH`.
+        参数:
+            filename (str or None, optional): 镜头配置 JSON 文件的路径。提供时从文件
+                加载镜头配置；否则使用空表面列表和默认的 8x8 mm、2000x2000 px
+                传感器。默认为 None。
+            device (str or None, optional): 计算设备（'cpu' 或 'cuda'）。为 None 时
+                由基类 `Lens` 决定。默认为 None。
+            dtype (torch.dtype, optional): 镜头参数的数据类型。如需更高精度的波传播，
+                请传入 `torch.float64`。默认为 `torch.float32`。
+            primary_wvln (float, optional): 主要设计波长 [µm]。调用方法时未显式提供
+                `wvln`，则使用此值。默认为 `DEFAULT_WAVE`。
+            wvln_rgb (sequence of float, optional): RGB 计算使用的三个波长，按
+                [R, G, B] 排列，单位为 µm。默认为 `WAVE_RGB`。
+            obj_depth (float, optional): 默认物体深度 [mm]。调用方法时未显式提供
+                `depth`，则使用此值。默认为 `DEPTH`。
         """
         super().__init__(
             device=device,
@@ -96,44 +88,44 @@ class DiffractiveLens(Lens):
             obj_depth=obj_depth,
         )
 
-        # Load lens file
+        # 加载镜头文件
         if filename is not None:
             self.read_lens_json(filename)
         else:
             self.surfaces = []
-            # Set default sensor size and resolution if no file provided
+            # 未提供文件时设置默认传感器尺寸和分辨率
             self.sensor_size = (8.0, 8.0)
             self.sensor_res = (2000, 2000)
 
         self.astype(self.dtype)
 
-        # Use total track length (first element to sensor) as focal length
+        # 使用总光程长度（从第一元件到传感器）作为焦距
         if hasattr(self, "d_sensor"):
             self.foclen = float(self.d_sensor)
             self.calc_fov()
 
-        # Move all tensors (surfaces, sensor params) to the target device.
+        # 将所有张量（表面、传感器参数）移动到目标设备。
         self.to(self.device)
 
     def read_lens_json(self, filename):
-        """Load the lens configuration from a JSON file.
+        """从 JSON 文件加载镜头配置。
 
-        Reads lens parameters including sensor configuration and diffractive surfaces
-        from the specified JSON file. If sensor_size or sensor_res are not provided,
-        defaults of 8mm x 8mm and 2000x2000 pixels will be used.
+        从指定 JSON 文件读取镜头参数，包括传感器配置和衍射面。若未提供
+        sensor_size 或 sensor_res，则分别使用 8mm x 8mm 和 2000x2000 pixels
+        的默认值。
 
-        Args:
-            filename (str): Path to the JSON configuration file.
+        参数:
+            filename (str): JSON 配置文件路径。
         """
         assert filename.endswith(".json"), "File must be a .json file."
 
-        with open(filename, "r") as f:
-            # Lens general info
+        with open(filename, "r", encoding="utf-8") as f:
+            # 镜头通用信息
             data = json.load(f)
             self.d_sensor = torch.tensor(data["d_sensor"])
             self.lens_info = data.get("info", "None")
 
-            # Read sensor_size with default
+            # 读取 sensor_size，缺失时使用默认值
             if "sensor_size" in data:
                 sensor_size = tuple(data["sensor_size"])
             else:
@@ -143,7 +135,7 @@ class DiffractiveLens(Lens):
                     "Consider specifying sensor_size in the lens file or using set_sensor()."
                 )
 
-            # Read sensor_res with default
+            # 读取 sensor_res，缺失时使用默认值
             if "sensor_res" in data:
                 sensor_res = tuple(data["sensor_res"])
             else:
@@ -153,10 +145,10 @@ class DiffractiveLens(Lens):
                     "Consider specifying sensor_res in the lens file or using set_sensor()."
                 )
 
-            # Configure sensor (also sets pixel_size and r_sensor).
+            # 配置传感器（同时设置 pixel_size 和 r_sensor）。
             self.set_sensor(sensor_size, sensor_res)
 
-            # Load diffractive surfaces/elements
+            # 加载衍射面/元件
             d = 0.0
             self.surfaces = []
             for surf_dict in data["surfaces"]:
@@ -188,17 +180,16 @@ class DiffractiveLens(Lens):
                 d += d_next
 
     def write_lens_json(self, filename):
-        """Write the lens configuration to a JSON file.
+        """将镜头配置写入 JSON 文件。
 
-        Saves all lens parameters including sensor configuration and
-        diffractive surface data to the specified file.
+        将包括传感器配置和衍射面数据在内的全部镜头参数保存到指定文件。
 
-        Args:
-            filename (str): Output path for the JSON file.
+        参数:
+            filename (str): JSON 文件输出路径。
         """
         assert filename.endswith(".json"), "File must be a .json file."
 
-        # Save lens to a file
+        # 将镜头保存到文件
         data = {}
         data["info"] = self.lens_info if hasattr(self, "lens_info") else "None"
         data["surfaces"] = []
@@ -209,7 +200,7 @@ class DiffractiveLens(Lens):
         ]
         data["sensor_res"] = self.sensor_res
 
-        # Save diffractive surfaces
+        # 保存衍射面
         for i, s in enumerate(self.surfaces):
             surf_dict = {"idx": i + 1}
 
@@ -227,79 +218,76 @@ class DiffractiveLens(Lens):
                     self.surfaces[i + 1].d.item() - self.surfaces[i].d.item()
                 )
             else:
-                # Last surface: distance to the sensor. read_lens_json requires
-                # d_next on every surface, so the file must always include it.
+                # 最后一个表面：到传感器的距离。read_lens_json 要求每个表面均有
+                # d_next，因此文件必须始终包含该字段。
                 surf_dict["d_next"] = round(
                     float(self.d_sensor) - self.surfaces[i].d.item(), 3
                 )
 
             data["surfaces"].append(surf_dict)
 
-        # Save data to a file
-        with open(filename, "w") as f:
+        # 将数据保存到文件
+        with open(filename, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4)
 
     # =============================================
-    # Utils
+    # 实用工具
     # =============================================
     def __call__(self, wave):
-        """Propagate a wave through the lens system (alias of `forward`).
+        """使波通过镜头系统传播（`forward` 的别名）。
 
-        Args:
-            wave (ComplexWave): Input wave field entering the lens system.
+        参数:
+            wave (ComplexWave): 进入镜头系统的输入波场。
 
-        Returns:
-            wave (ComplexWave): Output wave field at the sensor plane.
+        返回:
+            wave (ComplexWave): 传感器平面处的输出波场。
         """
         return self.forward(wave)
 
     def forward(self, wave):
-        """Propagate a wave through the diffractive lens system to the sensor.
+        """使波通过衍射镜头系统传播到传感器。
 
-        Sequentially applies the phase modulation of each diffractive surface
-        (with intervening free-space propagation), then propagates the wave to
-        the sensor plane (absolute z = d_sensor [mm]). Free-space propagation
-        is delegated to `ComplexWave.prop_to`, which selects band-limited ASM
-        or single-FFT Fresnel diffraction based on the distance.
+        依次应用各衍射面的相位调制（表面之间进行自由空间传播），再将波传播到
+        传感器平面（绝对位置 z = d_sensor [mm]）。自由空间传播委托给
+        `ComplexWave.prop_to`，后者根据距离选择带限 ASM 或单 FFT Fresnel 衍射。
 
-        Args:
-            wave (ComplexWave): Input wave field entering the lens system.
+        参数:
+            wave (ComplexWave): 进入镜头系统的输入波场。
 
-        Returns:
-            wave (ComplexWave): Output wave field at the sensor plane.
+        返回:
+            wave (ComplexWave): 传感器平面处的输出波场。
         """
-        # Propagate to DOE
+        # 传播到 DOE
         for surf in self.surfaces:
             wave = surf(wave)
 
-        # Propagate to sensor
+        # 传播到传感器
         wave = wave.prop_to(self.d_sensor.item())
 
         return wave
 
     # =============================================
-    # Image simulation
+    # 图像仿真
     # =============================================
     def render_mono(self, img, wvln=None, ks=None, method="fft"):
-        """Simulate monochromatic lens blur by convolving an image with the point spread function.
+        """通过使用点扩散函数对图像做卷积来模拟单色镜头模糊。
 
-        Args:
-            img (torch.Tensor): Input image. Shape: (B, 1, H, W)
-            wvln (float, optional): Wavelength [µm]. When None (default),
-                falls back to `self.primary_wvln`.
-            ks (int, optional): PSF kernel size in pixels. When None (default),
-                the full sensor resolution (`max(self.sensor_res)`) is used.
-            method (str, optional): Convolution backend passed to `conv_psf`,
-                either ``"conv"`` or ``"fft"``. Defaults to ``"fft"`` because the
-                default `ks` (full sensor resolution) makes direct convolution
-                impractical.
+        参数:
+            img (torch.Tensor): 输入图像，shape (B, 1, H, W)。
+            wvln (float, optional): 波长 [µm]。为 None（默认）时使用
+                `self.primary_wvln`。
+            ks (int, optional): PSF 核尺寸 [pixels]。为 None（默认）时使用完整
+                传感器分辨率（`max(self.sensor_res)`）。
+            method (str, optional): 传给 `conv_psf` 的卷积后端，可为 ``"conv"``
+                或 ``"fft"``。默认为 ``"fft"``，因为默认 `ks`（完整传感器分辨率）
+                使直接卷积不切实际。
 
-        Returns:
-            img_render (torch.Tensor): Rendered image after applying lens blur with shape (B, 1, H, W).
+        返回:
+            img_render (torch.Tensor): 应用镜头模糊后的渲染图像，shape (B, 1, H, W)。
         """
         wvln = self.primary_wvln if wvln is None else wvln
-        # On-axis PSF for an object at infinity. psf() returns [ks, ks] for a
-        # single point; add a leading channel dim for conv_psf -> (1, ks, ks).
+        # 无穷远物体的轴上 PSF。psf() 对单点返回 [ks, ks]；添加前置通道维度，
+        # 以供 conv_psf 使用 -> (1, ks, ks)。
         psf = self.psf(
             points=[0.0, 0.0, float("-inf")], wvln=wvln, ks=ks
         ).unsqueeze(0)
@@ -307,43 +295,35 @@ class DiffractiveLens(Lens):
         return img_render
 
     def psf(self, points, wvln=None, ks=PSF_KS, **kwargs):
-        """Calculate the monochromatic PSF for one or more point sources.
+        """计算一个或多个点光源的单色 PSF。
 
-        Off-axis point sources are supported. The signature follows
-        `Lens.psf` and `GeoLens.psf`.
+        支持离轴点光源。函数签名遵循 `Lens.psf` 和 `GeoLens.psf`。
 
-        Args:
-            points (torch.Tensor or list): Point source coordinates, shape
-                [N, 3] or [3]. x, y are normalised to [-1, 1] (relative to the
-                sensor half-width/height); z is the depth in mm (negative;
-                -inf for an object at infinity).
-            wvln (float, optional): Wavelength [µm]. When None (default), falls
-                back to `self.primary_wvln`.
-            ks (int, optional): PSF kernel size in pixels. Pass `ks=None` to use
-                the full sensor resolution (`max(self.sensor_res)`). Defaults to
-                `PSF_KS`.
-            **kwargs: Model-specific options:
-                - recenter (bool): How the ks x ks kernel is centered (both
-                  options keep off-axis PSFs centered in the kernel). If True,
-                  crop around the measured peak (argmax of the sensor-plane
-                  intensity). If False (default), crop around the perspective
-                  (pinhole) image of the field point. The lens forms a
-                  physically inverted image, but the result is flipped so the
-                  PSF is reported in the sensor/source-sign convention (a +x
-                  source -> +x).
-                - upsample_factor (int): Field upsampling factor to meet the
-                  Nyquist sampling constraint. When None (default), a factor
-                  is chosen so the field resolution is close to 4000 x 4000.
+        参数:
+            points (torch.Tensor or list): 点光源坐标，shape [N, 3] 或 [3]。
+                x、y 归一化到 [-1, 1]（相对于传感器半宽/半高）；z 为以 mm 表示的
+                深度（负值；无穷远物体为 -inf）。
+            wvln (float, optional): 波长 [µm]。为 None（默认）时使用
+                `self.primary_wvln`。
+            ks (int, optional): PSF 核尺寸 [pixels]。传入 `ks=None` 可使用完整
+                传感器分辨率（`max(self.sensor_res)`）。默认为 `PSF_KS`。
+            **kwargs: 模型特定选项：
+                - recenter (bool): ks x ks 核的居中方式（两种选项都使离轴 PSF
+                  位于核中心）。为 True 时围绕测得的峰值（传感器平面强度的 argmax）
+                  裁剪；为 False（默认）时围绕视场点的透视（针孔）像裁剪。镜头在
+                  物理上形成倒像，但结果会翻转，因此按传感器/光源符号约定报告 PSF
+                  （+x 光源 -> +x）。
+                - upsample_factor (int): 满足 Nyquist 采样约束的场上采样倍数。
+                  为 None（默认）时选择使场分辨率接近 4000 x 4000 的倍数。
 
-        Returns:
-            psf (torch.Tensor): PSF intensity map (normalised to sum 1), shape
-                [ks, ks] for a single point or [N, ks, ks] for a batch.
+        返回:
+            psf (torch.Tensor): PSF 强度图（归一化至总和为 1）；单点时 shape
+                [ks, ks]，批量输入时 shape [N, ks, ks]。
 
-        Note:
-            A single (non-tiled) propagation window is used, so very large
-            off-axis fields can suffer from the shifted-phase/aliasing issue;
-            see "Modeling off-axis diffraction with the least-sampling angular
-            spectrum method".
+        说明:
+            使用单个（非平铺）传播窗口，因此很大的离轴视场可能出现移相/混叠问题；
+            参见 "Modeling off-axis diffraction with the least-sampling angular
+            spectrum method"。
         """
         recenter = kwargs.get("recenter", False)
         upsample_factor = kwargs.get("upsample_factor", None)
@@ -354,7 +334,7 @@ class DiffractiveLens(Lens):
         single_point = points.dim() == 1
         points = points.reshape(-1, 3)
 
-        # Field-plane sampling (high resolution to satisfy Nyquist)
+        # 场平面采样（以高分辨率满足 Nyquist 条件）
         base_res = self.surfaces[0].res
         if upsample_factor is None:
             upsample_factor = max(1, round(4000 / self.surfaces[0].res[0]))
@@ -373,12 +353,11 @@ class DiffractiveLens(Lens):
         for pt in points:
             x_norm, y_norm, depth = float(pt[0]), float(pt[1]), float(pt[2])
 
-            # Build the incident field for this (possibly off-axis) source.
+            # 为此光源（可能离轴）构建入射场。
             if math.isinf(depth):
-                # Collimated source: tilted plane wave. The tilt sign is negated
-                # so the source physically images to the inverted side (an object
-                # at +x focuses to -x), consistent with the finite-depth point
-                # source below; the inversion is undone by the flip further down.
+                # 准直光源：倾斜平面波。将倾斜符号取反，使光源在物理上成像到倒置侧
+                #（+x 处的物体聚焦到 -x），与下方有限深度点光源一致；后续翻转会
+                # 消除该倒置。
                 theta_x = math.atan(-x_norm * sensor_w / 2 / self.foclen)
                 theta_y = math.atan(-y_norm * sensor_h / 2 / self.foclen)
                 inp_wave = ComplexWave.plane_wave(
@@ -390,8 +369,8 @@ class DiffractiveLens(Lens):
                     theta_y=theta_y,
                 ).to(self.device)
             else:
-                # Finite-depth source: spherical wave from the object point.
-                scale = -depth / self.foclen  # object height / image height
+                # 有限深度光源：从物点发出的球面波。
+                scale = -depth / self.foclen  # 物高/像高
                 obj_x = x_norm * scale * sensor_w / 2
                 obj_y = y_norm * scale * sensor_h / 2
                 inp_wave = ComplexWave.point_wave(
@@ -402,11 +381,11 @@ class DiffractiveLens(Lens):
                     z=0.0,
                 ).to(self.device)
 
-            # Propagate to the sensor and compute intensity. Shape [H, W].
+            # 传播到传感器并计算强度。shape [H, W]。
             output_wave = self.forward(inp_wave)
             intensity = output_wave.u.abs() ** 2
 
-            # Resample to the sensor pixel pitch.
+            # 重采样到传感器像素间距。
             factor = output_wave.ps / self.pixel_size
             intensity = F.interpolate(
                 intensity,
@@ -415,9 +394,8 @@ class DiffractiveLens(Lens):
                 align_corners=False,
             )[0, 0, :, :]
 
-            # Center crop / pad to the sensor resolution. ``sensor_res`` is
-            # (W, H) while the intensity tensor is indexed [H, W]; handle each
-            # dimension independently so non-square sensors work correctly.
+            # 居中裁剪/填充到传感器分辨率。``sensor_res`` 为 (W, H)，而强度张量
+            # 按 [H, W] 索引；分别处理各维度，确保非方形传感器正常工作。
             target_h, target_w = int(self.sensor_res[1]), int(self.sensor_res[0])
             intensity_h, intensity_w = intensity.shape[-2:]
             pad_h = max(target_h - intensity_h, 0)
@@ -436,25 +414,21 @@ class DiffractiveLens(Lens):
                 start_h : start_h + target_h, start_w : start_w + target_w
             ]
 
-            # The lens forms a physically inverted image (an object at +x focuses
-            # to -x). Flip both axes to report the PSF in the sensor / source-sign
-            # convention (+x source -> +x sensor position), consistent across the
-            # collimated and finite-depth paths.
+            # 镜头在物理上形成倒像（+x 处的物体聚焦到 -x）。翻转两个轴，以传感器/
+            # 光源符号约定（+x 光源 -> +x 传感器位置）报告 PSF，并使准直和有限深度
+            # 路径保持一致。
             intensity = torch.flip(intensity, [0, 1])
 
-            # Crop the ks x ks patch around the PSF location. A diffractive lens
-            # has no chief ray to trace, so when ``recenter`` is True the crop
-            # center is the measured PSF peak (argmax of the simulated
-            # sensor-plane intensity); otherwise the crop center is the
-            # perspective (pinhole) image of the source field point.
+            # 围绕 PSF 位置裁剪 ks x ks 图块。衍射镜头没有可追迹的主光线，因此当
+            # ``recenter`` 为 True 时，裁剪中心是测得的 PSF 峰值（仿真传感器平面
+            # 强度的 argmax）；否则裁剪中心是光源视场点的透视（针孔）像。
             if recenter:
                 peak = torch.argmax(intensity)
                 coord_c_i = int(peak // target_w)
                 coord_c_j = int(peak % target_w)
             else:
-                # Perspective center: paraxial image of (x_norm, y_norm).
-                # +x maps to larger columns and +y to smaller rows, matching the
-                # un-inverted sensor-plane intensity.
+                # 透视中心：(x_norm, y_norm) 的近轴像。
+                # +x 映射到更大的列，+y 映射到更小的行，与未倒置的传感器平面强度一致。
                 coord_c_j = int(round(target_w * (1.0 + x_norm) / 2.0))
                 coord_c_i = int(round(target_h * (1.0 - y_norm) / 2.0))
             coord_c_i = min(max(coord_c_i, 0), target_h - 1)
@@ -473,23 +447,22 @@ class DiffractiveLens(Lens):
         return psf_out[0] if single_point else psf_out
 
     # =============================================
-    # Visualization
+    # 可视化
     # =============================================
     def draw_layout(self, save_name="./doelens.png"):
-        """Draw a 2D layout diagram of the diffractive lens.
+        """绘制衍射镜头的二维布局图。
 
-        Each diffractive surface is drawn as a vertical dashed line at its axial
-        position `z = surface.d`, and the sensor as a solid rectangle at
-        `z = d_sensor`.
+        每个衍射面在其轴向位置 `z = surface.d` 处绘制为竖直虚线，传感器则在
+        `z = d_sensor` 处绘制为实线矩形。
 
-        Args:
-            save_name (str, optional): Path to save the figure. Defaults to './doelens.png'.
+        参数:
+            save_name (str, optional): 图像保存路径。默认为 './doelens.png'。
         """
         fig, ax = plt.subplots(figsize=(12, 4))
 
         default_l = float(max(self.sensor_size))
 
-        # Draw each diffractive surface as a vertical dashed line.
+        # 将每个衍射面绘制为竖直虚线。
         for i, surf in enumerate(self.surfaces):
             d = float(surf.d)
             surf_l = float(getattr(surf, "w", default_l))
@@ -501,7 +474,7 @@ class DiffractiveLens(Lens):
                 ha="center", va="bottom", fontsize=8,
             )
 
-        # Draw the sensor plane as a thin rectangle.
+        # 将传感器平面绘制为窄矩形。
         d_sensor = float(self.d_sensor)
         sensor_l = float(self.sensor_size[1])
         width = max(0.01 * d_sensor, 0.2)
@@ -515,7 +488,7 @@ class DiffractiveLens(Lens):
             ha="center", va="bottom", fontsize=8,
         )
 
-        # Optical axis.
+        # 光轴。
         ax.plot([0, d_sensor], [0, 0], "k-", linewidth=0.5, alpha=0.3)
 
         ax.set_xlabel("z [mm]")
@@ -532,19 +505,18 @@ class DiffractiveLens(Lens):
         log_scale=True,
         eps=1e-4,
     ):
-        """Draw on-axis RGB PSF.
+        """绘制轴上 RGB PSF。
 
-        Computes and saves a visualization of the RGB PSF for a given depth.
+        计算并保存给定深度处 RGB PSF 的可视化结果。
 
-        Args:
-            depth (float, optional): Depth of the point source [mm]. When None
-                (default), falls back to `self.obj_depth`.
-            ks (int, optional): Size of the PSF kernel in pixels. When None
-                (default), the full sensor resolution (`max(self.sensor_res)`)
-                is used.
-            save_name (str, optional): Path to save the PSF image. Defaults to './psf_doelens.png'.
-            log_scale (bool, optional): If True, display PSF in log scale. Defaults to True.
-            eps (float, optional): Small value for log scale to avoid log(0). Defaults to 1e-4.
+        参数:
+            depth (float, optional): 点光源深度 [mm]。为 None（默认）时使用
+                `self.obj_depth`。
+            ks (int, optional): PSF 核尺寸 [pixels]。为 None（默认）时使用完整
+                传感器分辨率（`max(self.sensor_res)`）。
+            save_name (str, optional): PSF 图像保存路径。默认为 './psf_doelens.png'。
+            log_scale (bool, optional): 为 True 时以对数尺度显示 PSF。默认为 True。
+            eps (float, optional): 避免 log(0) 的对数尺度小量。默认为 1e-4。
         """
         depth = self.obj_depth if depth is None else depth
         psf_rgb = self.psf_rgb(points=[0.0, 0.0, depth], ks=ks)
@@ -557,19 +529,18 @@ class DiffractiveLens(Lens):
         save_image(psf_rgb.unsqueeze(0), save_name, normalize=True)
 
     # =============================================
-    # Optimization
+    # 优化
     # =============================================
     def get_optimizer(self, lr, optim_surf_ls=None):
-        """Build an Adam optimizer over the trainable diffractive surfaces.
+        """为可训练衍射面构建 Adam 优化器。
 
-        Args:
-            lr (float): Learning rate.
-            optim_surf_ls (list[int], optional): Indices of the surfaces to
-                optimize. If None, all diffractive surfaces are optimized.
+        参数:
+            lr (float): 学习率。
+            optim_surf_ls (list[int], optional): 要优化的表面索引。为 None 时
+                优化所有衍射面。
 
-        Returns:
-            optimizer (torch.optim.Optimizer): Adam optimizer over the selected surfaces'
-                phase parameters.
+        返回:
+            optimizer (torch.optim.Optimizer): 用于所选表面相位参数的 Adam 优化器。
         """
         if optim_surf_ls is None:
             optim_surf_ls = list(range(len(self.surfaces)))

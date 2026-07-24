@@ -1,4 +1,4 @@
-"""Fresnel phase on a plane substrate."""
+"""平面基底上的菲涅耳相位面。"""
 
 import torch
 
@@ -6,16 +6,7 @@ from .phase import Phase
 
 
 class FresnelPhase(Phase):
-    """Ideal Fresnel-lens phase profile on a plane substrate.
-
-    Implements the quadratic phase of a thin lens, $\\phi = -\\pi (x^2 + y^2) / (\\lambda_0 f_0)$,
-    wrapped to $[0, 2\\pi)$, where the design wavelength is fixed at $\\lambda_0 = 0.55\\,\\mu m$.
-    The single optimizable parameter is the focal length `f0` [mm].
-
-    Attributes:
-        f0 (torch.Tensor): Scalar tensor, focal length at the design wavelength (550 nm) [mm].
-        param_model (str): Parameterization identifier, always "fresnel".
-    """
+    """平面基底上的理想菲涅耳透镜相位分布。"""
 
     def __init__(
         self,
@@ -29,23 +20,7 @@ class FresnelPhase(Phase):
         is_square=True,
         device="cpu",
     ):
-        """Initialize a Fresnel-lens phase surface.
-
-        Args:
-            r (float): Aperture radius (half-diameter) of the surface [mm].
-            d (float): Axial position of the surface along the optical axis [mm].
-            f0 (float, optional): Focal length at the design wavelength (550 nm) [mm]. Defaults to 100.0.
-            norm_radii (float or None, optional): Normalization radius for the phase profile [mm].
-                Defaults to None, in which case `r` is used.
-            mat2 (str, optional): Material after the surface. Defaults to "air".
-            pos_xy (tuple, optional): Lateral (x, y) position of the surface center [mm].
-                Defaults to (0.0, 0.0).
-            vec_local (tuple, optional): Local surface normal direction in the global frame.
-                Defaults to (0.0, 0.0, 1.0).
-            is_square (bool, optional): If True the aperture is a square of full
-                width $r\\sqrt{2}$; otherwise it is a circle of radius `r`. Defaults to True.
-            device (str, optional): Torch device for tensors. Defaults to "cpu".
-        """
+        """初始化菲涅耳透镜相位面。"""
         super().__init__(
             r=r,
             d=d,
@@ -57,23 +32,14 @@ class FresnelPhase(Phase):
             device=device,
         )
 
-        # Focal length at 550nm
+        # 550 nm 波长下的焦距
         self.f0 = torch.tensor(f0)
         self.param_model = "fresnel"
         self.to(device)
 
     @classmethod
     def init_from_dict(cls, param_dict):
-        """Initialize a FresnelPhase from a dictionary of parameters.
-
-        Args:
-            param_dict (dict): Surface parameters. Recognized keys are "r", "d", "f0",
-                "norm_radii", "mat2", "pos_xy", "vec_local", "is_square", and "device",
-                matching the `__init__` arguments. Missing optional keys fall back to defaults.
-
-        Returns:
-            surf (FresnelPhase): The constructed Fresnel phase surface.
-        """
+        """根据参数字典初始化 `FresnelPhase`。"""
         r = param_dict.get("r")
         d = param_dict.get("d")
         f0 = param_dict.get("f0", 100.0)
@@ -96,69 +62,28 @@ class FresnelPhase(Phase):
         )
 
     def phi(self, x, y):
-        """Compute the wrapped Fresnel-lens phase at the design wavelength.
-
-        Evaluates the ideal thin-lens quadratic phase
-        $\\phi = -\\pi (x^2 + y^2) / (\\lambda_0 f_0)$ with $\\lambda_0 = 0.55\\,\\mu m$
-        (0.55e-3 mm), wrapped to $[0, 2\\pi)$.
-
-        Args:
-            x (torch.Tensor): X coordinates on the surface [mm], any broadcastable shape.
-            y (torch.Tensor): Y coordinates on the surface [mm], same shape as `x`.
-
-        Returns:
-            phi (torch.Tensor): Phase in radians, wrapped to $[0, 2\\pi)$, same shape as `x`.
-        """
+        """计算设计波长下折返到 $[0, 2π)$ 的菲涅耳透镜相位。"""
         phi = (
             -2 * torch.pi * torch.fmod((x**2 + y**2) / (2 * 0.55e-3 * self.f0), 1)
-        )  # unit [mm]
+        )  # 单位 [mm]
         phi = torch.remainder(phi, 2 * torch.pi)
         return phi
 
     def dphi_dxy(self, x, y):
-        """Compute the phase gradient (dphi/dx, dphi/dy) of the unwrapped phase.
-
-        Differentiates the unwrapped quadratic phase, giving
-        $\\partial\\phi/\\partial x = -2\\pi x / (\\lambda_0 f_0)$ and likewise for $y$,
-        with $\\lambda_0 = 0.55\\,\\mu m$ (0.55e-3 mm).
-
-        Args:
-            x (torch.Tensor): X coordinates on the surface [mm], any broadcastable shape.
-            y (torch.Tensor): Y coordinates on the surface [mm], same shape as `x`.
-
-        Returns:
-            dphidx (torch.Tensor): Phase derivative along x [rad/mm], same shape as `x`.
-            dphidy (torch.Tensor): Phase derivative along y [rad/mm], same shape as `x`.
-        """
-        dphidx = -2 * torch.pi * x / (0.55e-3 * self.f0)  # unit [mm]
+        """计算未折返相位的梯度 `(dphi/dx, dphi/dy)`。"""
+        dphidx = -2 * torch.pi * x / (0.55e-3 * self.f0)  # 单位 [mm]
         dphidy = -2 * torch.pi * y / (0.55e-3 * self.f0)
         return dphidx, dphidy
 
     def get_optimizer_params(self, lrs=[1e-4], optim_mat=False):
-        """Build optimizer parameter groups for the focal length.
-
-        Enables gradients on `f0` and returns a single parameter group using `lrs[0]`
-        as its learning rate. Material parameters are not optimized for a phase surface.
-
-        Args:
-            lrs (list, optional): Learning rates; only `lrs[0]` is used (for `f0`).
-                Defaults to [1e-4].
-            optim_mat (bool, optional): Must be False; material optimization is unsupported.
-                Defaults to False.
-
-        Returns:
-            params (list): A list with one parameter group dict {"params": [f0], "lr": lrs[0]}.
-
-        Raises:
-            AssertionError: If `optim_mat` is True.
-        """
+        """为焦距构建优化器参数组。"""
         params = []
 
-        # Optimize focal length
+        # 优化焦距
         self.f0.requires_grad = True
         params.append({"params": [self.f0], "lr": lrs[0]})
 
-        # We do not optimize material parameters for phase surface.
+        # 相位面不优化材料参数。
         assert optim_mat is False, (
             "Material parameters are not optimized for phase surface."
         )
@@ -166,11 +91,7 @@ class FresnelPhase(Phase):
         return params
 
     def save_ckpt(self, save_path="./fresnel_doe.pth"):
-        """Save Fresnel DOE parameters (param_model and f0) to a checkpoint file.
-
-        Args:
-            save_path (str, optional): Output checkpoint path. Defaults to "./fresnel_doe.pth".
-        """
+        """将菲涅耳 DOE 参数保存到检查点文件。"""
         torch.save(
             {
                 "param_model": self.param_model,
@@ -180,24 +101,13 @@ class FresnelPhase(Phase):
         )
 
     def load_ckpt(self, load_path="./fresnel_doe.pth"):
-        """Load Fresnel DOE parameters (param_model and f0) from a checkpoint file.
-
-        Args:
-            load_path (str, optional): Checkpoint path to load. Defaults to "./fresnel_doe.pth".
-        """
+        """从检查点文件加载菲涅耳 DOE 参数。"""
         ckpt = torch.load(load_path)
         self.param_model = ckpt["param_model"]
         self.f0 = ckpt["f0"].to(self.device)
 
     def surf_dict(self):
-        """Return a serializable dict of surface parameters.
-
-        Returns:
-            surf_dict (dict): Surface parameters including "type", "r", "is_square",
-                "param_model", "f0", "norm_radii", "d", "mat2", plus informational
-                "(mat2_n)"/"(mat2_V)", suitable for
-                reconstruction via `init_from_dict`.
-        """
+        """返回可序列化的表面参数字典。"""
         surf_dict = {
             "type": self.__class__.__name__,
             "r": self.r,

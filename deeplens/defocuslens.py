@@ -4,23 +4,18 @@
 # Licensed under the Apache License, Version 2.0.
 # See LICENSE file in the project root for full license information.
 
-"""Defocus lens model based on the circle-of-confusion (CoC) PSF.
+"""基于弥散圆（CoC）PSF 的离焦镜头模型。
 
-This lens simulates defocus blur (depth of field) by pre-computing the
-circle-of-confusion PSF and applying it directly, instead of tracing rays. The
-CoC PSF is derived from paraxial optics: given the focal length, F-number and
-focus distance, the circle-of-confusion diameter at each object depth follows
-the paraxial defocus relation, and the resulting blur disk is used as the PSF.
-This CoC formulation is the standard approach for defocus simulation, both in
-the literature and in software such as Blender. It captures defocus but not
-higher-order optical aberrations.
+此镜头通过预先计算弥散圆 PSF 并直接应用它来模拟离焦模糊（景深），而非追迹光线。
+CoC PSF 源自近轴光学：给定焦距、F-number 和对焦距离后，各物距处的弥散圆直径
+遵循近轴离焦关系，并将所得模糊圆盘用作 PSF。这种 CoC 表述是文献以及 Blender
+等软件中离焦仿真的标准方法。它能够描述离焦，但不包含高阶光学像差。
 
-Unique to this model, DefocusLens can also generate dual-pixel (DP) PSFs -- the
-left/right sub-aperture views recorded by dual-pixel sensors -- via `psf_dp`,
-`psf_rgb_dp`, `psf_map_dp` and `render_rgbd_dp`, which are useful for
-defocus- and depth-estimation research.
+此模型还可通过 `psf_dp`、`psf_rgb_dp`、`psf_map_dp` 和 `render_rgbd_dp`
+生成双像素（DP）PSF，即双像素传感器记录的左/右子孔径视图，可用于离焦和深度
+估计研究。
 
-Reference:
+参考:
     [1] https://en.wikipedia.org/wiki/Circle_of_confusion
 """
 
@@ -33,23 +28,19 @@ from .imgsim import conv_psf_depth_interp, conv_psf_occlusion
 
 
 class DefocusLens(Lens):
-    """Defocus lens that pre-computes the circle-of-confusion (CoC) PSF.
+    """预先计算弥散圆（CoC）PSF 的离焦镜头。
 
-    Rather than ray transfer (ABCD) matrices or thin-lens ray tracing, this
-    model derives the circle of confusion from the focal length, F-number and
-    focus distance, builds the corresponding PSF, and applies it directly. It
-    simulates defocus blur (depth of field) but not higher-order optical
-    aberrations. Useful as a fast baseline renderer, as commonly used in
-    Blender and similar tools.
+    此模型不使用光线传递（ABCD）矩阵或薄透镜光线追迹，而是根据焦距、F-number
+    和对焦距离推导弥散圆，构建相应 PSF 并直接应用。它能模拟离焦模糊（景深），
+    但不包含高阶光学像差，可作为 Blender 及类似工具中常用的快速基线渲染器。
 
-    Attributes:
-        foclen (float): Focal length [mm].
-        fnum (float): F-number.
-        foc_dist (float): Current focus distance [mm], set by `refocus`
-            (conventionally negative).
-        sensor_size (tuple): Physical sensor size (W, H) [mm].
-        sensor_res (tuple): Pixel resolution (W, H).
-        pixel_size (float): Pixel pitch [mm].
+    属性:
+        foclen (float): 焦距 [mm]。
+        fnum (float): F-number。
+        foc_dist (float): 当前对焦距离 [mm]，由 `refocus` 设置（按惯例为负值）。
+        sensor_size (tuple): 传感器物理尺寸 (W, H) [mm]。
+        sensor_res (tuple): 像素分辨率 (W, H)。
+        pixel_size (float): 像素间距 [mm]。
     """
 
     def __init__(
@@ -61,31 +52,29 @@ class DefocusLens(Lens):
         device=None,
         dtype=torch.float32,
     ):
-        """Initialize a defocus lens.
+        """初始化离焦镜头。
 
-        A defocus lens models geometric defocus via the circle of confusion,
-        which is wavelength-independent, so it takes no wavelength or default
-        object-depth arguments (unlike the other lens classes).
+        离焦镜头通过与波长无关的弥散圆来建模几何离焦，因此与其他镜头类不同，
+        它不接收波长或默认物距参数。
 
-        Args:
-            foclen (float): Focal length in [mm].
-            fnum (float): F-number.
-            sensor_size (tuple, optional): Physical sensor size as (W, H) in [mm]. Defaults to (8.0, 8.0).
-            sensor_res (tuple, optional): Sensor resolution as (W, H) in pixels. Defaults to (2000, 2000).
-            device (str, optional): Computation device. Defaults to None
-                (auto-select GPU if available, else CPU).
-            dtype (torch.dtype, optional): Data type for computations. Defaults to torch.float32.
+        参数:
+            foclen (float): 焦距 [mm]。
+            fnum (float): F-number。
+            sensor_size (tuple, optional): 传感器物理尺寸 (W, H) [mm]。默认为 (8.0, 8.0)。
+            sensor_res (tuple, optional): 传感器分辨率 (W, H) [pixels]。默认为 (2000, 2000)。
+            device (str, optional): 计算设备。默认为 None（有 GPU 时自动选择 GPU，否则选择 CPU）。
+            dtype (torch.dtype, optional): 计算数据类型。默认为 torch.float32。
         """
         super(DefocusLens, self).__init__(
             device=device,
             dtype=dtype,
         )
 
-        # Lens parameters
-        self.foclen = foclen  # Focal length [mm]
+        # 镜头参数
+        self.foclen = foclen  # 焦距 [mm]
         self.fnum = fnum
 
-        # Configure sensor (sets sensor_size, sensor_res, pixel_size, r_sensor).
+        # 配置传感器（设置 sensor_size、sensor_res、pixel_size、r_sensor）。
         self.set_sensor(sensor_size, sensor_res)
         self.astype(self.dtype)
 
@@ -94,67 +83,65 @@ class DefocusLens(Lens):
         self.refocus(foc_dist=-20000)
 
     def refocus(self, foc_dist):
-        """Refocus the lens to a given object distance.
+        """将镜头重新对焦到给定物距。
 
-        Args:
-            foc_dist (float): Focus distance in [mm], conventionally negative
-                (object in front of the lens). Must be less than the focal length.
+        参数:
+            foc_dist (float): 对焦距离 [mm]，按惯例为负值（物体位于镜头前方）。
+                必须小于焦距。
 
-        Raises:
-            AssertionError: If `foc_dist` is not less than `self.foclen`.
+        异常:
+            AssertionError: `foc_dist` 不小于 `self.foclen` 时抛出。
         """
         assert foc_dist < self.foclen, "Focus distance is too close."
         self.foc_dist = foc_dist
 
     # ===========================================
-    # PSF-related functions
+    # PSF 相关函数
     # ===========================================
 
     def psf(self, points, wvln=None, ks=PSF_KS, **kwargs):
-        """Compute the defocus PSF as a circular disk of diameter CoC.
+        """将离焦 PSF 计算为直径为 CoC 的圆盘。
 
-        The PSF is a 2D blur disk whose diameter is the circle of confusion at
-        each object depth, masked to a circle and normalized to sum to 1. With
-        `psf_type="gaussian"` the disk is filled with a Gaussian falloff; with
-        `psf_type="pillbox"` it is a flat-top (uniform) disk. The CoC model is
-        wavelength-independent, so `wvln` is accepted for API uniformity with
-        the other lens types but ignored.
+        PSF 是二维模糊圆盘，其直径等于各物距处的弥散圆；对其施加圆形掩膜并
+        归一化，使总和为 1。当 `psf_type="gaussian"` 时，圆盘采用高斯
+        衰减填充；当 `psf_type="pillbox"` 时，则为平顶（均匀）圆盘。CoC 模型
+        与波长无关，因此仅为保持与其他镜头类型的 API 一致性而接收 `wvln`，
+        但不会使用它。
 
-        Args:
-            points (torch.Tensor): Object point positions in [mm], shape [N, 3]
-                or [3]; the depth is taken from the z (third) coordinate.
-            wvln (float or None, optional): Wavelength in [µm]. Ignored (the CoC
-                model is achromatic). Defaults to None.
-            ks (int, optional): PSF kernel size in pixels. Defaults to PSF_KS.
-            **kwargs: Model-specific options. `psf_type` (str): "gaussian"
-                (default) or "pillbox".
+        参数:
+            points (torch.Tensor): 物点位置 [mm]，shape [N, 3] 或 [3]；
+                深度取 z（第三个）坐标。
+            wvln (float or None, optional): 波长 [µm]。此参数会被忽略（CoC 模型
+                无色差）。默认为 None。
+            ks (int, optional): PSF 核尺寸 [pixels]。默认为 PSF_KS。
+            **kwargs: 模型特定选项。`psf_type` (str)："gaussian"（默认）或 "pillbox"。
 
-        Returns:
-            psf (torch.Tensor): Normalized PSF kernel(s), shape [ks, ks] for a
-                single point or [N, ks, ks] for N points.
+        返回:
+            psf (torch.Tensor): 归一化 PSF 核；单点时 shape [ks, ks]，
+                N 个点时 shape [N, ks, ks]。
         """
         psf_type = kwargs.get("psf_type", "gaussian")
         points = points.to(self.device)
 
-        # Handle single point vs multiple points
+        # 区分单点与多点输入
         if len(points.shape) == 1:
             points = points.unsqueeze(0)
             single_point = True
         else:
             single_point = False
 
-        # Calculate circle of confusion for each point
-        depths = points[:, 2]  # Shape [N]
-        coc_values = self.coc(depths)  # Shape [N]
+        # 计算每个点的弥散圆
+        depths = points[:, 2]  # shape [N]
+        coc_values = self.coc(depths)  # shape [N]
 
-        # Convert CoC from mm to pixels and add minimum value for numerical stability
+        # 将 CoC 从 mm 转为像素，并设置最小值以保证数值稳定性
         coc_pixel = torch.clamp(
             coc_values / self.pixel_size, min=0.5
-        )  # Shape [N], minimum 0.5 pixels
-        coc_pixel = coc_pixel.unsqueeze(-1).unsqueeze(-1)  # Shape [N, 1, 1], broadcasts with [ks, ks]
+        )  # shape [N]，最小为 0.5 pixels
+        coc_pixel = coc_pixel.unsqueeze(-1).unsqueeze(-1)  # shape [N, 1, 1]，与 [ks, ks] 广播
         coc_pixel_radius = coc_pixel / 2
 
-        # Create coordinate meshgrid
+        # 创建坐标网格
         x, y = torch.meshgrid(
             torch.linspace(-ks / 2 + 1 / 2, ks / 2 - 1 / 2, ks, device=self.device),
             torch.linspace(-ks / 2 + 1 / 2, ks / 2 - 1 / 2, ks, device=self.device),
@@ -162,23 +149,23 @@ class DefocusLens(Lens):
         )
         distance_sq = x**2 + y**2
 
-        # Create PSF
+        # 创建 PSF
         if psf_type == "gaussian":
-            # Gaussian PSF
+            # 高斯 PSF
             psf = torch.exp(-distance_sq / (2 * coc_pixel_radius**2)) / (
                 2 * np.pi * coc_pixel_radius**2
             )
         elif psf_type == "pillbox":
-            # Pillbox PSF
+            # 均匀圆盘 PSF
             psf = torch.ones_like(x)
         else:
             raise ValueError(f"Invalid PSF type: {psf_type}")
 
-        # Apply circular mask
+        # 应用圆形掩膜
         psf_mask = distance_sq < coc_pixel_radius**2
         psf = psf * psf_mask
 
-        # Normalize PSF to sum to 1
+        # 归一化 PSF，使其总和为 1
         psf = psf / (psf.sum(dim=(-1, -2), keepdim=True) + EPSILON)
 
         if single_point:
@@ -187,20 +174,18 @@ class DefocusLens(Lens):
         return psf
 
     def coc(self, depth):
-        """Compute the circle-of-confusion (CoC) diameter from the paraxial defocus relation.
+        """根据近轴离焦关系计算弥散圆（CoC）直径。
 
-        Depth is clamped to `[self.d_far, self.d_close]` and taken as an absolute
-        distance before evaluating the CoC.
+        先将深度限制在 `[self.d_far, self.d_close]`，取绝对距离后再计算 CoC。
 
-        Args:
-            depth (torch.Tensor): Object depth in [mm], shape [B] (or scalar).
-                Conventionally negative (object in front of the lens).
+        参数:
+            depth (torch.Tensor): 物体深度 [mm]，shape [B]（或标量）。
+                按惯例为负值（物体位于镜头前方）。
 
-        Returns:
-            coc (torch.Tensor): Circle-of-confusion diameter in [mm], same shape
-                as `depth`.
+        返回:
+            coc (torch.Tensor): 弥散圆直径 [mm]，shape 与 `depth` 相同。
 
-        Reference:
+        参考:
             [1] https://en.wikipedia.org/wiki/Circle_of_confusion
         """
         depth = torch.as_tensor(depth, device=self.device)
@@ -213,7 +198,7 @@ class DefocusLens(Lens):
         depth = torch.clamp(depth, self.d_far, self.d_close)
         depth = torch.abs(depth)
 
-        # Calculate circle of confusion diameter, [mm]
+        # 计算弥散圆直径 [mm]
         part1 = torch.abs(depth - foc_dist) / depth
         part2 = foclen**2 / (fnum * (foc_dist - foclen))
         coc = part1 * part2
@@ -221,16 +206,16 @@ class DefocusLens(Lens):
         return coc
 
     def dof(self, depth):
-        """Compute the depth of field (DoF) at a given object depth.
+        """计算给定物体深度处的景深（DoF）。
 
-        Args:
-            depth (torch.Tensor): Object depth in [mm], shape [B] (or scalar).
-                Conventionally negative (object in front of the lens).
+        参数:
+            depth (torch.Tensor): 物体深度 [mm]，shape [B]（或标量）。
+                按惯例为负值（物体位于镜头前方）。
 
-        Returns:
-            dof (torch.Tensor): Depth of field in [mm], same shape as `depth`.
+        返回:
+            dof (torch.Tensor): 景深 [mm]，shape 与 `depth` 相同。
 
-        Reference:
+        参考:
             [1] https://en.wikipedia.org/wiki/Depth_of_field
         """
         depth = torch.as_tensor(depth, device=self.device)
@@ -240,13 +225,13 @@ class DefocusLens(Lens):
         foclen = self.foclen
         fnum = self.fnum
 
-        # Magnification factor
+        # 放大倍率
         m = foclen / (depth_abs - foclen)
 
-        # CoC, [mm]
+        # CoC [mm]
         coc = self.coc(depth)
 
-        # Depth of field, [mm]
+        # 景深 [mm]
         part1 = 2 * fnum * coc * (m + 1)
         part2 = m**2 - (fnum * coc / foclen) ** 2
         dof = part1 / part2
@@ -254,37 +239,35 @@ class DefocusLens(Lens):
         return dof
 
     def psf_rgb(self, points, ks=PSF_KS, **kwargs):
-        """Compute RGB PSF by replicating the monochrome PSF across three channels.
+        """将单色 PSF 复制到三个通道以计算 RGB PSF。
 
-        The defocus model is achromatic, so all channels share the same PSF.
+        离焦模型无色差，因此所有通道共用同一个 PSF。
 
-        Args:
-            points (torch.Tensor): Object point positions in [mm], shape [N, 3].
-            ks (int, optional): PSF kernel size in pixels. Defaults to PSF_KS.
-            **kwargs: Forwarded to `psf`.
+        参数:
+            points (torch.Tensor): 物点位置 [mm]，shape [N, 3]。
+            ks (int, optional): PSF 核尺寸 [pixels]。默认为 PSF_KS。
+            **kwargs: 转发给 `psf`。
 
-        Returns:
-            psf_rgb (torch.Tensor): RGB PSFs, shape [N, 3, ks, ks].
+        返回:
+            psf_rgb (torch.Tensor): RGB PSF，shape [N, 3, ks, ks]。
         """
         psf = self.psf(points, ks=ks, psf_type="gaussian", **kwargs)
         return psf.unsqueeze(1).repeat(1, 3, 1, 1)
 
     def psf_map(self, grid=(5, 5), ks=PSF_KS, depth=None, **kwargs):
-        """Compute a spatially-uniform monochrome PSF map.
+        """计算空间均匀的单色 PSF 图。
 
-        Because the defocus model has no spatially-varying aberrations, every
-        grid position receives the same on-axis PSF.
+        由于离焦模型没有空间变化的像差，每个网格位置都使用相同的轴上 PSF。
 
-        Args:
-            grid (tuple, optional): Grid dimensions (rows, cols).
-                Defaults to (5, 5).
-            ks (int, optional): PSF kernel size in pixels. Defaults to PSF_KS.
-            depth (float or None, optional): Object depth in [mm]. When None
-                (default), falls back to `self.obj_depth`.
-            **kwargs: Forwarded to `psf`.
+        参数:
+            grid (tuple, optional): 网格尺寸 (rows, cols)。默认为 (5, 5)。
+            ks (int, optional): PSF 核尺寸 [pixels]。默认为 PSF_KS。
+            depth (float or None, optional): 物体深度 [mm]。为 None（默认）时
+                使用 `self.obj_depth`。
+            **kwargs: 转发给 `psf`。
 
-        Returns:
-            psf_map (torch.Tensor): PSF map, shape [rows, cols, 1, ks, ks].
+        返回:
+            psf_map (torch.Tensor): PSF 图，shape [rows, cols, 1, ks, ks]。
         """
         depth = self.obj_depth if depth is None else depth
         points = torch.tensor([[0, 0, depth]], device=self.device)
@@ -293,73 +276,71 @@ class DefocusLens(Lens):
         return psf_map
 
     # =============================================
-    # Dual-pixel PSF
+    # 双像素 PSF
     # =============================================
     def psf_dp(self, points, ks=PSF_KS):
-        """Generate left/right dual-pixel PSFs by masking the base PSF.
+        """通过遮挡基础 PSF 生成左/右双像素 PSF。
 
-        Takes the base defocus PSF and splits the aperture vertically into left
-        and right halves to mimic a dual-pixel sensor. The half assigned to each
-        sub-aperture is swapped depending on whether the object is nearer or
-        farther than the focus distance, reproducing the depth-dependent left/right
-        disparity that enables dual-pixel depth estimation and autofocus.
+        取基础离焦 PSF，并将孔径垂直分为左右两半以模拟双像素传感器。根据物体
+        比对焦距离更近还是更远，交换分配给各子孔径的半侧，从而复现随深度变化的
+        左右视差；双像素深度估计和自动对焦正是利用该视差。
 
-        Args:
-            points (torch.Tensor): Object point positions in [mm], shape [N, 3]
-                with columns [x, y, z]; depth is taken from z.
-            ks (int, optional): PSF kernel size in pixels. Defaults to PSF_KS.
+        参数:
+            points (torch.Tensor): 物点位置 [mm]，shape [N, 3]，列为 [x, y, z]；
+                深度取自 z。
+            ks (int, optional): PSF 核尺寸 [pixels]。默认为 PSF_KS。
 
-        Returns:
-            psf_l (torch.Tensor): Left sub-aperture PSFs, shape [N, ks, ks].
-            psf_r (torch.Tensor): Right sub-aperture PSFs, shape [N, ks, ks].
+        返回:
+            psf_l (torch.Tensor): 左子孔径 PSF，shape [N, ks, ks]。
+            psf_r (torch.Tensor): 右子孔径 PSF，shape [N, ks, ks]。
         """
         depth = points[:, 2]
 
-        # Get the base PSF
+        # 获取基础 PSF
         psf_base = self.psf(points, ks=ks, psf_type="gaussian")
         device = psf_base.device
 
-        # Create left and right masks for dual pixel simulation
+        # 为双像素仿真创建左右掩膜
         l_mask = torch.ones((ks, ks), device=device)
         r_mask = torch.ones((ks, ks), device=device)
 
-        # Split aperture vertically (left half and right half)
+        # 垂直分割孔径（左半侧和右半侧）
         l_pixel, r_pixel = ks // 2, ks // 2 + 1
-        l_mask[:, 0:l_pixel] = 0  # Block right side for left PSF
-        r_mask[:, r_pixel:] = 0  # Block left side for right PSF
+        l_mask[:, 0:l_pixel] = 0  # 遮挡左 PSF 的右侧
+        r_mask[:, r_pixel:] = 0  # 遮挡右 PSF 的左侧
 
-        # Determine focus positions
+        # 确定对焦位置
         depth = depth.to(device)
         foc_dist = torch.tensor(self.foc_dist, device=device, dtype=depth.dtype)
-        near_focus_pos = depth > foc_dist  # Shape [N]
+        near_focus_pos = depth > foc_dist  # shape [N]
 
-        # Apply masks based on focus position (vectorized)
-        # For near focus: left PSF gets left mask, right PSF gets right mask
-        # For far focus: masks are swapped to create opposite asymmetry
+        # 根据对焦位置应用掩膜（向量化）
+        # 近焦：左 PSF 使用左掩膜，右 PSF 使用右掩膜
+        # 远焦：交换掩膜以形成相反的不对称性
         nfp = near_focus_pos.unsqueeze(-1).unsqueeze(-1)  # [N, 1, 1]
         mask_l = torch.where(nfp, l_mask, r_mask)  # [N, ks, ks]
         mask_r = torch.where(nfp, r_mask, l_mask)  # [N, ks, ks]
         psf_l = psf_base * mask_l
         psf_r = psf_base * mask_r
 
-        # Normalize PSFs
+        # 归一化 PSF
         psf_l = psf_l / (psf_l.sum(dim=(-1, -2), keepdim=True) + EPSILON)
         psf_r = psf_r / (psf_r.sum(dim=(-1, -2), keepdim=True) + EPSILON)
 
         return psf_l, psf_r
 
     def psf_rgb_dp(self, points, ks=PSF_KS):
-        """Compute RGB dual-pixel PSFs for left and right sub-apertures.
+        """计算左右子孔径的 RGB 双像素 PSF。
 
-        Replicates the monochrome dual-pixel PSFs across three colour channels.
+        将单色双像素 PSF 复制到三个颜色通道。
 
-        Args:
-            points (torch.Tensor): Object point positions in [mm], shape [N, 3].
-            ks (int, optional): PSF kernel size in pixels. Defaults to PSF_KS.
+        参数:
+            points (torch.Tensor): 物点位置 [mm]，shape [N, 3]。
+            ks (int, optional): PSF 核尺寸 [pixels]。默认为 PSF_KS。
 
-        Returns:
-            psf_l (torch.Tensor): Left sub-aperture RGB PSFs, shape [N, 3, ks, ks].
-            psf_r (torch.Tensor): Right sub-aperture RGB PSFs, shape [N, 3, ks, ks].
+        返回:
+            psf_l (torch.Tensor): 左子孔径 RGB PSF，shape [N, 3, ks, ks]。
+            psf_r (torch.Tensor): 右子孔径 RGB PSF，shape [N, 3, ks, ks]。
         """
         psf_l, psf_r = self.psf_dp(points, ks=ks)
         psf_l = psf_l.unsqueeze(1).repeat(1, 3, 1, 1)
@@ -367,21 +348,18 @@ class DefocusLens(Lens):
         return psf_l, psf_r
 
     def psf_map_dp(self, grid=(5, 5), ks=PSF_KS, depth=None, **kwargs):
-        """Compute spatially-uniform dual-pixel PSF maps.
+        """计算空间均匀的双像素 PSF 图。
 
-        Args:
-            grid (tuple, optional): Grid dimensions (rows, cols).
-                Defaults to (5, 5).
-            ks (int, optional): PSF kernel size in pixels. Defaults to PSF_KS.
-            depth (float or None, optional): Object depth in [mm]. When None
-                (default), falls back to `self.obj_depth`.
-            **kwargs: Forwarded to `psf_dp`.
+        参数:
+            grid (tuple, optional): 网格尺寸 (rows, cols)。默认为 (5, 5)。
+            ks (int, optional): PSF 核尺寸 [pixels]。默认为 PSF_KS。
+            depth (float or None, optional): 物体深度 [mm]。为 None（默认）时
+                使用 `self.obj_depth`。
+            **kwargs: 转发给 `psf_dp`。
 
-        Returns:
-            psf_map_l (torch.Tensor): Left sub-aperture PSF map, shape
-                [rows, cols, 1, ks, ks].
-            psf_map_r (torch.Tensor): Right sub-aperture PSF map, shape
-                [rows, cols, 1, ks, ks].
+        返回:
+            psf_map_l (torch.Tensor): 左子孔径 PSF 图，shape [rows, cols, 1, ks, ks]。
+            psf_map_r (torch.Tensor): 右子孔径 PSF 图，shape [rows, cols, 1, ks, ks]。
         """
         depth = self.obj_depth if depth is None else depth
         points = torch.tensor([[0, 0, depth]], device=self.device)
@@ -391,7 +369,7 @@ class DefocusLens(Lens):
         return psf_map_l, psf_map_r
 
     # =============================================
-    # RGBD rendering (occlusion-aware)
+    # RGBD 渲染（遮挡感知）
     # =============================================
     def render_rgbd(
         self,
@@ -400,24 +378,22 @@ class DefocusLens(Lens):
         psf_ks=PSF_KS,
         num_layers=16,
     ):
-        """Occlusion-aware RGBD rendering for defocus lens.
+        """面向离焦镜头的遮挡感知 RGBD 渲染。
 
-        Uses back-to-front layered compositing to prevent color bleeding at depth
-        discontinuities. Since defocus lenses have no spatially varying
-        aberrations, rendering uses a spatially invariant PSF sampled across
-        depth layers.
+        使用从后向前的分层合成，防止深度不连续处发生颜色渗漏。由于离焦镜头
+        没有空间变化的像差，渲染时使用跨深度层采样的空间不变 PSF。
 
-        Args:
-            img_obj (torch.Tensor): Object image, shape [B, C, H, W].
-            depth_map (torch.Tensor): Depth map in [mm], shape [B, 1, H, W]
-                (or [B, H, W]). Values must be positive.
-            psf_ks (int, optional): PSF kernel size in pixels. Defaults to PSF_KS.
-            num_layers (int, optional): Number of depth layers. Defaults to 16.
+        参数:
+            img_obj (torch.Tensor): 物体图像，shape [B, C, H, W]。
+            depth_map (torch.Tensor): 深度图 [mm]，shape [B, 1, H, W]
+                （或 [B, H, W]）。值必须为正。
+            psf_ks (int, optional): PSF 核尺寸 [pixels]。默认为 PSF_KS。
+            num_layers (int, optional): 深度层数。默认为 16。
 
-        Returns:
-            img_render (torch.Tensor): Rendered image, shape [B, C, H, W].
+        返回:
+            img_render (torch.Tensor): 渲染后的图像，shape [B, C, H, W]。
 
-        Reference:
+        参考:
             [1] "Dr.Bokeh: DiffeRentiable Occlusion-aware Bokeh Rendering", CVPR 2024.
         """
         if depth_map.min() < 0:
@@ -429,10 +405,10 @@ class DefocusLens(Lens):
         depth_min = depth_map.min()
         depth_max = depth_map.max()
 
-        # Sample depth layers
+        # 采样深度层
         disp_ref, depths_ref = self._sample_depth_layers(depth_min, depth_max, num_layers)
 
-        # Compute PSF at each depth layer (spatially invariant, so patch_center=(0,0))
+        # 计算每个深度层的 PSF（空间不变，因此 patch_center=(0,0)）
         points = torch.stack(
             [
                 torch.zeros_like(depths_ref),
@@ -443,7 +419,7 @@ class DefocusLens(Lens):
         )
         psfs = self.psf_rgb(points=points, ks=psf_ks)  # [num_layers, 3, ks, ks]
 
-        # Occlusion-aware rendering
+        # 遮挡感知渲染
         img_render = conv_psf_occlusion(img_obj, -depth_map, psfs, depths_ref)
         return img_render
 
@@ -454,23 +430,22 @@ class DefocusLens(Lens):
         psf_ks=PSF_KS,
         num_layers=16,
     ):
-        """Render left/right dual-pixel images from an RGBD input.
+        """根据 RGBD 输入渲染左/右双像素图像。
 
-        Computes dual-pixel PSFs at uniformly sampled reference depths and convolves
-        the image with depth interpolation to produce the two sub-aperture views.
-        Positive depths are negated internally so the object lies in front of the lens.
+        在均匀采样的参考深度处计算双像素 PSF，并结合深度插值对图像做卷积，
+        生成两个子孔径视图。内部会将正深度取负，使物体位于镜头前方。
 
-        Args:
-            rgb_img (torch.Tensor): RGB object image, shape [B, 3, H, W].
-            depth (torch.Tensor): Depth map in [mm], shape [B, 1, H, W].
-            psf_ks (int, optional): PSF kernel size in pixels. Defaults to PSF_KS.
-            num_layers (int, optional): Number of depth layers. Defaults to 16.
+        参数:
+            rgb_img (torch.Tensor): RGB 物体图像，shape [B, 3, H, W]。
+            depth (torch.Tensor): 深度图 [mm]，shape [B, 1, H, W]。
+            psf_ks (int, optional): PSF 核尺寸 [pixels]。默认为 PSF_KS。
+            num_layers (int, optional): 深度层数。默认为 16。
 
-        Returns:
-            img_left (torch.Tensor): Left sub-aperture image, shape [B, 3, H, W].
-            img_right (torch.Tensor): Right sub-aperture image, shape [B, 3, H, W].
+        返回:
+            img_left (torch.Tensor): 左子孔径图像，shape [B, 3, H, W]。
+            img_right (torch.Tensor): 右子孔径图像，shape [B, 3, H, W]。
         """
-        # Convert depth to negative values
+        # 将深度转换为负值
         if (depth > 0).any():
             depth = -depth
 
@@ -478,7 +453,7 @@ class DefocusLens(Lens):
         depth_max = depth.max()
         patch_center = (0.0, 0.0)
 
-        # Calculate dual-pixel PSF at reference depths
+        # 计算参考深度处的双像素 PSF
         depths_ref = torch.linspace(depth_min, depth_max, num_layers, device=self.device)
         points = torch.stack(
             [
@@ -492,7 +467,7 @@ class DefocusLens(Lens):
             points=points, ks=psf_ks
         )  # shape [num_layers, 3, ks, ks]
 
-        # Render dual-pixel image with PSF convolution and depth interpolation
+        # 使用 PSF 卷积和深度插值渲染双像素图像
         img_left = conv_psf_depth_interp(rgb_img, depth, psfs_left, depths_ref)
         img_right = conv_psf_depth_interp(rgb_img, depth, psfs_right, depths_ref)
         return img_left, img_right
@@ -513,7 +488,7 @@ if __name__ == "__main__":
         log_scale=False,
     )
 
-    # PSF DP far
+    # 远处的双像素 PSF
     psf_map_l, psf_map_r = lens.psf_map_dp(grid=(11, 11), ks=128, depth=-1500)
     psf_map_l = psf_map_l.reshape(-1, 1, 128, 128)
     psf_map_r = psf_map_r.reshape(-1, 1, 128, 128)
@@ -528,7 +503,7 @@ if __name__ == "__main__":
         normalize=True,
     )
 
-    # PSF DP near
+    # 近处的双像素 PSF
     psf_map_l, psf_map_r = lens.psf_map_dp(grid=(11, 11), ks=128, depth=-800)
     psf_map_l = psf_map_l.reshape(-1, 1, 128, 128)
     psf_map_r = psf_map_r.reshape(-1, 1, 128, 128)

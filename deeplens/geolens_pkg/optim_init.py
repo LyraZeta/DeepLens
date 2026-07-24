@@ -4,11 +4,11 @@
 # Licensed under the Apache License, Version 2.0.
 # See LICENSE file in the project root for full license information.
 
-"""Utils for geometric lens systems.
+"""几何透镜系统工具。
 
-Functions:
-    - create_lens(): Create a lens design starting point with flat surfaces
-    - create_surface(): Create a surface object based on the surface type
+函数：
+    - create_lens()：使用平面表面创建透镜设计起点
+    - create_surface()：根据表面类型创建表面对象
 """
 
 import os
@@ -20,7 +20,7 @@ import torch
 from ..geometric_surface import Aperture, Aspheric, Spheric, ThinLens, Plane
 from ..material import MATERIAL_data
 
-# Common optical glasses for random material selection
+# 用于随机选择材料的常见光学玻璃
 COMMON_GLASSES = [
     "n-bk7", "n-sk16", "h-k9l", "n-lak14", "n-sk2", "bk7", "n-lak7",
     "f2", "n-f2", "n-sf5", "n-sf11", "n-sf1",
@@ -29,7 +29,7 @@ COMMON_GLASSES = [
 
 
 # ====================================================================================
-# Lens starting point generation
+# 透镜设计起点生成
 # ====================================================================================
 def create_lens(
     fov,
@@ -41,44 +41,43 @@ def create_lens(
     surf_list=None,
     save_dir="./",
 ):
-    """Create a lens design starting point with flat surfaces.
+    """使用平面表面创建透镜设计起点。
 
-    Build a `GeoLens` from a list of element/aperture specs, randomly
-    initializing materials and curvatures, then normalize thicknesses and
-    semi-apertures, attach a dummy sensor, and save the lens JSON and analysis.
+    根据元件/光阑规格列表构建 `GeoLens`，随机初始化材料和曲率，
+    随后归一化厚度与半孔径、添加占位传感器，并保存透镜 JSON 和分析结果。
 
-    Contributor: Rayengineer
+    贡献者：Rayengineer
 
-    Exactly one of `foclen` or `imgh` must be provided; the other is derived via
+    `foclen` 与 `imgh` 必须且只能提供一个；另一个由下式推导：
     $\\text{imgh} = \\text{foclen} \\cdot \\tan(\\text{fov} / 2)$.
 
-    Args:
-        fov (float): Diagonal field of view in degrees.
-        fnum (float): Target f-number (focal length / entrance pupil diameter);
-            sets the aperture radius via $\\text{aper\\_r} = \\text{foclen} / \\text{fnum} / 2$.
-        bfl (float): Back focal length, the distance from the last surface to the sensor in mm.
-        foclen (float or None, optional): Focal length in mm. Mutually exclusive with `imgh`. Defaults to None.
-        imgh (float or None, optional): Half-diagonal image height in mm (= r_sensor). Mutually exclusive with `foclen`. Defaults to None.
-        thickness (float or None, optional): Total thickness in mm. Defaults to None, in which case `foclen + bfl` is used.
-        surf_list (list or None, optional): List of element specs; each element is a string
-            ("Aperture") or a list of surface types. Defaults to None, in which case
-            `[["Spheric", "Spheric"], ["Aperture"], ["Spheric", "Aspheric"]]` is used.
-        save_dir (str, optional): Directory to save the lens JSON and analysis. Defaults to "./".
+    参数：
+        fov (float)：对角线视场角，单位为 degree。
+        fnum (float)：目标 F 数（焦距/入瞳直径）；通过
+            $\\text{aper\\_r} = \\text{foclen} / \\text{fnum} / 2$ 设置光阑半径。
+        bfl (float)：后焦距，即末表面到传感器的距离，单位为 mm。
+        foclen (float or None, optional)：焦距，单位为 mm。与 `imgh` 互斥。默认值为 None。
+        imgh (float or None, optional)：半对角线像高，单位为 mm（= r_sensor）。与 `foclen` 互斥。默认值为 None。
+        thickness (float or None, optional)：总厚度，单位为 mm。默认值为 None，此时使用 `foclen + bfl`。
+        surf_list (list or None, optional)：元件规格列表；每个元件为字符串
+            ("Aperture") 或表面类型列表。默认值为 None，此时使用
+            `[["Spheric", "Spheric"], ["Aperture"], ["Spheric", "Aspheric"]]`。
+        save_dir (str, optional)：保存透镜 JSON 和分析结果的目录。默认值为 "./"。
 
-    Returns:
-        lens (GeoLens): The constructed lens with a dummy 2000x2000 sensor.
+    返回：
+        lens (GeoLens)：构建完成的透镜，带有占位的 2000x2000 传感器。
 
-    Raises:
-        ValueError: If both or neither of `foclen` and `imgh` are provided.
-        Exception: If a lens element spec or surface type is not supported.
+    异常：
+        ValueError：同时提供或均未提供 `foclen` 与 `imgh` 时抛出。
+        Exception：透镜元件规格或表面类型不受支持时抛出。
     """
     from ..geolens import GeoLens
 
-    # Avoid mutable default argument.
+    # 避免使用可变默认参数。
     if surf_list is None:
         surf_list = [["Spheric", "Spheric"], ["Aperture"], ["Spheric", "Aspheric"]]
 
-    # Resolve foclen / imgh
+    # 确定 foclen / imgh
     half_fov = np.deg2rad(fov / 2)
     if foclen is not None and imgh is not None:
         raise ValueError("Specify exactly one of foclen or imgh, not both.")
@@ -89,16 +88,16 @@ def create_lens(
     else:
         raise ValueError("Specify exactly one of foclen or imgh.")
 
-    # Compute lens parameters
+    # 计算透镜参数
     aper_r = foclen / fnum / 2
     if thickness is None:
         thickness = foclen + bfl
     d_opt = thickness - bfl
 
-    # Materials: use common glasses instead of the full 700+ catalog
+    # 材料：使用常见玻璃，而非包含 700 多种材料的完整目录
     mat_names = [m for m in COMMON_GLASSES if m in MATERIAL_data]
 
-    # Create lens
+    # 创建透镜
     lens = GeoLens()
     surfaces = lens.surfaces
 
@@ -138,13 +137,13 @@ def create_lens(
         else:
             raise Exception("Lens type format not correct.")
 
-    # Normalize optical part total thickness
+    # 归一化光学部分的总厚度
     d_opt_actual = d_total - d_next
     for s in surfaces:
         s.d = s.d / d_opt_actual * d_opt
 
-    # Update surface semi-apertures based on position relative to aperture stop.
-    # Surfaces far from the stop need larger radii to pass off-axis rays.
+    # 根据表面相对于孔径光阑的位置更新表面半孔径。
+    # 距光阑较远的表面需要更大的半径，以允许离轴光线通过。
     # r_i = aper_r + |d_i - d_stop| * tan(half_fov)
     d_stop = None
     for s in surfaces:
@@ -158,19 +157,19 @@ def create_lens(
             d_i = s.d.item() if hasattr(s.d, "item") else float(s.d)
             s.r = aper_r + abs(d_i - d_stop) * float(np.tan(half_fov))
 
-    # Lens sensor (dummy sensor resolution)
+    # 透镜传感器（占位传感器分辨率）
     lens = lens.to(lens.device)
     lens.d_sensor = torch.tensor(thickness, device=lens.device)
     lens.r_sensor = imgh
     lens.set_sensor_res(sensor_res=(2000, 2000))
 
-    # Lens calculation
+    # 透镜计算
     lens.float_enpd = True
     lens.float_foclen = False
     lens.float_rfov = False
     lens.post_computation()
 
-    # Save lens
+    # 保存透镜
     os.makedirs(save_dir, exist_ok=True)
     filename = f"starting_point_f{foclen}mm_imgh{imgh}_fnum{fnum}"
     lens.write_lens_json(os.path.join(save_dir, f"{filename}.json"))
@@ -179,29 +178,29 @@ def create_lens(
     return lens
 
 def create_surface(surface_type, d_total, aper_r, imgh, mat):
-    """Create a surface object based on the surface type.
+    """根据表面类型创建表面对象。
 
-    Initialize a `Spheric`, `Aspheric`, or `Plane` surface with a small random
-    curvature (negative when the following medium is air, positive otherwise).
+    使用较小的随机曲率初始化 `Spheric`、`Aspheric` 或 `Plane` 表面
+    （后续介质为空气时取负值，否则取正值）。
 
-    Args:
-        surface_type (str): Surface type, one of "Spheric", "Aspheric", or "Plane".
-        d_total (float): Axial position of the surface along the optical axis in mm.
-        aper_r (float): Initial semi-aperture radius in mm (updated later after thickness normalization).
-        imgh (float): Half-diagonal image height in mm. Currently unused by this function.
-        mat (str): Material name of the medium following the surface ("air" or a glass name).
+    参数：
+        surface_type (str)：表面类型，可为 "Spheric"、"Aspheric" 或 "Plane"。
+        d_total (float)：表面沿光轴的轴向位置，单位为 mm。
+        aper_r (float)：初始半孔径半径，单位为 mm（稍后在厚度归一化后更新）。
+        imgh (float)：半对角线像高，单位为 mm。当前函数未使用。
+        mat (str)：表面之后介质的材料名称（"air" 或玻璃名称）。
 
-    Returns:
-        surface (Surface): The created surface object.
+    返回：
+        surface (Surface)：创建的表面对象。
 
-    Raises:
-        Exception: If `surface_type` is not supported.
+    异常：
+        Exception：`surface_type` 不受支持时抛出。
     """
     if mat == "air":
         c = -float(np.random.rand()) * 0.001
     else:
         c = float(np.random.rand()) * 0.001
-    # Use aper_r as initial radius; will be updated after thickness normalization
+    # 使用 aper_r 作为初始半径；厚度归一化后将更新该值
     r = aper_r
 
     if surface_type == "Spheric":

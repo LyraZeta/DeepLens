@@ -4,16 +4,16 @@
 # Licensed under the Apache License, Version 2.0.
 # See LICENSE file in the project root for full license information.
 
-"""Lens file IO for geometric lens systems.
+"""几何透镜系统的透镜文件 I/O。
 
-Provides read/write support for three lens prescription formats:
+提供三种透镜处方格式的读写支持：
 
-- DeepLens native JSON (.json): `read_lens_json`, `write_lens_json`.
-- Zemax sequential (.zmx): `read_lens_zmx`, `write_lens_zmx`.
-- Code V sequential (.seq): `read_lens_seq`, `write_lens_seq`.
+- DeepLens 原生 JSON (.json)：`read_lens_json`、`write_lens_json`。
+- Zemax 顺序格式 (.zmx)：`read_lens_zmx`、`write_lens_zmx`。
+- Code V 顺序格式 (.seq)：`read_lens_seq`、`write_lens_seq`。
 
-All lengths are in millimetres [mm] and wavelengths in micrometres [µm],
-except field-of-view angles in the .zmx/.seq files, which are in degrees.
+除 .zmx/.seq 文件中的视场角使用 degree 外，所有长度均使用
+millimetre [mm]，波长均使用 micrometre [µm]。
 """
 
 import json
@@ -26,34 +26,32 @@ from ..phase_surface import Binary2Phase, Phase
 
 
 class GeoLensIO:
-    """Mixin providing lens-file I/O for `GeoLens`.
+    """为 `GeoLens` 提供透镜文件 I/O 的混入类。
 
-    Adds read/write methods for three lens prescription formats: DeepLens
-    native JSON, Zemax sequential (.zmx), and Code V sequential (.seq). The
-    JSON format is primary and human-readable, with parenthesised keys (e.g.
-    `"(d_sensor)"`) marking optimisable parameters. This class is not
-    instantiated directly; it is mixed into `GeoLens`, and its methods read
-    from and write to the host lens's state (`surfaces`, `d_sensor`,
-    `r_sensor`, `enpd`, `rfov_eff`, etc.).
+    为三种透镜处方格式添加读写方法：DeepLens 原生 JSON、Zemax 顺序格式
+    (.zmx) 和 Code V 顺序格式 (.seq)。JSON 是主要且便于阅读的格式，
+    带括号的键（如 `"(d_sensor)"`）表示可优化参数。本类不单独实例化，
+    而是混入 `GeoLens`；其方法读写宿主透镜的状态（`surfaces`、
+    `d_sensor`、`r_sensor`、`enpd`、`rfov_eff` 等）。
     """
 
     def read_lens_zmx(self, filename="./test.zmx"):
-        """Load the lens from a Zemax .zmx sequential lens file.
+        """从 Zemax .zmx 顺序透镜文件加载透镜。
 
-        Parses STANDARD and EVENASPH surface types, glass materials, field
-        definitions (YFLN, in degrees), and entrance pupil settings
-        (ENPD/FLOA). Populates `self.surfaces`, `self.d_sensor` [mm],
-        `self.r_sensor` [mm], `self.enpd`, `self.float_enpd`, and
+        解析 STANDARD 和 EVENASPH 表面类型、玻璃材料、视场定义
+        （YFLN，单位为 degree）以及入瞳设置（ENPD/FLOA）。填充
+        `self.surfaces`、`self.d_sensor` [mm]、`self.r_sensor` [mm]、
+        `self.enpd`、`self.float_enpd` 和
         `self.rfov_eff` [rad].
 
-        Args:
-            filename (str, optional): Path to the .zmx file. Both UTF-8 and
-                UTF-16 encodings are accepted. Defaults to './test.zmx'.
+        参数：
+            filename (str, optional)：.zmx 文件路径。接受 UTF-8 和
+                UTF-16 编码。默认值为 './test.zmx'。
 
-        Returns:
-            self (GeoLens): The updated lens (for chaining).
+        返回：
+            self (GeoLens)：更新后的透镜（便于链式调用）。
         """
-        # Read .zmx file
+        # 读取 .zmx 文件
         try:
             with open(filename, "r", encoding="utf-8") as file:
                 lines = file.readlines()
@@ -61,11 +59,11 @@ class GeoLensIO:
             with open(filename, "r", encoding="utf-16") as file:
                 lines = file.readlines()
 
-        # Iterate through the lines and extract SURF dict
+        # 遍历各行并提取 SURF 字典
         surfs_dict = {}
         current_surf = None
         for line in lines:
-            # Strip leading/trailing whitespace for consistent parsing
+            # 去除首尾空白，以保持解析一致
             stripped_line = line.strip()
             
             if stripped_line.startswith("SURF"):
@@ -93,31 +91,31 @@ class GeoLensIO:
                     self.enpd = float(stripped_line.split()[1])
 
             elif stripped_line.startswith("YFLN"):
-                # Parse field of view from YFLN line (field coordinates in degrees)
-                # YFLN format: YFLN 0.0 <0.707*rfov_deg> <0.99*rfov_deg>
+                # 从 YFLN 行解析视场（视场坐标单位为 degree）
+                # YFLN 格式：YFLN 0.0 <0.707*rfov_deg> <0.99*rfov_deg>
                 parts = stripped_line.split()
                 if len(parts) > 1:
                     field_values = [abs(float(x)) for x in parts[1:] if float(x) != 0.0]
                     if field_values:
-                        # The largest field value is typically 0.99 * rfov_deg
+                        # 最大视场值通常为 0.99 * rfov_deg
                         max_field_deg = max(field_values) / 0.99
                         self.rfov_eff = (
                             max_field_deg * math.pi / 180.0
-                        )  # Convert to radians
+                        )  # 转换为 radian
 
         self.float_foclen = False
         self.float_rfov = False
-        # Set default rfov_eff if not parsed from file
+        # 若未从文件解析到 rfov_eff，则设置默认值
         if not hasattr(self, "rfov_eff"):
             self.rfov_eff = None
 
-        # Read the extracted data from each SURF
+        # 读取从各 SURF 中提取的数据
         self.surfaces = []
         d = 0.0
         mat1_name = "air"
         for surf_idx, surf_dict in surfs_dict.items():
             if surf_idx > 0 and surf_idx < current_surf:
-                # Lens surface parameters
+                # 透镜表面参数
                 if "GLAS" in surf_dict:
                     if surf_dict["GLAS"].split()[0] == "___BLANK":
                         mat2_name = f"{surf_dict['GLAS'].split()[3]}/{surf_dict['GLAS'].split()[4]}"
@@ -144,17 +142,17 @@ class GeoLensIO:
                 surf_param7 = float(surf_dict.get("PARM7", 0.0))
                 surf_param8 = float(surf_dict.get("PARM8", 0.0))
 
-                # Create surface object
+                # 创建表面对象
                 if surf_dict["TYPE"] == "STANDARD":
                     if mat2_name == "air" and mat1_name == "air":
-                        # Aperture
+                        # 光阑
                         s = Aperture(r=surf_r, d=d)
                     else:
-                        # Spherical surface
+                        # 球面
                         s = Spheric(c=surf_c, r=surf_r, d=d, mat2=mat2_name)
 
                 elif surf_dict["TYPE"] == "EVENASPH":
-                    # Aspherical surface
+                    # 非球面
                     s = Aspheric(
                         c=surf_c,
                         r=surf_r,
@@ -181,7 +179,7 @@ class GeoLensIO:
                 mat1_name = mat2_name
 
             elif surf_idx == current_surf:
-                # Image sensor
+                # 图像传感器
                 self.r_sensor = float(surf_dict["DIAM"].split()[0])
 
             else:
@@ -191,25 +189,23 @@ class GeoLensIO:
         return self
 
     def write_lens_zmx(self, filename="./test.zmx"):
-        """Write the lens to a Zemax .zmx sequential lens file.
+        """将透镜写入 Zemax .zmx 顺序透镜文件。
 
-        Exports surfaces (STANDARD or EVENASPH), materials, field definitions
-        (YFLN at 0, 0.707, and 0.99 of the effective half-FoV, in degrees),
-        RGB wavelengths, and entrance-pupil settings in Zemax OpticStudio
-        format. An extra image (sensor) surface is appended.
+        以 Zemax OpticStudio 格式导出表面（STANDARD 或 EVENASPH）、材料、
+        视场定义（有效半 FoV 的 0、0.707 和 0.99 倍处的 YFLN，单位为
+        degree）、RGB 波长和入瞳设置，并追加一个图像（传感器）表面。
 
-        Args:
-            filename (str, optional): Output file path. Defaults to './test.zmx'.
+        参数：
+            filename (str, optional)：输出文件路径。默认值为 './test.zmx'。
         """
         lens_zmx_str = ""
         if self.float_enpd:
             enpd_str = "FLOA"
         else:
             enpd_str = f"ENPD {self.enpd}"
-        # Head string. Top-level directives are written at column 0 (not
-        # indented to the surrounding Python block) so the emitted Zemax header
-        # has no leading whitespace; the SURF 0 sub-keywords are indented to
-        # match the per-surface blocks emitted by ``zmx_str``.
+        # 文件头字符串。顶层指令写在第 0 列（不随外围 Python 代码块缩进），
+        # 从而使生成的 Zemax 文件头不含前导空白；SURF 0 的子关键字保留缩进，
+        # 以匹配 ``zmx_str`` 生成的逐表面代码块。
         head_str = f"""VERS 190513 80 123457 L123457
 MODE SEQ
 NAME
@@ -243,7 +239,7 @@ SURF 0
 """
         lens_zmx_str += head_str
 
-        # Surface string
+        # 表面字符串
         for i, s in enumerate(self.surfaces):
             d_next = (
                 self.surfaces[i + 1].d - self.surfaces[i].d
@@ -253,8 +249,8 @@ SURF 0
             surf_str = s.zmx_str(surf_idx=i + 1, d_next=d_next)
             lens_zmx_str += surf_str
 
-        # Sensor (image) surface, formatted like the per-surface zmx_str blocks:
-        # the SURF line at column 0 with its sub-keywords indented.
+        # 传感器（图像）表面的格式与逐表面 zmx_str 代码块一致：
+        # SURF 行位于第 0 列，其子关键字保持缩进。
         sensor_str = f"""SURF {i + 2}
     TYPE STANDARD
     CURV 0.
@@ -263,36 +259,35 @@ SURF 0
 """
         lens_zmx_str += sensor_str
 
-        # Write lens zmx string into file
+        # 将透镜 zmx 字符串写入文件
         with open(filename, "w") as f:
             f.writelines(lens_zmx_str)
         print(f"Lens written to {filename}")
 
     # ====================================================================================
-    # CODE V Format (.seq)
+    # CODE V 格式 (.seq)
     # ====================================================================================
     def read_lens_seq(self, filename="./test.seq"):
-        """Load the lens from a Code V .seq sequential file.
+        """从 Code V .seq 顺序文件加载透镜。
 
-        Parses standard and aspheric surfaces (conic K and polynomial
-        coefficients A-I, mapped to even-aspheric terms ai[1]-ai[9]), entrance
-        pupil diameter (EPD), field angles (YAN, in degrees), aperture stop
-        (STO), and the image surface (SI). Populates `self.surfaces`,
-        `self.d_sensor` [mm], `self.r_sensor` [mm], `self.enpd`, `self.hfov`
-        [deg], and `self.rfov_eff` [rad]. Progress is printed to stdout.
+        解析标准面与非球面（圆锥常数 K 和多项式系数 A-I，映射到偶次非球面项
+        ai[1]-ai[9]）、入瞳直径 (EPD)、视场角（YAN，单位为 degree）、
+        孔径光阑 (STO) 和图像面 (SI)。填充 `self.surfaces`、
+        `self.d_sensor` [mm]、`self.r_sensor` [mm]、`self.enpd`、`self.hfov`
+        [deg] 和 `self.rfov_eff` [rad]。进度会输出到 stdout。
 
-        Args:
-            filename (str, optional): Path to the .seq file. Both UTF-8 and
-                Latin-1 encodings are accepted. Defaults to './test.seq'.
+        参数：
+            filename (str, optional)：.seq 文件路径。接受 UTF-8 和
+                Latin-1 编码。默认值为 './test.seq'。
 
-        Returns:
-            self (GeoLens): The updated lens (for chaining).
+        返回：
+            self (GeoLens)：更新后的透镜（便于链式调用）。
         """
         print(f"\n{'=' * 60}")
         print(f"Start reading CODE V file: {filename}")
         print(f"{'=' * 60}\n")
 
-        # Read .seq file
+        # 读取 .seq 文件
         try:
             with open(filename, "r", encoding="utf-8") as file:
                 lines = file.readlines()
@@ -307,7 +302,7 @@ SURF 0
                 return self
         print(f"Total lines: {len(lines)}\n")
 
-        # ============ Step 1: Parse file structure ============
+        # ============ 步骤 1：解析文件结构 ============
         surfaces = []
         current_surface = {}
         surface_index = 0
@@ -318,7 +313,7 @@ SURF 0
         for line_num, line in enumerate(lines, 1):
             line = line.strip()
 
-            # Skip irrelevant lines
+            # 跳过无关行
             if not line or line.startswith(
                 (
                     "RDM",
@@ -339,7 +334,7 @@ SURF 0
                 )
             ):
                 continue
-            # Read entrance pupil diameter
+                # 读取入瞳直径
             if line.startswith("EPD"):
                 self.enpd = float(line.split()[1])
                 self.float_enpd = False
@@ -348,16 +343,16 @@ SURF 0
                     f"[Line {line_num}] EPD={self.enpd} -> default radius={global_diameter}"
                 )
                 continue
-            # Read field of view angle
+                # 读取视场角
             if line.startswith("YAN"):
                 angles = [abs(float(x)) for x in line.split()[1:] if float(x) != 0.0]
                 if angles:
                     self.hfov = max(angles)
-                    # Also set rfov in radians for consistency with write functions
+                    # 同时以 radian 设置 rfov，以便与写入函数保持一致
                     self.rfov_eff = self.hfov * math.pi / 180.0
                     print(f"[Line {line_num}] Max field of view={self.hfov} deg")
                 continue
-            # Object surface
+                # 物面
             if line.startswith("SO"):
                 parts = line.split()
                 thickness = float(parts[2]) if len(parts) > 2 else 1e10
@@ -372,9 +367,9 @@ SURF 0
                 surface_index += 1
                 current_surface = {}
                 continue
-            # Standard surface
+                # 标准面
             if line.startswith("S "):
-                # Save the previous surface
+                    # 保存前一个表面
                 if current_surface:
                     surfaces.append(current_surface)
                     surface_index += 1
@@ -384,7 +379,7 @@ SURF 0
                 thickness = float(parts[2]) if len(parts) > 2 else 0.0
                 material = parts[3].upper() if len(parts) > 3 else "AIR"
 
-                # Key: compute curvature C = 1/R
+                # 关键：计算曲率 C = 1/R
                 if abs(radius_value) > 1e-10:
                     curvature = 1.0 / radius_value
                 else:
@@ -407,7 +402,7 @@ SURF 0
                     f"[Line {line_num}] Surface{surface_index}: R={radius_value:.4f} → C={curvature:.6f}, T={thickness}, Mat={material}"
                 )
                 continue
-            # Image surface - do not append yet, wait for CIR
+            # 图像面——暂不追加，等待 CIR
             if line.startswith("SI"):
                 if current_surface:
                     surfaces.append(current_surface)
@@ -419,12 +414,12 @@ SURF 0
                 current_surface = {
                     "type": "IMAGE",
                     "thickness": thickness,
-                    "diameter": None,  # Set to None first, wait for CIR line to update
+                    "diameter": None,  # 先设为 None，等待 CIR 行更新
                     "index": surface_index,
                 }
                 print(f"[Line {line_num}] Image surface")
                 continue
-            # Handle surface attributes (CIR, STO, ASP, K, A~J, etc.)
+            # 处理表面属性（CIR、STO、ASP、K、A~J 等）
             if current_surface:
                 if line.startswith("CIR"):
                     current_surface["diameter"] = float(
@@ -444,7 +439,7 @@ SURF 0
                     current_surface["conic"] = float(line.split()[1].replace(";", ""))
                     print(f"[Line {line_num}]   → K={current_surface['conic']}")
 
-                # Only extract single-letter coefficients A-J
+                # 仅提取 A-J 的单字母系数
                 elif any(
                     line.startswith(p)
                     for p in [
@@ -465,7 +460,7 @@ SURF 0
                     while i < len(parts) - 1:
                         try:
                             key = parts[i]
-                            # Only accept single letters within the range A-J
+                            # 仅接受 A-J 范围内的单个字母
                             if len(key) == 1 and key in [
                                 "A",
                                 "B",
@@ -485,19 +480,19 @@ SURF 0
                         except:
                             i += 1
 
-        # Save the last surface
+        # 保存最后一个表面
         if current_surface:
             surfaces.append(current_surface)
 
         print(f"\nParsing complete, total {len(surfaces)} surfaces\n")
 
-        # ============ Step 2: Create surface objects ============
+        # ============ 步骤 2：创建表面对象 ============
         print(f"{'=' * 60}")
         print("Start creating surface objects:")
         print(f"{'=' * 60}\n")
 
         self.surfaces = []
-        d = 0.0  # Cumulative distance from the first optical surface to the current surface
+        d = 0.0  # 从首个光学表面到当前表面的累计距离
         previous_material = "air"
 
         for surf in surfaces:
@@ -507,10 +502,10 @@ SURF 0
             print(f"{'=' * 50}")
             print(f"Processing surface{surf_idx} ({surf_type}), current d={d:.4f}")
 
-            # Handle object surface
+            # 处理物面
             if surf_type == "OBJECT":
                 obj_thickness = surf["thickness"]
-                if obj_thickness < 1e9:  # Finite object distance
+                if obj_thickness < 1e9:  # 有限物距
                     d += obj_thickness
                     print(
                         f"   Object surface thickness={obj_thickness} → accumulated d={d:.4f}"
@@ -520,10 +515,10 @@ SURF 0
                 previous_material = "air"
                 continue
 
-            # Handle image surface
+            # 处理图像面
             if surf_type == "IMAGE":
                 self.d_sensor = torch.tensor(d)
-                # Read diameter from surf dictionary (CIR value)
+                # 从 surf 字典读取直径（CIR 值）
                 self.r_sensor = (
                     surf.get("diameter") if surf.get("diameter") is not None else 18.0
                 )
@@ -532,7 +527,7 @@ SURF 0
                 )
                 break
 
-            # Get surface parameters
+            # 获取表面参数
             current_material = surf.get("material", "AIR")
             if current_material in ["AIR", "0.0", "", None]:
                 current_material = "air"
@@ -548,15 +543,15 @@ SURF 0
             print(f"   Material: {previous_material} → {current_material}")
             print(f"   is_stop={is_stop}")
 
-            # Create surface object
+            # 创建表面对象
             try:
-                # Case 1: pure aperture (air on both sides + STO flag)
+                # 情况 1：纯光阑（两侧均为空气，并带 STO 标志）
                 if is_stop and current_material == "air" and previous_material == "air":
                     aperture = Aperture(r=r, d=d)
                     self.surfaces.append(aperture)
                     print(f"   Created pure aperture: Aperture(r={r:.4f}, d={d:.4f})")
 
-                # Case 2: refractive surface (material change)
+                # 情况 2：折射面（材料发生变化）
                 elif current_material != previous_material:
                     if surf_type == "STANDARD":
                         s = Spheric(c=c, r=r, d=d, mat2=current_material)
@@ -570,20 +565,20 @@ SURF 0
                         k = surf.get("conic", 0.0)
                         asph_coeffs = surf.get("asph_coeffs", {})
 
-                        # CODE V aspheric coefficient mapping (shift forward by one position):
-                        # A → ai[1] (2nd term, ρ²)
-                        # B → ai[2] (4th term, ρ⁴)
-                        # C → ai[3] (6th term, ρ⁶)
-                        # D → ai[4] (8th term, ρ⁸)
-                        # E → ai[5] (10th term, ρ¹⁰)
-                        # F → ai[6] (12th term, ρ¹²)
-                        # G → ai[7] (14th term, ρ¹⁴)
-                        # H → ai[8] (16th term, ρ¹⁶)
-                        # I → ai[9] (18th term, ρ¹⁸)
+                        # CODE V 非球面系数映射（向后移一位）：
+                        # A → ai[1]（第 2 项，ρ²）
+                        # B → ai[2]（第 4 项，ρ⁴）
+                        # C → ai[3]（第 6 项，ρ⁶）
+                        # D → ai[4]（第 8 项，ρ⁸）
+                        # E → ai[5]（第 10 项，ρ¹⁰）
+                        # F → ai[6]（第 12 项，ρ¹²）
+                        # G → ai[7]（第 14 项，ρ¹⁴）
+                        # H → ai[8]（第 16 项，ρ¹⁶）
+                        # I → ai[9]（第 18 项，ρ¹⁸）
 
-                        # Initialize ai array (10 elements)
+                        # 初始化 ai 数组（10 个元素）
                         ai = [0.0] * 10
-                        ai[0] = 0.0  # ρ⁰ term (unused)
+                        ai[0] = 0.0  # ρ⁰ 项（未使用）
                         ai[1] = asph_coeffs.get("A", 0.0)  # ρ²
                         ai[2] = asph_coeffs.get("B", 0.0)  # ρ⁴
                         ai[3] = asph_coeffs.get("C", 0.0)  # ρ⁶
@@ -602,7 +597,7 @@ SURF 0
                         )
                         if any(
                             ai[1:]
-                        ):  # If there are non-zero higher-order terms (starting from ai[1])
+                        ):  # 若存在非零高阶项（从 ai[1] 开始）
                             print(
                                 f"      Aspheric coefficients: A={ai[1]:.2e}, B={ai[2]:.2e}, C={ai[3]:.2e}, D={ai[4]:.2e}"
                             )
@@ -616,7 +611,7 @@ SURF 0
 
                 traceback.print_exc()
 
-            # Key: accumulate distance at the end of the loop
+            # 关键：在循环末尾累加距离
             d += d_next
             print(f"   After accumulation: d={d:.4f}")
             previous_material = current_material
@@ -631,18 +626,17 @@ SURF 0
         return self
 
     def write_lens_seq(self, filename="./test.seq"):
-        """Write the lens to a Code V .seq sequential file.
+        """将透镜写入 Code V .seq 顺序文件。
 
-        Exports refractive surfaces (spheric and aspheric; pure apertures are
-        skipped), materials, field angles (YAN at 0, 0.707, and 0.99 of the
-        effective half-FoV, in degrees), entrance pupil diameter, and the
-        image surface in Code V format.
+        以 Code V 格式导出折射面（球面和非球面；跳过纯光阑）、材料、
+        视场角（有效半 FoV 的 0、0.707 和 0.99 倍处的 YAN，单位为
+        degree）、入瞳直径和图像面。
 
-        Args:
-            filename (str, optional): Output file path. Defaults to './test.seq'.
+        参数：
+            filename (str, optional)：输出文件路径。默认值为 './test.seq'。
 
-        Returns:
-            self (GeoLens): The updated lens (for chaining).
+        返回：
+            self (GeoLens)：更新后的透镜（便于链式调用）。
         """
 
         import datetime
@@ -748,31 +742,30 @@ SURF 0
         return self
 
     # ====================================================================================
-    # JSON lens file I/O
+    # JSON 透镜文件 I/O
     # ====================================================================================
     def read_lens_json(self, filename="./test.json"):
-        """Read the lens from a DeepLens native JSON file.
+        """从 DeepLens 原生 JSON 文件读取透镜。
 
-        Loads the surface list, sensor geometry, entrance pupil, and lens info,
-        rebuilding each surface from its `type` field via `init_from_dict`.
-        Surface positions `d` [mm] are accumulated from the per-surface
-        `d_next` spacings, and `self.d_sensor` [mm] is set to the total.
-        Sets `self.r_sensor` [mm], `self.enpd`, and `self.float_enpd`, then
-        configures the sensor resolution from `sensor_res` (default
+        加载表面列表、传感器几何形状、入瞳和透镜信息，并依据各表面的
+        `type` 字段通过 `init_from_dict` 重建表面。表面位置 `d` [mm]
+        由逐表面的 `d_next` 间距累加得到，`self.d_sensor` [mm] 设为总值。
+        随后设置 `self.r_sensor` [mm]、`self.enpd` 和 `self.float_enpd`，
+        并根据 `sensor_res` 配置传感器分辨率（默认
         2000 x 2000).
 
-        Args:
-            filename (str, optional): Path to the JSON lens file. Defaults to './test.json'.
+        参数：
+            filename (str, optional)：JSON 透镜文件路径。默认值为 './test.json'。
 
-        Raises:
-            Exception: If a surface `type` is not implemented in this loader.
+        异常：
+            Exception：加载器未实现某个表面 `type` 时抛出。
 
-        Note:
-            After loading, the lens is moved to `self.device`.
+        说明：
+            加载后会将透镜移动到 `self.device`。
         """
         self.surfaces = []
         self.materials = []
-        with open(filename, "r") as f:
+        with open(filename, "r", encoding="utf-8") as f:
             data = json.load(f)
             d = 0.0
             for idx, surf_dict in enumerate(data["surfaces"]):
@@ -834,20 +827,19 @@ SURF 0
 
         self.to(self.device)
 
-        # Set sensor size and resolution
+        # 设置传感器尺寸和分辨率
         sensor_res = data.get("sensor_res", (2000, 2000))
         self.set_sensor_res(sensor_res=sensor_res)
 
     def write_lens_json(self, filename="./test.json"):
-        """Write the lens to a DeepLens native JSON file.
+        """将透镜写入 DeepLens 原生 JSON 文件。
 
-        Saves lens info, focal length [mm], F-number, entrance pupil diameter,
-        sensor radius/size [mm] and resolution, and all surfaces (each via
-        `surf_dict`) with their per-surface spacing `d_next` [mm]. Numeric
-        values are rounded to 4 decimal places.
+        保存透镜信息、焦距 [mm]、F 数、入瞳直径、传感器半径/尺寸 [mm]
+        与分辨率，以及所有表面（各自通过 `surf_dict`）及其逐表面间距
+        `d_next` [mm]。数值保留 4 位小数。
 
-        Args:
-            filename (str, optional): Path for the output JSON file. Defaults to './test.json'.
+        参数：
+            filename (str, optional)：输出 JSON 文件路径。默认值为 './test.json'。
         """
         data = {}
         data["info"] = self.lens_info if hasattr(self, "lens_info") else "None"
@@ -876,6 +868,6 @@ SURF 0
 
             data["surfaces"].append(surf_dict)
 
-        with open(filename, "w") as f:
+        with open(filename, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4)
         print(f"Lens written to {filename}")

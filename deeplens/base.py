@@ -1,4 +1,4 @@
-"""DeepObj base class for all differentiable optical objects."""
+"""所有可微光学对象的 DeepObj 基类。"""
 
 import copy
 
@@ -7,35 +7,32 @@ import torch.nn as nn
 
 
 class DeepObj:
-    """Base class for all differentiable optical objects in DeepLens.
+    """DeepLens 中所有可微光学对象的基类。
 
-    Provides device management, dtype conversion, and deep-copy support via
-    automatic introspection over instance tensors and nested `DeepObj`
-    sub-objects. All lens, surface, material, ray, and wave objects inherit
-    from this class.
+    通过自动检查实例张量和嵌套的 `DeepObj` 子对象，提供设备管理、dtype 转换
+    和深拷贝支持。所有镜头、表面、材料、光线和波对象均继承自此类。
 
-    Attributes:
-        dtype (torch.dtype): Floating-point dtype of all owned tensors.
-        device (str or torch.device): Compute device, set by `to`.
+    属性:
+        dtype (torch.dtype): 所有持有张量的浮点 dtype。
+        device (str or torch.device): 计算设备，由 `to` 设置。
     """
 
     def __init__(self, dtype=None):
-        """Initialize the base object and record its floating-point dtype.
+        """初始化基础对象并记录其浮点 dtype。
 
-        Args:
-            dtype (torch.dtype, optional): Floating-point dtype for owned
-                tensors. Defaults to `torch.get_default_dtype()` when None.
+        参数:
+            dtype (torch.dtype, optional): 所持有张量的浮点 dtype。为 None 时
+                默认为 `torch.get_default_dtype()`。
         """
         self.dtype = torch.get_default_dtype() if dtype is None else dtype
 
     def __str__(self):
-        """Return a multi-line string listing the object's attributes.
+        """返回列出对象属性的多行字符串。
 
-        Scalars and tensors are printed as `key: value`; lists and tuples are
-        expanded element-wise; dicts and sets are skipped.
+        标量和张量按 `key: value` 输出；列表和元组逐元素展开；字典和集合则跳过。
 
-        Returns:
-            text (str): Human-readable summary of the object's attributes.
+        返回:
+            text (str): 便于阅读的对象属性摘要。
         """
         lines = [self.__class__.__name__ + ":"]
         for key, val in vars(self).items():
@@ -50,42 +47,41 @@ class DeepObj:
         return "\n    ".join(lines)
 
     def __call__(self, inp):
-        """Forward the input to the subclass `forward` method.
+        """将输入转发给子类的 `forward` 方法。
 
-        Args:
-            inp (Any): Input passed through to `self.forward`.
+        参数:
+            inp (Any): 传递给 `self.forward` 的输入。
 
-        Returns:
-            output (Any): Result of `self.forward(inp)`.
+        返回:
+            output (Any): `self.forward(inp)` 的结果。
         """
         return self.forward(inp)
 
     def clone(self):
-        """Return a deep copy of this object.
+        """返回此对象的深拷贝。
 
-        Returns:
-            obj (DeepObj): A new, independent deep copy of `self`.
+        返回:
+            obj (DeepObj): `self` 的全新独立深拷贝。
         """
         return copy.deepcopy(self)
 
     def to(self, device):
-        """Move all tensors and nested objects to a device.
+        """将所有张量和嵌套对象移动到指定设备。
 
-        Recursively walks over every instance attribute and moves tensors,
-        `nn.Parameter` data, `nn.Module` sub-objects, nested `DeepObj` objects,
-        and tensors/`DeepObj` items inside lists and tuples to the target device.
+        递归遍历每个实例属性，将张量、`nn.Parameter` 数据、`nn.Module` 子对象、
+        嵌套的 `DeepObj` 对象以及列表和元组中的张量/`DeepObj` 项移动到目标设备。
 
-        Args:
-            device (str or torch.device): Target device, e.g. `"cuda"`, `"cpu"`,
-                or a `torch.device` instance.
+        参数:
+            device (str or torch.device): 目标设备，例如 `"cuda"`、`"cpu"`
+                或 `torch.device` 实例。
 
-        Returns:
-            self (DeepObj): The updated object (for chaining).
+        返回:
+            self (DeepObj): 更新后的对象（便于链式调用）。
 
-        Example:
+        示例:
             ```python
             lens = GeoLens(filename="lens.json")
-            lens.to("cuda")  # move all tensors to GPU
+            lens.to("cuda")  # 将所有张量移动到 GPU
             ```
         """
         self.device = device
@@ -108,29 +104,27 @@ class DeepObj:
         return self
 
     def astype(self, dtype):
-        """Convert all floating-point tensors to a target dtype.
+        """将所有浮点张量转换为目标 dtype。
 
-        Recursively converts owned floating-point tensors, `nn.Parameter` data,
-        and nested `DeepObj` objects (including those in lists). When the dtype
-        differs from the current default, also calls
-        `torch.set_default_dtype(dtype)` so subsequent tensor creation matches.
+        递归转换所持有的浮点张量、`nn.Parameter` 数据和嵌套的 `DeepObj` 对象
+        （包括列表中的对象）。当 dtype 与当前默认值不同时，还会调用
+        `torch.set_default_dtype(dtype)`，使后续创建的张量与之匹配。
 
-        Args:
-            dtype (torch.dtype or None): Target floating-point dtype, one of
-                `torch.float16`, `torch.float32`, or `torch.float64`. When None,
-                this is a no-op and `self` is returned unchanged.
+        参数:
+            dtype (torch.dtype or None): 目标浮点 dtype，可为 `torch.float16`、
+                `torch.float32` 或 `torch.float64`。为 None 时不执行操作，
+                原样返回 `self`。
 
-        Returns:
-            self (DeepObj): The updated object (for chaining).
+        返回:
+            self (DeepObj): 更新后的对象（便于链式调用）。
 
-        Raises:
-            AssertionError: If dtype is not one of the three supported
-                floating-point dtypes.
+        异常:
+            AssertionError: dtype 不是上述三种受支持的浮点 dtype 之一。
 
-        Example:
+        示例:
             ```python
             lens = GeoLens(filename="lens.json")
-            lens.astype(torch.float64)  # switch to double precision
+            lens.astype(torch.float64)  # 切换为双精度
             ```
         """
         if dtype is None:

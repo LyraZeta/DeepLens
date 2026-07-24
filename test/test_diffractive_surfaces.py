@@ -1,4 +1,4 @@
-"""Tests for deeplens/optics/diffractive_surface/ — Fresnel, Binary2, Pixel2D, Zernike, Grating, DiffractiveSurface base."""
+"""deeplens/optics/diffractive_surface/ 测试——Fresnel、Binary2、Pixel2D、Zernike、Grating 和 DiffractiveSurface 基类。"""
 
 import pytest
 import torch
@@ -17,22 +17,22 @@ from deeplens.diffractive_surface import (
 
 
 class TestFresnel:
-    """Tests for Fresnel DOE."""
+    """测试 Fresnel DOE。"""
 
     def test_init(self):
-        """Fresnel DOE initializes with correct attributes."""
+        """Fresnel DOE 应使用正确属性初始化。"""
         doe = Fresnel(d=0.0, f0=50.0, res=100)
         assert doe.f0.item() == pytest.approx(50.0)
         assert doe.res == (100, 100)
 
     def test_phase_func_shape(self):
-        """phase_func returns tensor with DOE resolution."""
+        """phase_func 返回具有 DOE 分辨率的张量。"""
         doe = Fresnel(d=0.0, f0=50.0, res=100)
         phase = doe.phase_func()
         assert phase.shape == (100, 100)
 
     def test_focal_length_property(self):
-        """Fresnel has optimizable f0."""
+        """Fresnel 应具有可优化的 f0。"""
         doe = Fresnel(d=0.0, f0=50.0, res=100)
         params = doe.get_optimizer_params()
         assert len(params) == 1
@@ -40,30 +40,30 @@ class TestFresnel:
 
 
 class TestBinary2:
-    """Tests for Binary2 DOE."""
+    """测试 Binary2 DOE。"""
 
     def test_init(self):
-        """Binary2 DOE initializes."""
+        """Binary2 DOE 应完成初始化。"""
         doe = Binary2(d=0.0, res=100)
         assert doe.res == (100, 100)
 
     def test_phase_func_shape(self):
-        """phase_func returns tensor with DOE resolution."""
+        """phase_func 返回具有 DOE 分辨率的张量。"""
         doe = Binary2(d=0.0, res=100)
         phase = doe.phase_func()
         assert phase.shape == (100, 100)
 
     def test_optimizer_params(self):
-        """get_optimizer_params returns 5 param groups (alpha2-10)."""
+        """get_optimizer_params 返回 5 个参数组（alpha2-10）。"""
         doe = Binary2(d=0.0, res=100)
         params = doe.get_optimizer_params()
         assert len(params) == 5
-        # All alphas should require grad
+        # 所有 alpha 均应需要梯度
         assert doe.alpha2.requires_grad
         assert doe.alpha10.requires_grad
 
     def test_surf_dict_preserves_is_square(self):
-        """surf_dict round-trip preserves the DOE aperture shape flag."""
+        """surf_dict 往返转换应保留 DOE 光圈形状标志。"""
         doe = Binary2(d=0.0, res=100, is_square=False)
 
         reloaded = Binary2.init_from_dict(doe.surf_dict())
@@ -72,21 +72,21 @@ class TestBinary2:
 
 
 class TestPixel2D:
-    """Tests for Pixel2D DOE."""
+    """测试 Pixel2D DOE。"""
 
     def test_init(self):
-        """Pixel2D DOE initializes with a phase map."""
+        """Pixel2D DOE 应使用相位图初始化。"""
         doe = Pixel2D(d=0.0, res=100)
         assert doe.phase_map.shape == (100, 100)
 
     def test_phase_func_matches_map(self):
-        """phase_func returns the stored phase_map."""
+        """phase_func 返回已存储的 phase_map。"""
         doe = Pixel2D(d=0.0, res=100)
         phase = doe.phase_func()
         assert torch.equal(phase, doe.phase_map)
 
     def test_optimizer_params(self):
-        """get_optimizer_params enables grad on phase_map."""
+        """get_optimizer_params 应为 phase_map 启用梯度。"""
         doe = Pixel2D(d=0.0, res=100)
         params = doe.get_optimizer_params()
         assert len(params) == 1
@@ -94,28 +94,28 @@ class TestPixel2D:
 
 
 class TestZernike:
-    """Tests for Zernike DOE."""
+    """测试 Zernike DOE。"""
 
     def test_init(self):
-        """Zernike DOE initializes with 37 coefficients."""
+        """Zernike DOE 应使用 37 个系数初始化。"""
         doe = Zernike(d=0.0, res=100)
         assert doe.zernike_order == 37
         assert doe.z_coeff.shape == (37,)
 
     def test_phase_func_shape(self):
-        """phase_func returns tensor with DOE resolution."""
+        """phase_func 返回具有 DOE 分辨率的张量。"""
         doe = Zernike(d=0.0, res=100)
         phase = doe.phase_func()
         assert phase.shape == (100, 100)
 
     def test_zero_coeffs_zero_phase(self):
-        """Zero Zernike coefficients produce zero phase everywhere."""
+        """全零 Zernike 系数应在各处产生零相位。"""
         doe = Zernike(d=0.0, z_coeff=torch.zeros(37), res=100)
         phase = doe.phase_func()
         assert phase.abs().max().item() < 1e-6
 
     def test_optimizer_params(self):
-        """get_optimizer_params enables grad on z_coeff."""
+        """get_optimizer_params 应为 z_coeff 启用梯度。"""
         doe = Zernike(d=0.0, res=100)
         params = doe.get_optimizer_params()
         assert len(params) == 1
@@ -123,56 +123,56 @@ class TestZernike:
 
 
 class TestGrating:
-    """Tests for Grating DOE."""
+    """测试 Grating DOE。"""
 
     def test_init(self):
-        """Grating DOE initializes."""
+        """Grating DOE 应完成初始化。"""
         doe = Grating(d=0.0, res=100, alpha=1.0, theta=0.0)
         assert doe.alpha.item() == pytest.approx(1.0)
 
     def test_phase_func_shape(self):
-        """phase_func returns tensor with DOE resolution."""
+        """phase_func 返回具有 DOE 分辨率的张量。"""
         doe = Grating(d=0.0, res=100, alpha=1.0)
         phase = doe.phase_func()
         assert phase.shape == (100, 100)
 
     def test_linear_gradient(self):
-        """With theta=0, phase should vary linearly along y."""
+        """当 theta=0 时，相位应沿 y 线性变化。"""
         doe = Grating(d=0.0, res=100, alpha=10.0, theta=0.0)
         phase = doe.phase_func()
-        # Along a column, phase should increase/decrease linearly
+        # 沿一列，相位应线性增大或减小
         col_center = phase[:, 50]
         diffs = col_center[1:] - col_center[:-1]
-        # All diffs should be approximately equal (linear)
+        # 所有差值应近似相等（线性）
         assert diffs.std().item() < diffs.abs().mean().item() * 0.1 + 1e-6
 
     def test_optimizer_params(self):
-        """get_optimizer_params returns 2 groups (theta, alpha)."""
+        """get_optimizer_params 返回 2 个参数组（theta、alpha）。"""
         doe = Grating(d=0.0, res=100)
         params = doe.get_optimizer_params()
         assert len(params) == 2
 
 
 class TestDiffractiveSurfaceBase:
-    """Tests for DiffractiveSurface base class features."""
+    """测试 DiffractiveSurface 基类功能。"""
 
     def test_get_phase_map_wrapping(self):
-        """get_phase_map0 wraps phase to [0, 2*pi]."""
+        """get_phase_map0 将相位环绕到 [0, 2*pi]。"""
         doe = Fresnel(d=0.0, f0=50.0, res=100)
         pmap = doe.get_phase_map0()
         assert pmap.min().item() >= 0
         assert pmap.max().item() <= 2 * torch.pi + 0.01
 
     def test_get_phase_map_wavelength(self):
-        """get_phase_map at different wavelength scales the phase."""
+        """不同波长下的 get_phase_map 应缩放相位。"""
         doe = Fresnel(d=0.0, f0=50.0, res=100)
         pmap_design = doe.get_phase_map(0.55)
         pmap_other = doe.get_phase_map(0.45)
-        # Phase maps should differ for different wavelengths
+        # 不同波长的相位图应不同
         assert not torch.allclose(pmap_design, pmap_other)
 
     def test_forward_applies_phase(self):
-        """forward() modifies a wave's complex field."""
+        """forward() 应修改波的复光场。"""
         from deeplens.light import ComplexWave
 
         doe = Fresnel(d=0.0, f0=50.0, res=200, fab_ps=0.02)
@@ -186,22 +186,22 @@ class TestDiffractiveSurfaceBase:
             wave = doe.forward(wave)
         finally:
             torch.set_default_dtype(old_dtype)
-        # Wave field should be different after phase modulation
+        # 相位调制后的波场应不同
         assert not torch.allclose(wave.u, u_before)
 
     def test_loss_quantization(self):
-        """loss_quantization returns a scalar >= 0."""
+        """loss_quantization 返回 >= 0 的标量。"""
         doe = Fresnel(d=0.0, f0=50.0, res=100)
         loss = doe.loss_quantization(bits=16)
         assert loss.dim() == 0
         assert loss.item() >= 0
 
     def test_surf_dict_preserves_fab_ps_geometry(self):
-        """surf_dict round-trip preserves physical aperture for non-default fab_ps.
+        """非默认 fab_ps 下，surf_dict 往返转换应保留物理光圈。
 
-        Geometry is derived as ``w = res * fab_ps``, so ``surf_dict()`` must
-        emit ``fab_ps``; otherwise ``init_from_dict()`` defaults it to 0.001
-        and the aperture silently collapses on reload (4.096mm -> 1.024mm).
+        几何尺寸由 ``w = res * fab_ps`` 推导，因此 ``surf_dict()`` 必须输出
+        ``fab_ps``；否则 ``init_from_dict()`` 会将其默认为 0.001，重新加载时光圈会
+        在无提示的情况下缩小（4.096mm -> 1.024mm）。
         """
         doe = Fresnel(d=0.0, f0=50.0, res=1024, fab_ps=0.004)
         assert doe.w == pytest.approx(4.096)
@@ -213,7 +213,7 @@ class TestDiffractiveSurfaceBase:
 
 
 class TestRank1:
-    """Tests for Rank1 DOE."""
+    """测试 Rank1 DOE。"""
 
     def test_init(self):
         doe = Rank1(d=0.0, rank=1, res=100)
@@ -227,7 +227,7 @@ class TestRank1:
         assert phase.shape == (100, 100)
 
     def test_height_is_low_rank(self):
-        """The pre-sigmoid height logits are exactly rank == `rank`."""
+        """sigmoid 前的高度 logits 应严格满足 rank == `rank`。"""
         doe = Rank1(d=0.0, rank=1, res=100)
         assert torch.linalg.matrix_rank(doe.V @ doe.Q.T) == 1
         doe3 = Rank1(d=0.0, rank=3, res=100)
@@ -243,23 +243,23 @@ class TestRank1:
 
 
 class TestDiffractedRotation:
-    """Tests for DiffractedRotation DOE."""
+    """测试 DiffractedRotation DOE。"""
 
     def test_init(self):
         doe = DiffractedRotation(d=0.0, f0=50.0, num_wings=3, res=100)
         assert doe.res == (100, 100)
         assert doe.num_wings == 3
-        assert doe.wvln0 == pytest.approx(0.66)  # defaults to wvln_max
+        assert doe.wvln0 == pytest.approx(0.66)  # 默认为 wvln_max
 
     def test_phase_func_shape(self):
         doe = DiffractedRotation(d=0.0, f0=50.0, res=100)
         assert doe.phase_func().shape == (100, 100)
 
     def test_phase_is_anisotropic(self):
-        """The rotating DOE is NOT transpose-symmetric (unlike a radial lens).
+        """旋转 DOE 不具有转置对称性（不同于径向镜头）。
 
-        ``fab_ps`` is large enough that the lens OPD wraps across many matched
-        wavelengths, so the per-angle blaze makes the map angularly varying.
+        ``fab_ps`` 足够大，使镜头 OPD 跨多个匹配波长发生环绕，因此逐角度闪耀结构
+        会使相位图随角度变化。
         """
         doe = DiffractedRotation(d=0.0, f0=50.0, num_wings=3, res=128, fab_ps=0.02)
         phase = doe.phase_func()
@@ -273,7 +273,7 @@ class TestDiffractedRotation:
 
 
 class TestRotationallySymmetric:
-    """Tests for RotationallySymmetric DOE."""
+    """测试 RotationallySymmetric DOE。"""
 
     def test_init(self):
         doe = RotationallySymmetric(d=0.0, f0=50.0, res=100)
@@ -286,7 +286,7 @@ class TestRotationallySymmetric:
         assert doe.phase_func().shape == (100, 100)
 
     def test_phase_is_radially_symmetric(self):
-        """Phase depends only on radius => transpose-symmetric on a square grid."""
+        """相位仅取决于半径 => 在方形网格上具有转置对称性。"""
         doe = RotationallySymmetric(d=0.0, f0=50.0, res=128)
         phase = doe.phase_func()
         assert torch.allclose(phase, phase.T, atol=1e-4)
@@ -299,7 +299,7 @@ class TestRotationallySymmetric:
 
 
 class TestDiffractiveLensLoad:
-    """The new surfaces load from JSON via DiffractiveLens and produce a PSF."""
+    """新表面应通过 DiffractiveLens 从 JSON 加载并生成 PSF。"""
 
     def test_load_rank1(self, device_auto):
         from deeplens import DiffractiveLens

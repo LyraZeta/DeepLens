@@ -4,7 +4,7 @@
 # Licensed under the Apache License, Version 2.0.
 # See LICENSE file in the project root for full license information.
 
-"""Optical ray class."""
+"""光线类。"""
 
 import torch
 import torch.nn.functional as F
@@ -14,60 +14,59 @@ from ..base import DeepObj
 
 
 class Ray(DeepObj):
-    """Batched ray bundle for optical simulation.
+    """用于光学仿真的批量光线束。
 
-    Stores ray origins, directions, wavelength, validity mask, energy, bend
-    penalty, and (in coherent mode) optical path length. All tensor attributes
-    share the same batch shape `(..., num_rays)`, where the origin and direction
-    carry a trailing length-3 spatial axis.
+    保存光线原点、方向、波长、有效性掩码、能量、弯折惩罚，以及相干模式下的
+    光程长度。所有张量属性共享批次形状 `(..., num_rays)`，其中原点和方向额外
+    带有长度为 3 的末尾空间轴。
 
-    Attributes:
-        o (torch.Tensor): Ray origins, shape `(..., num_rays, 3)` [mm].
-        d (torch.Tensor): Unit ray directions, shape `(..., num_rays, 3)`.
-        wvln (torch.Tensor): Wavelength scalar [µm].
-        shape (torch.Size): Batch shape `(..., num_rays)` shared by the ray tensors.
-        is_valid (torch.Tensor): Binary validity mask, shape `(..., num_rays)`.
-        en (torch.Tensor): Energy weight, shape `(..., num_rays, 1)`.
-        bend_penalty (torch.Tensor): Accumulated per-surface bend penalty, shape `(..., num_rays, 1)`.
-        opl (torch.Tensor): Optical path length, shape `(..., num_rays, 1)` [mm].
-            Only accumulated when `is_coherent` is True.
-        is_coherent (bool): Whether optical path length tracking is enabled.
-        device (str): Compute device holding the ray tensors.
+    属性：
+        o (torch.Tensor): 光线原点，形状为 `(..., num_rays, 3)` [mm]。
+        d (torch.Tensor): 单位光线方向，形状为 `(..., num_rays, 3)`。
+        wvln (torch.Tensor): 波长标量 [µm]。
+        shape (torch.Size): 光线张量共享的批次形状 `(..., num_rays)`。
+        is_valid (torch.Tensor): 二值有效性掩码，形状为 `(..., num_rays)`。
+        en (torch.Tensor): 能量权重，形状为 `(..., num_rays, 1)`。
+        bend_penalty (torch.Tensor): 各表面累计弯折惩罚，形状为
+            `(..., num_rays, 1)`。
+        opl (torch.Tensor): 光程长度，形状为 `(..., num_rays, 1)` [mm]，仅在
+            `is_coherent` 为 True 时累加。
+        is_coherent (bool): 是否启用光程长度跟踪。
+        device (str): 存放光线张量的计算设备。
     """
 
     def __init__(self, o, d, wvln, is_coherent=False, device="cpu"):
-        """Initialize a ray object.
+        """初始化光线对象。
 
-        The direction `d` is normalized to unit length on construction. Auxiliary
-        tensors (`is_valid`, `en`, `bend_penalty`, `opl`) are initialized to their
-        default values and broadcast over the batch shape.
+        构造时将方向 `d` 归一化为单位长度。辅助张量（`is_valid`、`en`、
+        `bend_penalty`、`opl`）初始化为默认值，并广播至批次形状。
 
-        Args:
-            o (torch.Tensor): Ray origin, shape `(..., num_rays, 3)` [mm].
-            d (torch.Tensor): Ray direction, shape `(..., num_rays, 3)`.
-                Normalized to unit length internally.
-            wvln (float): Ray wavelength [µm], must satisfy 0.1 < wvln < 10.0.
-                Required and passed explicitly (the Lens carries `primary_wvln`/
-                `wvln_rgb`, not the Ray).
-            is_coherent (bool, optional): Enable optical path length tracking for
-                coherent tracing. Defaults to False.
-            device (str, optional): Compute device. Defaults to "cpu".
+        参数：
+            o (torch.Tensor): 光线原点，形状为 `(..., num_rays, 3)` [mm]。
+            d (torch.Tensor): 光线方向，形状为 `(..., num_rays, 3)`，内部会
+                归一化为单位长度。
+            wvln (float): 光线波长 [µm]，必须满足 0.1 < wvln < 10.0。
+                该参数必须显式传入；`primary_wvln`/`wvln_rgb` 属于 Lens，
+                而不属于 Ray。
+            is_coherent (bool, optional): 是否为相干追迹启用光程长度跟踪，
+                默认为 False。
+            device (str, optional): 计算设备，默认为 "cpu"。
         """
-        # Basic ray parameters - move to device
+        # 基本光线参数——移动到指定设备
         self.o = (o if torch.is_tensor(o) else torch.tensor(o)).to(device)
         self.d = (d if torch.is_tensor(d) else torch.tensor(d)).to(device)
         self.shape = self.o.shape[:-1]
 
-        # Wavelength
+        # 波长
         assert wvln > 0.1 and wvln < 10.0, "Ray wavelength unit should be [um]"
         self.wvln = torch.tensor(wvln, device=device)
 
-        # Auxiliary ray parameters - create directly on device
+        # 辅助光线参数——直接在指定设备上创建
         self.is_valid = torch.ones(self.shape, device=device)
         self.en = torch.ones((*self.shape, 1), device=device)
         self.bend_penalty = torch.zeros((*self.shape, 1), device=device)
 
-        # Coherent ray tracing
+        # 相干光线追迹
         self.is_coherent = is_coherent  # bool
         self.opl = torch.zeros((*self.shape, 1), device=device)
 
@@ -75,23 +74,22 @@ class Ray(DeepObj):
         self.d = F.normalize(self.d, p=2, dim=-1)
 
     def prop_to(self, z, n=1.0):
-        """Propagate the ray to a given depth plane in place.
+        """将光线原地传播至指定深度平面。
 
-        Moves each valid ray origin to the depth plane at axial coordinate $z$
-        along its direction. Rays nearly parallel to the plane ($d_z \\approx 0$)
-        are clamped to avoid infinite/NaN parameters. In coherent mode (and only
-        when the tensors are float64) the optical path length is incremented by
-        $n \\cdot t$, where $t$ is the propagation distance.
+        沿光线方向将每条有效光线的原点移动至轴向坐标为 $z$ 的深度平面。
+        对近似平行于该平面的光线（$d_z \\approx 0$）进行截断，以避免产生
+        infinite/NaN 参数。在相干模式下，且仅当张量为 float64 时，光程长度
+        增加 $n \\cdot t$，其中 $t$ 为传播距离。
 
-        Args:
-            z (float): Target depth plane along the optical axis [mm].
-            n (float, optional): Refractive index of the medium. Defaults to 1.0.
+        参数：
+            z (float): 沿光轴方向的目标深度平面 [mm]。
+            n (float, optional): 介质折射率，默认为 1.0。
 
-        Returns:
-            self (Ray): The updated ray (for chaining).
+        返回：
+            self (Ray): 更新后的光线，可用于链式调用。
         """
-        # Guard against rays (nearly) parallel to the target plane: d_z ~ 0 would
-        # make t = inf/NaN and contaminate gradients through the torch.where below.
+        # 防止光线与目标平面近似平行：d_z ~ 0 会使 t = inf/NaN，并通过下方的
+        # torch.where 污染梯度。
         dz = self.d[..., 2]
         dz_safe = torch.where(dz.abs() < EPSILON, torch.full_like(dz, EPSILON), dz)
         t = (z - self.o[..., 2]) / dz_safe
@@ -109,72 +107,70 @@ class Ray(DeepObj):
         return self
 
     def centroid(self):
-        """Compute the energy-unweighted centroid of valid ray origins.
+        """计算有效光线原点的不加权能量质心。
 
-        Averages the ray origins `o` over the `num_rays` axis, counting only
-        valid rays (`is_valid`).
+        沿 `num_rays` 轴对光线原点 `o` 求平均，仅计入有效光线（`is_valid`）。
 
-        Returns:
-            centroid (torch.Tensor): Centroid position, shape `(..., 3)` [mm].
+        返回：
+            centroid (torch.Tensor): 质心位置，形状为 `(..., 3)` [mm]。
         """
         return (self.o * self.is_valid.unsqueeze(-1)).sum(-2) / self.is_valid.sum(
             -1
         ).add(EPSILON).unsqueeze(-1)
 
     def rms_error(self, center_ref=None):
-        """Compute the mean RMS spot radius over valid rays.
+        """计算有效光线的平均 RMS 光斑半径。
 
-        For each batch element, the RMS radius is computed from the in-plane
-        (x, y) deviation of valid ray origins about `center_ref`, then averaged
-        across the batch to a scalar.
+        对每个批次元素，根据有效光线原点相对 `center_ref` 的平面内 (x, y)
+        偏差计算 RMS 半径，随后在批次间求平均得到标量。
 
-        Args:
-            center_ref (torch.Tensor, optional): Reference center, shape `(..., 3)`
-                [mm]. If None, the per-batch centroid is used. Defaults to None.
+        参数：
+            center_ref (torch.Tensor, optional): 参考中心，形状为 `(..., 3)` [mm]。
+                为 None 时使用各批次质心，默认为 None。
 
-        Returns:
-            rms_error (torch.Tensor): Scalar mean RMS spot radius [mm].
+        返回：
+            rms_error (torch.Tensor): 标量形式的平均 RMS 光斑半径 [mm]。
         """
-        # Calculate the centroid of the ray as reference
+        # 计算光线质心作为参考
         if center_ref is None:
             with torch.no_grad():
                 center_ref = self.centroid()
 
         center_ref = center_ref.unsqueeze(-2)
 
-        # Calculate RMS error for each region
+        # 计算各区域的 RMS 误差
         rms_error = ((self.o[..., :2] - center_ref[..., :2]) ** 2).sum(-1)
         rms_error = (rms_error * self.is_valid).sum(-1) / (
             self.is_valid.sum(-1) + EPSILON
         )
         rms_error = rms_error.sqrt()
 
-        # Average RMS error
+        # 对 RMS 误差求平均
         return rms_error.mean()
 
     def flip_xy(self):
-        """Negate the x and y components of ray origins and directions in place.
+        """原地取反光线原点和方向的 x、y 分量。
 
-        Used when computing the point spread function and wavefront distribution.
+        用于计算点扩散函数和波前分布。
 
-        Returns:
-            self (Ray): The updated ray (for chaining).
+        返回：
+            self (Ray): 更新后的光线，可用于链式调用。
         """
         self.o = torch.cat([-self.o[..., :2], self.o[..., 2:]], dim=-1)
         self.d = torch.cat([-self.d[..., :2], self.d[..., 2:]], dim=-1)
         return self
 
     def clone(self, device=None):
-        """Return a deep copy of the ray, optionally on a different device.
+        """返回光线的深拷贝，并可选择放置到不同设备上。
 
-        Useful for storing rays on CPU and moving them to GPU only when needed.
+        适用于将光线保存在 CPU 上，仅在需要时再移动到 GPU。
 
-        Args:
-            device (str or None, optional): Target device for the clone. If None,
-                the source ray's device is used. Defaults to None.
+        参数：
+            device (str or None, optional): 克隆对象的目标设备。为 None 时使用
+                源光线设备，默认为 None。
 
-        Returns:
-            ray (Ray): A new ray with cloned tensors on the target device.
+        返回：
+            ray (Ray): 张量已克隆到目标设备的新光线。
         """
         target_device = self.device if device is None else device
 
@@ -194,20 +190,20 @@ class Ray(DeepObj):
         return ray
 
     def squeeze(self, dim=None):
-        """Squeeze a batch dimension of all ray tensors in place.
+        """原地压缩所有光线张量的批次维度。
 
-        The wavelength `wvln` is a scalar tensor and is left untouched.
+        波长 `wvln` 是标量张量，因此保持不变。
 
-        Args:
-            dim (int, optional): Dimension to squeeze. If None, all size-1
-                dimensions are removed. Defaults to None.
+        参数：
+            dim (int, optional): 要压缩的维度。为 None 时移除所有大小为 1
+                的维度，默认为 None。
 
-        Returns:
-            self (Ray): The updated ray (for chaining).
+        返回：
+            self (Ray): 更新后的光线，可用于链式调用。
         """
         self.o = self.o.squeeze(dim)
         self.d = self.d.squeeze(dim)
-        # wvln is a single element tensor, no squeeze needed
+        # wvln 是单元素张量，无需压缩
         self.is_valid = self.is_valid.squeeze(dim)
         self.en = self.en.squeeze(dim)
         self.opl = self.opl.squeeze(dim)
@@ -215,21 +211,20 @@ class Ray(DeepObj):
         return self
 
     def unsqueeze(self, dim=None):
-        """Insert a size-1 batch dimension into all ray tensors in place.
+        """在所有光线张量中原地插入大小为 1 的批次维度。
 
-        The wavelength `wvln` is a scalar tensor and is left untouched.
+        波长 `wvln` 是标量张量，因此保持不变。
 
-        Args:
-            dim (int): Position at which to insert the new dimension. An int is
-                required in practice; the None default is not a valid argument to
-                `torch.unsqueeze`.
+        参数：
+            dim (int): 插入新维度的位置。实际必须传入 int；默认值 None 不是
+                `torch.unsqueeze` 的有效参数。
 
-        Returns:
-            self (Ray): The updated ray (for chaining).
+        返回：
+            self (Ray): 更新后的光线，可用于链式调用。
         """
         self.o = self.o.unsqueeze(dim)
         self.d = self.d.unsqueeze(dim)
-        # wvln is a single element tensor, no unsqueeze needed
+        # wvln 是单元素张量，无需扩维
         self.is_valid = self.is_valid.unsqueeze(dim)
         self.en = self.en.unsqueeze(dim)
         self.opl = self.opl.unsqueeze(dim)

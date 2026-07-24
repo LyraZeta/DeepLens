@@ -4,9 +4,9 @@
 # Licensed under the Apache License, Version 2.0.
 # See LICENSE file in the project root for full license information.
 
-"""Fresnel DOE. Phase fresnel lens has an inverse dispersion property compared to refractive lens.
+"""菲涅耳 DOE。与折射透镜相比，相位菲涅耳透镜具有反向色散特性。
 
-Reference:
+参考资料：
     [1] https://www.nikonusa.com/learn-and-explore/c/ideas-and-inspiration/phase-fresnel-from-wildlife-photography-to-portraiture
 """
 
@@ -15,16 +15,15 @@ from .diffractive import DiffractiveSurface
 
 
 class Fresnel(DiffractiveSurface):
-    """Phase-Fresnel diffractive lens surface.
+    """相位菲涅耳衍射透镜表面。
 
-    A diffractive Fresnel lens with an ideal quadratic (thin-lens) phase profile.
-    It exhibits inverse dispersion compared to a refractive lens, and its only
-    free parameter is the design-wavelength focal length `f0`.
+    该衍射菲涅耳透镜具有理想的二次（薄透镜）相位分布。与折射透镜相比，
+    它呈现反向色散，其唯一自由参数为设计波长下的焦距 `f0`。
 
-    Attributes:
-        f0 (torch.Tensor): Design-wavelength focal length, scalar. [mm]
-        r2 (torch.Tensor): Cached squared radial coordinate grid $x^2 + y^2$,
-            shape [H, W]. [mm^2]
+    属性：
+        f0 (torch.Tensor): 设计波长下的焦距，标量。[mm]
+        r2 (torch.Tensor): 缓存的径向坐标平方网格 $x^2 + y^2$，
+            shape 为 [H, W]。[mm^2]
     """
 
     def __init__(
@@ -38,49 +37,48 @@ class Fresnel(DiffractiveSurface):
         fab_step=16,
         device="cpu",
     ):
-        """Initialize a phase-Fresnel diffractive lens.
+        """初始化相位菲涅耳衍射透镜。
 
-        The lens applies an ideal thin-lens quadratic phase set by `f0`. It shows
-        inverse dispersion compared to a refractive lens.
+        该透镜施加由 `f0` 决定的理想薄透镜二次相位。与折射透镜相比，
+        它呈现反向色散。
 
-        Args:
-            d (float): Axial position of the DOE surface. [mm]
-            f0 (float or None, optional): Design-wavelength focal length. [mm]
-                If None, initialized to a random near-infinite value. Defaults to None.
-            wvln0 (float, optional): Design wavelength. [um] Defaults to 0.55.
-            res (tuple or int, optional): Resolution of the DOE, [w, h]. [pixel]
-                Defaults to (2000, 2000).
-            mat (str, optional): Material of the DOE. Defaults to "fused_silica".
-            fab_ps (float, optional): Fabrication pixel size. [mm] Defaults to 0.001.
-            fab_step (int, optional): Number of fabrication quantization steps.
-                Defaults to 16.
-            device (str, optional): Device to run the DOE. Defaults to "cpu".
+        参数：
+            d (float): DOE 表面的轴向位置。[mm]
+            f0 (float or None, optional): 设计波长下的焦距。[mm] 若为 None，
+                则初始化为接近无穷大的随机值。默认值为 None。
+            wvln0 (float, optional): 设计波长。[um] 默认值为 0.55。
+            res (tuple or int, optional): DOE 分辨率，[w, h]。[pixel]
+                默认值为 (2000, 2000)。
+            mat (str, optional): DOE 材料。默认值为 "fused_silica"。
+            fab_ps (float, optional): 制造像素尺寸。[mm] 默认值为 0.001。
+            fab_step (int, optional): 制造量化级数。默认值为 16。
+            device (str, optional): 运行 DOE 的设备。默认值为 "cpu"。
         """
         super().__init__(
             d=d, res=res, wvln0=wvln0, mat=mat, fab_ps=fab_ps, fab_step=fab_step, device=device
         )
 
-        # Initial focal length
+        # 初始焦距
         if f0 is None:
             self.f0 = torch.randn(1) * 1e6
         else:
             self.f0 = torch.tensor(f0)
 
-        # Cache static r² grid (x, y never change after init)
+        # 缓存静态 r² 网格（初始化后 x、y 不再变化）
         self.r2 = self.x**2 + self.y**2
 
         self.to(device)
 
     @classmethod
     def init_from_dict(cls, doe_dict):
-        """Initialize a Fresnel DOE from a dictionary of surface parameters.
+        """从表面参数字典初始化菲涅耳 DOE。
 
-        Args:
-            doe_dict (dict): Surface parameters. Requires "d" and "res"; optionally
-                "f0", "wvln0", "mat", "fab_ps", "fab_step".
+        参数：
+            doe_dict (dict): 表面参数。必须包含 "d" 和 "res"；可选键为
+                "f0"、"wvln0"、"mat"、"fab_ps"、"fab_step"。
 
-        Returns:
-            doe (Fresnel): The constructed Fresnel DOE.
+        返回：
+            doe (Fresnel): 构造得到的菲涅耳 DOE。
         """
         return cls(
             d=doe_dict["d"],
@@ -93,17 +91,17 @@ class Fresnel(DiffractiveSurface):
         )
 
     def phase_func(self):
-        """Compute the raw (unwrapped) quadratic phase at the design wavelength.
+        """计算设计波长下的原始（未包裹）二次相位。
 
-        Applies the ideal thin-lens phase
+        施加理想薄透镜相位
 
         $$\\phi(x, y) = -\\frac{\\pi (x^2 + y^2)}{f_0 \\lambda_0}$$
 
-        where $\\lambda_0$ is the design wavelength converted to mm. Emits a
-        one-time warning if the phase is undersampled on the current grid.
+        其中 $\\lambda_0$ 是换算为 mm 的设计波长。若当前网格对相位采样不足，
+        则发出一次性警告。
 
-        Returns:
-            phase (torch.Tensor): Raw unwrapped phase, shape [H, W]. [rad]
+        返回：
+            phase (torch.Tensor): 未包裹的原始相位，shape 为 [H, W]。[rad]
         """
         wvln0_mm = self.wvln0 * 1e-3
         phase = -2 * torch.pi * self.r2 / (2 * self.f0 * wvln0_mm)
@@ -111,32 +109,32 @@ class Fresnel(DiffractiveSurface):
         return phase
 
     # =======================================
-    # Optimization
+    # 优化
     # =======================================
     def get_optimizer_params(self, lr=0.001):
-        """Build optimizer parameter groups for the focal length `f0`.
+        """为焦距 `f0` 构建优化器参数组。
 
-        Enables gradients on `f0` and returns it as a single parameter group.
+        启用 `f0` 的梯度，并将其作为单个参数组返回。
 
-        Args:
-            lr (float, optional): Learning rate for `f0`. Defaults to 0.001.
+        参数：
+            lr (float, optional): `f0` 的学习率。默认值为 0.001。
 
-        Returns:
-            optimizer_params (list): List with one parameter group dict for `f0`.
+        返回：
+            optimizer_params (list): 包含一个 `f0` 参数组字典的列表。
         """
         self.f0.requires_grad = True
         optimizer_params = [{"params": [self.f0], "lr": lr}]
         return optimizer_params
 
     # =======================================
-    # IO
+    # 输入输出
     # =======================================
     def surf_dict(self):
-        """Serialize the surface to a dictionary, including `f0` and `wvln0`.
+        """将表面（包括 `f0` 和 `wvln0`）序列化为字典。
 
-        Returns:
-            surf_dict (dict): Base surface parameters plus "f0" [mm], with
-                "wvln0" [um] overwritten by the unrounded value.
+        返回：
+            surf_dict (dict): 基础表面参数加上 "f0" [mm]，其中 "wvln0" [um]
+                会被未舍入的值覆盖。
         """
         surf_dict = super().surf_dict()
         surf_dict["f0"] = self.f0.item()

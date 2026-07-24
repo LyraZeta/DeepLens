@@ -4,27 +4,27 @@
 # Licensed under the Apache License, Version 2.0.
 # See LICENSE file in the project root for full license information.
 
-"""Optimization and constraint functions for GeoLens.
+"""GeoLens 的优化与约束函数。
 
-Differentiable lens design has several advantages over conventional lens design:
-    1. AutoDiff gradient calculation is faster and numerically more stable, which is important for complex optical systems.
-    2. First-order optimization with momentum (e.g., Adam) is typically more stable than second-order optimization, and also has promising convergence speed.
-    3. Efficient definition of loss functions can prevent the lens from violating constraints.
+与传统透镜设计相比，可微透镜设计有以下优点：
+    1. AutoDiff 梯度计算更快、数值更稳定，这对复杂光学系统尤为重要。
+    2. 带动量的一阶优化（如 Adam）通常比二阶优化更稳定，收敛速度也很可观。
+    3. 高效定义损失函数可以防止透镜违反约束。
 
-References:
+参考：
     Xinge Yang, Qiang Fu, and Wolfgang Heidrich, "Curriculum learning for ab initio deep learned refractive optics," Nature Communications 2024.
 
-Functions:
-    - init_constraints: Initialize constraints for the lens design
-    - loss_reg: An empirical regularization loss for lens design
-    - loss_infocus: Sample parallel rays and compute RMS loss on the sensor plane
-    - loss_profile: Penalize per-surface profile shape (sag, slope)
-    - loss_bound: Penalize geometry-bound violations (clearance and envelope)
-    - loss_cra: Penalize chief ray angle at sensor exceeding chief_ray_angle_max
-    - loss_ray_bend: Penalize accumulated per-surface bend angles exceeding bend_angle_max
-    - loss_rms: RGB spot RMS with optional centroid reference and distortion regularization
-    - sample_ring_arm_rays: Sample rays from object space using a ring-arm pattern
-    - optimize: Optimize the lens by minimizing rms errors
+函数：
+    - init_constraints：初始化透镜设计约束
+    - loss_reg：透镜设计的经验正则化损失
+    - loss_infocus：采样平行光线并计算传感器平面上的 RMS 损失
+    - loss_profile：惩罚逐表面的轮廓形状（矢高、斜率）
+    - loss_bound：惩罚几何边界违规（间隙与包络）
+    - loss_cra：惩罚传感器处超过 chief_ray_angle_max 的主光线角
+    - loss_ray_bend：惩罚超过 bend_angle_max 的逐表面累计弯折角
+    - loss_rms：带可选质心参考和畸变正则化的 RGB 光斑 RMS
+    - sample_ring_arm_rays：使用环臂模式从物方采样光线
+    - optimize：通过最小化 RMS 误差优化透镜
 """
 
 import logging
@@ -48,19 +48,18 @@ from ..phase_surface import Phase
 
 
 def get_cosine_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps):
-    """Build an LR scheduler with linear warmup then half-cosine decay to zero.
+    """构建先线性预热、再以半余弦衰减到零的 LR 调度器。
 
-    The learning-rate multiplier ramps linearly from 0 to 1 over the warmup
-    steps, then follows a half cosine from 1 down to 0 over the remaining steps.
+    学习率乘数在预热步内从 0 线性升至 1，随后在剩余步内沿半余弦
+    从 1 降至 0。
 
-    Args:
-        optimizer (torch.optim.Optimizer): Optimizer whose learning rate is scheduled.
-        num_warmup_steps (int): Number of linear warmup steps.
-        num_training_steps (int): Total number of training steps.
+    参数：
+        optimizer (torch.optim.Optimizer)：需要调度学习率的优化器。
+        num_warmup_steps (int)：线性预热步数。
+        num_training_steps (int)：总训练步数。
 
-    Returns:
-        scheduler (torch.optim.lr_scheduler.LambdaLR): Scheduler applying the
-            warmup-then-cosine multiplier.
+    返回：
+        scheduler (torch.optim.lr_scheduler.LambdaLR)：应用预热后余弦乘数的调度器。
     """
 
     def lr_lambda(current_step):
@@ -75,42 +74,37 @@ def get_cosine_schedule_with_warmup(optimizer, num_warmup_steps, num_training_st
 
 
 class GeoLensOptim:
-    """Mixin providing differentiable optimisation for ``GeoLens``.
+    """为 ``GeoLens`` 提供可微优化的混入类。
 
-    Implements gradient-based lens design using PyTorch autograd:
+    使用 PyTorch autograd 实现基于梯度的透镜设计：
 
-    * **Loss functions** – RMS spot error, focus, surface regularity, gap
-      constraints, material validity.
-    * **Constraint initialisation** – edge-thickness and self-intersection
-      guards.
-    * **Optimizer helpers** – parameter groups with per-type learning rates
-      and cosine annealing schedules.
-    * **High-level ``optimize()``** – curriculum-learning training loop.
+    * **损失函数**——RMS 光斑误差、焦点、表面规则性、间隙约束和材料有效性。
+    * **约束初始化**——边缘厚度和自相交保护。
+    * **优化器辅助方法**——按类型设置学习率的参数组和余弦退火调度。
+    * **高层 ``optimize()``**——课程学习训练循环。
 
-    This class is not instantiated directly; it is mixed into
-    `GeoLens`.
+    本类不单独实例化，而是混入 `GeoLens`。
 
-    References:
+    参考：
         Xinge Yang et al., "Curriculum learning for ab initio deep learned
         refractive optics," *Nature Communications* 2024.
     """
 
     # ================================================================
-    # Lens design constraints
+    # 透镜设计约束
     # ================================================================
     def init_constraints(self, constraint_params=None):
-        """Initialize geometry, ray-angle, and distortion constraints for the lens.
+        """初始化透镜的几何、光线角度和畸变约束。
 
-        Selects a cellphone or camera constraint preset based on whether the
-        sensor radius is below 12 mm, sets the air-gap, thickness, BFL, TTL,
-        surface-shape, CRA, bend-angle, and distortion limits, and propagates
-        the bend-angle limit onto every surface.
+        根据传感器半径是否小于 12 mm 选择手机或相机约束预设，设置空气间隔、
+        厚度、BFL、TTL、表面形状、CRA、弯折角和畸变限制，并将弯折角限制
+        传播到每个表面。
 
-        Args:
-            constraint_params (dict, optional): Constraint parameters. Currently
-                unused (reserved for future overrides). Defaults to None.
+        参数：
+            constraint_params (dict, optional)：约束参数。当前未使用
+                （预留用于未来覆盖）。默认值为 None。
         """
-        # In the future, we want to use constraint_params to set the constraints.
+        # 未来计划使用 constraint_params 设置约束。
         if constraint_params is None:
             constraint_params = {}
 
@@ -133,18 +127,18 @@ class GeoLensOptim:
             self.ttl_min = 0.0
             self.ttl_max = 50.0
 
-            # Surface shape constraints
+            # 表面形状约束
             self.sag2diam_max = 0.5
             self.diam2thick_max = 15.0
             self.tmax2tmin_max = 5.0
             self.surf_angle_max = 45.0  # deg
 
-            # Ray angle constraints
+            # 光线角度约束
             self.chief_ray_angle_max = 45.0  # deg
             self.bend_angle_max = 30.0  # deg
 
-            # Distortion constraint
-            self.distortion_max = 0.10  # 10 % relative distortion
+            # 畸变约束
+            self.distortion_max = 0.10  # 10 % 相对畸变
 
         else:
             self.is_cellphone = False
@@ -162,23 +156,23 @@ class GeoLensOptim:
             self.bfl_min = 5.0
             self.bfl_max = 100.0  # float("inf")
 
-            self.ttl_min = 0.0  # disabled by default
+            self.ttl_min = 0.0  # 默认禁用
             self.ttl_max = 300.0  # float("inf")
 
-            # Surface shape constraints
+            # 表面形状约束
             self.sag2diam_max = 0.5
             self.diam2thick_max = 20.0
             self.tmax2tmin_max = 10.0
             self.surf_angle_max = 45.0  # deg
 
-            # Ray angle constraints
+            # 光线角度约束
             self.chief_ray_angle_max = 45.0  # deg
             self.bend_angle_max = 30.0  # deg
 
-            # Distortion constraint
-            self.distortion_max = 0.02  # 2 % relative distortion
+            # 畸变约束
+            self.distortion_max = 0.02  # 2 % 相对畸变
 
-        # Propagate bend angle limit onto every surface so refract() reads it.
+        # 将弯折角限制传播到每个表面，供 refract() 读取。
         for s in self.surfaces:
             s.bend_angle_max = self.bend_angle_max
 
@@ -191,27 +185,26 @@ class GeoLensOptim:
         w_envelope=1.0,
         w_profile=1.0,
     ):
-        """Compute combined regularization loss for lens design.
+        """计算透镜设计的组合正则化损失。
 
-        Aggregates multiple constraint losses to keep the lens physically valid
-        during gradient-based optimisation.
+        汇总多个约束损失，使透镜在基于梯度的优化期间保持物理有效。
 
-        Args:
-            w_focus (float, optional): Weight for focus loss. Defaults to 1.0.
-            w_cra (float, optional): Weight for chief ray angle loss. Defaults to 1.0.
-            w_ray_bend (float, optional): Weight for per-surface bend penalty. Defaults to 1.0.
-            w_clearance (float, optional): Weight for the clearance penalty
-                (min air gap, min thickness, min BFL, min TTL). Defaults to 1.0.
-            w_envelope (float, optional): Weight for the envelope penalty
-                (max air gap, max thickness, max BFL, max TTL). Defaults to 1.0.
-            w_profile (float, optional): Weight for per-surface profile
-                feasibility (sag, slope). Defaults to 1.0.
+        参数：
+            w_focus (float, optional)：聚焦损失权重。默认值为 1.0。
+            w_cra (float, optional)：主光线角损失权重。默认值为 1.0。
+            w_ray_bend (float, optional)：逐表面弯折惩罚权重。默认值为 1.0。
+            w_clearance (float, optional)：间隙惩罚权重（最小空气间隔、最小厚度、
+                最小 BFL、最小 TTL）。默认值为 1.0。
+            w_envelope (float, optional)：包络惩罚权重（最大空气间隔、最大厚度、
+                最大 BFL、最大 TTL）。默认值为 1.0。
+            w_profile (float, optional)：逐表面轮廓可行性（矢高、斜率）权重。
+                默认值为 1.0。
 
-        Returns:
-            loss_reg (torch.Tensor): Scalar combined regularization loss.
-            loss_dict (dict): Per-component loss values for logging.
+        返回：
+            loss_reg (torch.Tensor)：标量组合正则化损失。
+            loss_dict (dict)：用于日志记录的各分量损失值。
         """
-        # Loss functions for regularization
+        # 正则化损失函数
         # loss_focus = self.loss_infocus()
         loss_cra = self.loss_cra()
         loss_ray_bend = self.loss_ray_bend()
@@ -228,7 +221,7 @@ class GeoLensOptim:
             # w_mat * loss_mat
         )
 
-        # Return loss and loss dictionary
+        # 返回损失及损失字典
         loss_dict = {
             # "loss_focus": loss_focus.item(),
             "loss_clearance": loss_clearance.item(),
@@ -241,45 +234,45 @@ class GeoLensOptim:
         return loss_reg, loss_dict
 
     def loss_infocus(self, target=0.005, wvln=None):
-        """Sample on-axis parallel rays and penalize the sensor-plane spot RMS.
+        """采样轴上平行光线，并惩罚传感器平面上的光斑 RMS。
 
-        Traces a zero-field ray bundle to the sensor and applies a one-sided
-        penalty $\\mathrm{relu}(\\text{rms} - \\text{target})$ that activates
-        only when the RMS spot radius exceeds the target.
+        将零视场光束追迹到传感器，并应用单侧惩罚
+        $\\mathrm{relu}(\\text{rms} - \\text{target})$；仅当 RMS 光斑半径
+        超过目标时激活。
 
-        Args:
-            target (float, optional): Target on-axis RMS spot radius in mm.
-                Defaults to 0.005.
-            wvln (float, optional): Wavelength in µm. When None (default),
-                falls back to the green channel of `self.wvln_rgb`. Defaults to None.
+        参数：
+            target (float, optional)：目标轴上 RMS 光斑半径，单位为 mm。
+                默认值为 0.005。
+            wvln (float, optional)：波长，单位为 µm。为 None（默认）时回退到
+                `self.wvln_rgb` 的绿色通道。默认值为 None。
 
-        Returns:
-            loss (torch.Tensor): Scalar focus penalty (at least 0).
+        返回：
+            loss (torch.Tensor)：标量聚焦惩罚（至少为 0）。
         """
         if wvln is None:
             wvln = self.wvln_rgb[1]
         loss = torch.tensor(0.0, device=self.device)
 
-        # Ray tracing and calculate RMS error
+        # 光线追迹并计算 RMS 误差
         ray = self.sample_from_fov(fov_x=0.0, fov_y=0.0, wvln=wvln, num_rays=SPP_CALC)
         ray = self.trace2sensor(ray)
         rms_error = ray.rms_error()
 
-        # Smooth penalty: activates when rms_error exceeds target
+        # 平滑惩罚：rms_error 超过 target 时激活
         loss += relu(rms_error - target)
 
         return loss
 
     def loss_profile(self):
-        """Penalize infeasible per-surface profile shapes.
+        """惩罚不可行的逐表面轮廓形状。
 
-        The "profile" is the z(r) curve of a single surface. This loss makes
-        sure each surface is physically manufacturable by checking:
-            1. Sag-to-diameter ratio exceeding ``sag2diam_max``.
-            2. Maximum surface slope angle exceeding ``surf_angle_max`` (deg).
+        “轮廓”指单个表面的 z(r) 曲线。本损失通过检查以下项目确保各表面
+        在物理上可制造：
+            1. 矢高与直径之比超过 ``sag2diam_max``。
+            2. 最大表面斜率角超过 ``surf_angle_max`` (deg)。
 
-        Returns:
-            loss (torch.Tensor): Scalar profile feasibility penalty.
+        返回：
+            loss (torch.Tensor)：标量轮廓可行性惩罚。
         """
         sag2diam_max = self.sag2diam_max
         grad_max = math.tan(math.radians(self.surf_angle_max))
@@ -287,32 +280,32 @@ class GeoLensOptim:
         loss_grad = torch.tensor(0.0, device=self.device)
         loss_sag2diam = torch.tensor(0.0, device=self.device)
         for i in self.find_diff_surf():
-            # Sample points on the surface
+            # 在表面上采样点
             x_ls = torch.linspace(0.0, 1.0, 32, device=self.device) * self.surfaces[i].r
             y_ls = torch.zeros_like(x_ls)
 
-            # Sag
+            # 矢高
             sag_ls = self.surfaces[i].sag(x_ls, y_ls)
             sag2diam = sag_ls.abs().max() / self.surfaces[i].r / 2
             loss_sag2diam += relu(
                 (sag2diam - sag2diam_max) / sag2diam_max)
 
-            # 1st-order derivative
+            # 一阶导数
             grad_ls = self.surfaces[i].dfdxyz(x_ls, y_ls)[0]
             grad = grad_ls.abs().max()
             loss_grad += relu((grad - grad_max) / grad_max)
 
-            # # Diameter to thickness ratio, thick_max to thick_min ratio
+        # # 直径与厚度之比，以及 thick_max 与 thick_min 之比
             # if not self.surfaces[i].mat2.name == "air":
             #     surf2 = self.surfaces[i + 1]
             #     surf1 = self.surfaces[i]
 
-            #     # Penalize diameter to thickness ratio
+        #     # 惩罚直径与厚度之比
             #     diam2thick = 2 * max(surf2.r, surf1.r) / (surf2.d - surf1.d)
             #     loss_diam2thick += torch.nn.functional.relu(diam2thick - diam2thick_max)
 
-            #     # Penalize thick_max to thick_min ratio.
-            #     # Use torch.maximum/minimum for differentiable max/min.
+        #     # 惩罚 thick_max 与 thick_min 之比。
+        #     # 使用 torch.maximum/minimum 实现可微的最大/最小值。
             #     r_edge = min(surf2.r, surf1.r)
             #     thick_center = surf2.d - surf1.d
             #     thick_edge = surf2.surface_with_offset(r_edge, 0.0) - surf1.surface_with_offset(r_edge, 0.0)
@@ -325,20 +318,17 @@ class GeoLensOptim:
         return loss_sag2diam + loss_grad
 
     def loss_bound(self):
-        """Penalize geometry-bound violations in a single surface-sampling pass.
+        """在一次表面采样中惩罚几何边界违规。
 
-        Each surface pair is sampled once and its distances feed both the
-        clearance (min) and envelope (max) relu penalties for air gaps,
-        glass thickness, BFL, and TTL.
+        每对表面仅采样一次，其距离同时用于空气间隔、玻璃厚度、BFL 和 TTL
+        的间隙（最小值）与包络（最大值）relu 惩罚。
 
-        Returns:
-            loss_clearance (torch.Tensor): Scalar clearance penalty for parts
-                that are too close / too thin.
-            loss_envelope (torch.Tensor): Scalar envelope penalty for the
-                overall assembly growing beyond its spatial budget.  Returned
-                separately so callers can weight the two independently.
+        返回：
+            loss_clearance (torch.Tensor)：部件过近/过薄时的标量间隙惩罚。
+            loss_envelope (torch.Tensor)：整体组件超过空间预算时的标量包络
+                惩罚。两者分开返回，以便调用方独立加权。
         """
-        # Min bounds (clearance)
+        # 最小边界（间隙）
         air_center_min = self.air_center_min
         air_edge_min = self.air_edge_min
         thick_center_min = self.thick_center_min
@@ -346,7 +336,7 @@ class GeoLensOptim:
         bfl_min = self.bfl_min
         ttl_min = self.ttl_min
 
-        # Max bounds (envelope)
+        # 最大边界（包络）
         air_center_max = self.air_center_max
         air_edge_max = self.air_edge_max
         thick_center_max = self.thick_center_max
@@ -367,7 +357,7 @@ class GeoLensOptim:
             current_surf = self.surfaces[i]
             next_surf = self.surfaces[i + 1]
 
-            # Sample surfaces once and reuse for both clearance and envelope
+        # 仅采样一次表面，并同时复用于间隙与包络计算
             r_center = torch.tensor(0.0, device=self.device) * current_surf.r
             z_prev_center = current_surf.surface_with_offset(
                 r_center, 0.0, valid_check=False
@@ -398,7 +388,7 @@ class GeoLensOptim:
                 loss_envelope += relu((dist_center - thick_center_max) / thick_c_range)
                 loss_envelope += relu((dist_edge_hi - thick_edge_max) / thick_e_range)
 
-        # Back focal length
+        # 后焦距
         last_surf = self.surfaces[-1]
         r = torch.linspace(0.0, 1.0, 32, device=self.device) * last_surf.r
         z_last_surf = self.d_sensor - last_surf.surface_with_offset(r, 0.0)
@@ -407,7 +397,7 @@ class GeoLensOptim:
         loss_clearance += relu((bfl_min - bfl_lo) / bfl_range)
         loss_envelope += relu((bfl_hi - bfl_max) / bfl_range)
 
-        # Total track length
+        # 总轨道长度
         ttl = self.d_sensor - self.surfaces[0].d
         loss_clearance += relu((ttl_min - ttl) / ttl_range)
         loss_envelope += relu((ttl - ttl_max) / ttl_range)
@@ -415,14 +405,14 @@ class GeoLensOptim:
         return loss_clearance, loss_envelope
 
     def loss_cra(self):
-        """Penalize chief ray angle at sensor exceeding chief_ray_angle_max.
+        """惩罚传感器处超过 chief_ray_angle_max 的主光线角。
 
-        Uses a near-paraxial pupil sample (scale_pupil=0.2) over the full FoV.
-        The penalty is $\\mathrm{relu}(\\cos\\theta_\\text{ref} - \\cos\\theta_\\text{CRA})$,
-        valid-ray averaged, where $\\cos\\theta = $ `ray.d[..., 2]`.
+        在完整 FoV 上使用近轴瞳孔采样（scale_pupil=0.2）。惩罚为
+        $\\mathrm{relu}(\\cos\\theta_\\text{ref} - \\cos\\theta_\\text{CRA})$，
+        并在有效光线上取平均，其中 $\\cos\\theta = $ `ray.d[..., 2]`。
 
-        Returns:
-            loss (torch.Tensor): Scalar CRA penalty (at least 0).
+        返回：
+            loss (torch.Tensor)：标量 CRA 惩罚（至少为 0）。
         """
         cos_cra_ref = float(np.cos(np.deg2rad(self.chief_ray_angle_max)))
 
@@ -434,15 +424,14 @@ class GeoLensOptim:
         return (penalty_cra * valid).sum() / (valid.sum() + EPSILON)
 
     def loss_ray_bend(self):
-        """Penalize accumulated per-surface bend angles exceeding bend_angle_max.
+        """惩罚超过 bend_angle_max 的逐表面累计弯折角。
 
-        Reads ``ray.bend_penalty``, an additive sum of per-surface relu
-        contributions collected during ``trace2sensor``.  Each surface
-        contributes independently, so large bends at one surface are not hidden
-        by small bends at another.  Uses a full-pupil sample (scale_pupil=1.0).
+        读取 ``ray.bend_penalty``，即在 ``trace2sensor`` 期间收集的逐表面
+        relu 贡献之和。各表面独立贡献，因此一个表面的较大弯折不会被另一
+        表面的较小弯折掩盖。使用完整瞳孔采样（scale_pupil=1.0）。
 
-        Returns:
-            loss (torch.Tensor): Scalar bend penalty (at least 0).
+        返回：
+            loss (torch.Tensor)：标量弯折惩罚（至少为 0）。
         """
         ray = self.sample_ring_arm_rays(num_ring=8, num_arm=2, spp=SPP_CALC, scale_pupil=1.0)
         ray = self.trace2sensor(ray)
@@ -451,13 +440,13 @@ class GeoLensOptim:
         return (bend_penalty * valid).sum() / (valid.sum() + EPSILON)
 
     def loss_mat(self):
-        """Penalize material parameters outside manufacturable ranges.
+        """惩罚超出可制造范围的材料参数。
 
-        Constrains refractive index *n* to [1.5, 1.9] and Abbe number *V* to
-        [30, 70] for each non-air surface material.
+        将各非空气表面材料的折射率 *n* 限制在 [1.5, 1.9]，阿贝数 *V*
+        限制在 [30, 70]。
 
-        Returns:
-            loss_mat (torch.Tensor): Scalar material penalty loss.
+        返回：
+            loss_mat (torch.Tensor)：标量材料惩罚损失。
         """
         n_max = 1.9
         n_min = 1.5
@@ -478,7 +467,7 @@ class GeoLensOptim:
         return loss_mat
 
     # ================================================================
-    # Loss functions for image quality
+    # 图像质量损失函数
     # ================================================================
     def loss_rms(
         self,
@@ -487,29 +476,26 @@ class GeoLensOptim:
         num_rays=SPP_PSF,
         sample_more_off_axis=False,
     ):
-        """Compute the RGB spot-size RMS loss over a grid of field points.
+        """在视场点网格上计算 RGB 光斑尺寸 RMS 损失。
 
-        Traces R, G, B ray bundles (green first) to the sensor and measures the
-        spot radius against the green pinhole center. The green spot error sets
-        a detached per-field weight mask that emphasises harder fields.
+        将 R、G、B 光束（绿色优先）追迹到传感器，并相对于绿色针孔中心测量
+        光斑半径。绿色光斑误差用于设置分离梯度的逐视场权重掩码，以强调
+        更困难的视场。
 
-        Args:
-            num_grid (int, optional): Number of field-grid points per axis.
-                Defaults to GEO_GRID.
-            depth (float, optional): Object-plane depth in mm. When None
-                (default), falls back to `self.obj_depth`. Defaults to None.
-            num_rays (int, optional): Number of rays per field point.
-                Defaults to SPP_PSF.
-            sample_more_off_axis (bool, optional): If True, concentrate field
-                samples toward the field edge. Defaults to False.
+        参数：
+            num_grid (int, optional)：每个轴上的视场网格点数。默认值为 GEO_GRID。
+            depth (float, optional)：物面深度，单位为 mm。为 None（默认）时
+                回退到 `self.obj_depth`。默认值为 None。
+            num_rays (int, optional)：每个视场点的光线数。默认值为 SPP_PSF。
+            sample_more_off_axis (bool, optional)：为 True 时将视场样本集中到
+                视场边缘。默认值为 False。
 
-        Returns:
-            avg_rms_error (torch.Tensor): Scalar RMS spot error in mm, averaged
-                over the R, G, B wavelengths.
+        返回：
+            avg_rms_error (torch.Tensor)：在 R、G、B 波长上取平均的标量
+                RMS 光斑误差，单位为 mm。
         """
         depth = self.obj_depth if depth is None else depth
-        # Iterate green first so the error-adaptive weight mask is anchored
-        # on the reference (green) wavelength.
+        # 先迭代绿色，使误差自适应权重掩码以参考（绿色）波长为基准。
         loss_rms_ls = []
         w_mask = None
         for i, wvln in enumerate(
@@ -523,7 +509,7 @@ class GeoLensOptim:
                 sample_more_off_axis=sample_more_off_axis,
             )
 
-            # Reference center from green chief-ray (pinhole), broadcast to rays.
+            # 根据绿色主光线（针孔）获得参考中心，并广播到各光线。
             if i == 0:
                 with torch.no_grad():
                     center_ref = -self.psf_center(
@@ -533,8 +519,8 @@ class GeoLensOptim:
 
             ray = self.trace2sensor(ray)
 
-            # Per-FOV MSE → RMS, zeroing invalid rays before squaring to
-            # avoid Inf*0 = NaN.
+            # 逐 FoV 将 MSE 转为 RMS；平方前将无效光线置零，
+            # 以避免 Inf*0 = NaN。
             ray_xy = ray.o[..., :2]
             ray_valid = ray.is_valid
             ray_err = ray_xy - center_ref
@@ -544,7 +530,7 @@ class GeoLensOptim:
             mse = (ray_err**2).sum(-1).sum(-1) / (ray_valid.sum(-1) + EPSILON)
             l_rms = (mse + EPSILON).sqrt()
 
-            # First wavelength (green) defines the detached weight mask.
+            # 第一个波长（绿色）定义分离梯度的权重掩码。
             if w_mask is None:
                 w_mask = mse.detach()
                 w_mask = w_mask / (w_mask.mean() + EPSILON)
@@ -556,7 +542,7 @@ class GeoLensOptim:
         return avg_rms_error
 
     # ================================================================
-    # Example optimization function
+    # 优化函数示例
     # ================================================================
     def sample_ring_arm_rays(
         self,
@@ -568,39 +554,34 @@ class GeoLensOptim:
         scale_pupil=1.0,
         sample_more_off_axis=True,
     ):
-        """Sample rays from object space using a ring-arm pattern.
+        """使用环臂模式从物方采样光线。
 
-        This method distributes sampling points (origins of ray bundles) on a polar grid in the object plane,
-        defined by field of view. This is useful for capturing lens performance across the full field.
-        The points include the center and `num_ring` rings with `num_arm` points on each.
+        本方法在由视场定义的物面极坐标网格上分布采样点（光束原点），
+        用于捕获完整视场内的透镜性能。采样点包括中心，以及 `num_ring`
+        个圆环，每个圆环包含 `num_arm` 个点。
 
-        Uses ``self.rfov`` (ray-traced real FoV, accounts for distortion) rather than
-        ``self.rfov_eff`` (paraxial pinhole FoV) so the full distorted field is covered.
+        使用 ``self.rfov``（考虑畸变的光追实际 FoV），而非
+        ``self.rfov_eff``（近轴针孔 FoV），从而覆盖完整畸变视场。
 
-        Args:
-            num_ring (int, optional): Number of rings to sample in the field
-                of view. Defaults to 8.
-            num_arm (int, optional): Number of arms (spokes) sampled per ring.
-                Defaults to 2.
-            spp (int, optional): Number of rays sampled per field point.
-                Defaults to 2048.
-            depth (float, optional): Depth of the object plane in mm. When None
-                (default), falls back to `self.obj_depth`. Defaults to None.
-            wvln (float, optional): Wavelength in µm. When None (default), falls
-                back to `self.primary_wvln`. Defaults to None.
-            scale_pupil (float, optional): Scale factor for the entrance pupil
-                radius. Defaults to 1.0.
-            sample_more_off_axis (bool, optional): If True, warp ring field
-                angles by a square-root profile to concentrate samples toward
-                the field edge. Defaults to True.
+        参数：
+            num_ring (int, optional)：视场中的采样圆环数。默认值为 8。
+            num_arm (int, optional)：每个圆环的采样臂（辐条）数。默认值为 2。
+            spp (int, optional)：每个视场点的采样光线数。默认值为 2048。
+            depth (float, optional)：物面深度，单位为 mm。为 None（默认）时
+                回退到 `self.obj_depth`。默认值为 None。
+            wvln (float, optional)：波长，单位为 µm。为 None（默认）时回退到
+                `self.primary_wvln`。默认值为 None。
+            scale_pupil (float, optional)：入瞳半径缩放因子。默认值为 1.0。
+            sample_more_off_axis (bool, optional)：为 True 时以平方根曲线扭曲
+                圆环视场角，使样本集中到视场边缘。默认值为 True。
 
-        Returns:
-            rays (Ray): Ray bundle with field points laid out as
-                [num_ring, num_arm] and `spp` rays each.
+        返回：
+            rays (Ray)：视场点按 [num_ring, num_arm] 排列、每点含 `spp`
+                条光线的光束。
         """
         wvln = self.primary_wvln if wvln is None else wvln
         depth = self.obj_depth if depth is None else depth
-        # Create points on rings and arms
+        # 在圆环和采样臂上创建点
         max_fov_rad = self.rfov
         if sample_more_off_axis:
             beta_values = torch.linspace(0.0, 1.0, num_ring, device=self.device)
@@ -618,9 +599,9 @@ class GeoLensOptim:
         x = depth * torch.tan(ring_grid) * torch.cos(arm_grid)
         y = depth * torch.tan(ring_grid) * torch.sin(arm_grid)
         z = torch.full_like(x, depth)
-        points = torch.stack([x, y, z], dim=-1)  # shape: [num_ring, num_arm, 3]
+        points = torch.stack([x, y, z], dim=-1)  # shape：[num_ring, num_arm, 3]
 
-        # Sample rays
+        # 采样光线
         rays = self.sample_from_points(
             points=points, num_rays=spp, wvln=wvln, scale_pupil=scale_pupil
         )
@@ -636,43 +617,41 @@ class GeoLensOptim:
         sample_more_off_axis=False,
         result_dir=None,
     ):
-        """Optimise the lens by minimising RGB RMS spot errors.
+        """通过最小化 RGB RMS 光斑误差优化透镜。
 
-        Runs a curriculum-learning training loop with Adam optimiser and cosine
-        annealing. Periodically evaluates the lens, saves intermediate results,
-        and optionally corrects surface shapes.
+        使用 Adam 优化器和余弦退火运行课程学习训练循环。定期评估透镜、
+        保存中间结果，并可选择校正表面形状。
 
-        Args:
-            lrs (list, optional): Learning rates for [d, c, k, a] parameter groups.
-                Defaults to [1e-3, 1e-4, 1e-1, 1e-4].
-            iterations (int, optional): Total training iterations. Defaults to 5000.
-            test_per_iter (int, optional): Evaluate and save every N iterations.
-                Defaults to 100.
-            optim_mat (bool, optional): If True, include material parameters (n, V)
-                in optimisation. Defaults to False.
-            shape_control (bool, optional): If True, call ``correct_shape()`` at each
-                evaluation step. Defaults to True.
-            sample_more_off_axis (bool, optional): If True, concentrate ray samples
-                toward the edge of the field to improve off-axis correction.
-                Passed directly to ``sample_ring_arm_rays``. Defaults to False.
-            result_dir (str, optional): Directory to save results. If None,
-                auto-generates a timestamped directory. Defaults to None.
+        参数：
+            lrs (list, optional)：[d, c, k, a] 参数组的学习率。默认值为
+                [1e-3, 1e-4, 1e-1, 1e-4]。
+            iterations (int, optional)：总训练迭代数。默认值为 5000。
+            test_per_iter (int, optional)：每 N 次迭代评估并保存。默认值为 100。
+            optim_mat (bool, optional)：为 True 时在优化中包含材料参数 (n, V)。
+                默认值为 False。
+            shape_control (bool, optional)：为 True 时在每次评估时调用
+                ``correct_shape()``。默认值为 True。
+            sample_more_off_axis (bool, optional)：为 True 时将光线样本集中到
+                视场边缘，以改善离轴校正。直接传给 ``sample_ring_arm_rays``。
+                默认值为 False。
+            result_dir (str, optional)：结果保存目录。为 None 时自动生成带
+                时间戳的目录。默认值为 None。
 
-        Note:
-            Debug hints:
-                1. Slowly optimise with small learning rate.
-                2. FoV and thickness should match well.
-                3. Keep parameter ranges reasonable.
-                4. Higher aspheric order is better but more sensitive.
-                5. More iterations with larger ray sampling improves convergence.
+        说明：
+            调试提示：
+                1. 使用较小学习率缓慢优化。
+                2. FoV 与厚度应良好匹配。
+                3. 将参数范围保持在合理区间。
+                4. 更高的非球面阶数效果更好，但也更敏感。
+                5. 更多迭代和更大的光线采样量有助于改善收敛。
         """
-        # Experiment settings
+        # 实验设置
         depth = self.obj_depth
         num_ring = 32
         num_arm = 8
         spp = 2048
 
-        # Result directory and logger
+        # 结果目录和日志记录器
         if result_dir is None:
             result_dir = (
                 f"./results/{datetime.now().strftime('%m%d-%H%M%S')}-DesignLens"
@@ -700,20 +679,20 @@ class GeoLensOptim:
             "If Out-of-Memory, try to reduce num_ring, num_arm, and rays_per_fov."
         )
 
-        # Optimizer and scheduler
+        # 优化器与调度器
         optimizer = self.get_optimizer(lrs, optim_mat=optim_mat)
         scheduler = get_cosine_schedule_with_warmup(
             optimizer, num_warmup_steps=100, num_training_steps=iterations
         )
 
-        # Training loop
+        # 训练循环
         pbar = tqdm(
             total=iterations + 1,
             desc="Progress",
             postfix={"loss_rms": 0},
         )
         for i in range(iterations + 1):
-            # ===> Evaluate the lens
+            # ===> 评估透镜
             if i % test_per_iter == 0:
                 with torch.no_grad():
                     if shape_control and i > 0:
@@ -722,7 +701,7 @@ class GeoLensOptim:
                     self.write_lens_json(f"{result_dir}/iter{i}.json")
                     self.analysis(f"{result_dir}/iter{i}")
 
-                    # Sample rays
+                    # 采样光线
                     self.calc_pupil()
                     rays_backup = []
                     for wv in self.wvln_rgb:
@@ -737,30 +716,30 @@ class GeoLensOptim:
                         )
                         rays_backup.append(ray)
 
-                    # Pinhole ideal for distortion reference (distortion-free).
+                    # 以无畸变的理想针孔投影作为畸变参考。
                     pinhole_ref = -self.psf_center(
                         points_obj=ray.o[:, :, 0, :], method="pinhole"
                     )
 
-            # ===> Optimize lens by minimizing RMS
-            # Green is traced first: its centroid sets center_ref and drives
-            # the distortion penalty; red and blue reuse the same center_ref.
+            # ===> 通过最小化 RMS 优化透镜
+            # 先追迹绿色：其质心设置 center_ref 并驱动畸变惩罚；
+            # 红色和蓝色复用同一个 center_ref。
             loss_rms_ls = []
             loss_distortion = torch.tensor(0.0, device=self.device)
             w_mask = None
             center_ref = None
-            wvln_order = [1, 0, 2]  # green, red, blue
+            wvln_order = [1, 0, 2]  # 绿色、红色、蓝色
             for wv_idx in wvln_order:
-                # Ray tracing to sensor, [num_ring, num_arm, num_rays, 3]
+                # 将光线追迹到传感器，[num_ring, num_arm, num_rays, 3]
                 ray = rays_backup[wv_idx].clone()
                 ray = self.trace2sensor(ray)
 
                 if center_ref is None:
-                    # Green centroid at sensor, shape [num_ring, num_arm, 2].
+                    # 传感器处的绿色质心，shape [num_ring, num_arm, 2]。
                     centroid_xy = ray.centroid()[..., :2]
 
-                    # Distortion: relative displacement of green centroid from
-                    # pinhole ideal, averaged equally over all off-axis fields.
+                    # 畸变：绿色质心相对理想针孔位置的位移，
+                    # 在所有离轴视场上等权平均。
                     ideal_height = pinhole_ref.norm(dim=-1)
                     field_mask = ideal_height > EPSILON
                     distortion = (centroid_xy - pinhole_ref).norm(dim=-1)
@@ -770,40 +749,40 @@ class GeoLensOptim:
                     n_fields = field_mask.sum().clamp_min(1)
                     loss_distortion = (penalty * field_mask.float()).sum() / n_fields
 
-                    # Detach so RMS gradient moves spot shape, not its
-                    # position; distortion loss handles placement.
+                    # 分离梯度，使 RMS 梯度改变光斑形状而非位置；
+                    # 光斑位置由畸变损失处理。
                     center_ref = centroid_xy.detach().unsqueeze(-2)
 
-                # Ray error to center and valid mask
+                # 光线相对中心的误差及有效掩码
                 ray_valid = ray.is_valid
                 ray_err = ray.o[..., :2] - center_ref
                 ray_err = torch.where(
                     ray_valid.bool().unsqueeze(-1), ray_err, torch.zeros_like(ray_err)
                 )
 
-                # MSE per field point, shape [num_ring, num_arm]
+                # 每个视场点的 MSE，shape [num_ring, num_arm]
                 mse = (ray_err**2).sum(-1).sum(-1) / (ray_valid.sum(-1) + EPSILON)
 
-                # Weight mask
+                # 权重掩码
                 if w_mask is None:
                     w_mask = mse.detach().sqrt().clone()
                     w_mask = w_mask / (w_mask.mean() + EPSILON)
                     w_mask[0, :] = 1.0
 
-                # RMS and weighted loss
+                # RMS 与加权损失
                 l_rms = torch.clamp(mse, min=EPSILON).sqrt()
                 l_rms_weighted = (l_rms * w_mask).sum() / (w_mask.sum() + EPSILON)
                 loss_rms_ls.append(l_rms_weighted)
 
-            # RMS loss for all wavelengths
+            # 所有波长的 RMS 损失
             loss_rms = sum(loss_rms_ls) / len(loss_rms_ls)
 
-            # Total loss
+            # 总损失
             w_reg = 0.1
             loss_reg, loss_dict = self.loss_reg()
             L_total = loss_rms + w_reg * (loss_reg + loss_distortion)
 
-            # Back-propagation
+            # 反向传播
             optimizer.zero_grad()
             L_total.backward()
             optimizer.step()
@@ -819,17 +798,15 @@ class GeoLensOptim:
         pbar.close()
 
     # ====================================================================================
-    # Optimizer helpers
+    # 优化器辅助方法
     # ====================================================================================
     def find_diff_surf(self):
-        """Get differentiable/optimizable surface indices.
+        """获取可微/可优化的表面索引。
 
-        Returns a list of surface indices that can be optimized during lens design.
-        Excludes the aperture surface from optimization.
+        返回透镜设计期间可优化的表面索引列表，并从优化中排除光阑表面。
 
-        Returns:
-            diff_surf_range (list or range): Surface indices excluding the
-                aperture.
+        返回：
+            diff_surf_range (list or range)：不含光阑的表面索引。
         """
         if self.aper_idx is None:
             diff_surf_range = range(len(self.surfaces))
@@ -845,35 +822,34 @@ class GeoLensOptim:
         optim_mat=False,
         optim_surf_range=None,
     ):
-        """Build per-surface Adam parameter groups with per-type learning rates.
+        """使用按类型设置的学习率构建逐表面 Adam 参数组。
 
-        Collects trainable parameters for every surface (dispatching on surface
-        type), plus the sensor distance, into a list of optimizer param groups.
+        按表面类型分派，收集每个表面的可训练参数以及传感器距离，
+        组成优化器参数组列表。
 
-        Recommendation:
-            For cellphone lens: [d, c, k, a], [1e-4, 1e-4, 1e-1, 1e-4].
-            For camera lens: [d, c, 0, 0], [1e-3, 1e-4, 0, 0].
+        建议：
+            手机透镜：[d, c, k, a]，[1e-4, 1e-4, 1e-1, 1e-4]。
+            相机透镜：[d, c, 0, 0]，[1e-3, 1e-4, 0, 0]。
 
-        Args:
-            lrs (list, optional): Learning rates for the [d, c, k, a] parameter
-                groups. Defaults to [1e-4, 1e-4, 1e-2, 1e-4].
-            optim_mat (bool, optional): Whether to optimize material parameters.
-                Defaults to False.
-            optim_surf_range (list or None, optional): Surface indices to
-                optimize. When None, all surfaces are used. Defaults to None.
+        参数：
+            lrs (list, optional)：[d, c, k, a] 参数组的学习率。默认值为
+                [1e-4, 1e-4, 1e-2, 1e-4]。
+            optim_mat (bool, optional)：是否优化材料参数。默认值为 False。
+            optim_surf_range (list or None, optional)：要优化的表面索引。
+                为 None 时使用全部表面。默认值为 None。
 
-        Returns:
-            params (list): List of optimizer parameter-group dicts.
+        返回：
+            params (list)：优化器参数组字典列表。
 
-        Raises:
-            Exception: If a surface type is not supported for optimization.
+        异常：
+            Exception：某个表面类型不支持优化时抛出。
         """
-        # Find surfaces to be optimized
+        # 查找要优化的表面
         if optim_surf_range is None:
             # optim_surf_range = self.find_diff_surf()
             optim_surf_range = range(len(self.surfaces))
 
-        # Optimize lens surface parameters
+        # 优化透镜表面参数
         params = []
         for surf_idx in optim_surf_range:
             surf = self.surfaces[surf_idx]
@@ -885,9 +861,9 @@ class GeoLensOptim:
                 params += surf.get_optimizer_params(lrs=lrs[:4], optim_mat=optim_mat)
 
             elif isinstance(surf, Phase):
-                # Phase surfaces take [d_lr, coeff_lr]. Use a dedicated 5th lr
-                # when provided, otherwise fall back to the last lr so the
-                # standard 4-element lrs convention does not IndexError.
+                # Phase 表面使用 [d_lr, coeff_lr]。若提供第 5 个 lr，则将其
+                # 专用于系数；否则回退到最后一个 lr，以避免标准 4 元素
+                # lrs 约定触发 IndexError。
                 coeff_lr = lrs[4] if len(lrs) > 4 else lrs[-1]
                 params += surf.get_optimizer_params(lrs=[lrs[0], coeff_lr])
 
@@ -918,7 +894,7 @@ class GeoLensOptim:
                     f"Surface type {surf.__class__.__name__} is not supported for optimization yet."
                 )
 
-        # Optimize sensor place
+        # 优化传感器位置
         self.d_sensor.requires_grad = True
         params += [{"params": self.d_sensor, "lr": lrs[0]}]
 
@@ -930,20 +906,19 @@ class GeoLensOptim:
         optim_surf_range=None,
         optim_mat=False,
     ):
-        """Build an Adam optimizer over all trainable lens parameters.
+        """为所有可训练透镜参数构建 Adam 优化器。
 
-        Args:
-            lrs (list, optional): Learning rates for the [d, c, k, ai] parameter
-                groups. Defaults to [1e-4, 1e-4, 1e-1, 1e-4].
-            optim_surf_range (list or None, optional): Surface indices to
-                optimize. When None, all surfaces are included. Defaults to None.
-            optim_mat (bool, optional): Whether to include material parameters
-                (n, V). Defaults to False.
+        参数：
+            lrs (list, optional)：[d, c, k, ai] 参数组的学习率。默认值为
+                [1e-4, 1e-4, 1e-1, 1e-4]。
+            optim_surf_range (list or None, optional)：要优化的表面索引。
+                为 None 时包含全部表面。默认值为 None。
+            optim_mat (bool, optional)：是否包含材料参数 (n, V)。默认值为 False。
 
-        Returns:
-            optimizer (torch.optim.Adam): Configured Adam optimizer.
+        返回：
+            optimizer (torch.optim.Adam)：配置完成的 Adam 优化器。
         """
-        # Get optimizer
+        # 获取优化器
         params = self.get_optimizer_params(
             lrs=lrs, optim_surf_range=optim_surf_range, optim_mat=optim_mat
         )

@@ -1,12 +1,11 @@
-"""Design a Pixel2D diffractive phase plate by optimizing its on-axis PSF to focus on the sensor.
+"""通过优化轴上 PSF 使其聚焦到传感器，设计 Pixel2D 衍射相位板。
 
-A single Pixel2D DOE -- each pixel an independent, randomly initialized phase
-value -- is placed one focal length (50 mm) in front of the sensor. Starting from
-random phase, we maximize the on-axis PSF peak (Strehl) intensity (``PSFStrehlLoss``)
-so the collimated on-axis beam converges to a tight spot on the sensor plane. In
-other words, the DOE learns a lens-like (Fresnel) phase profile from scratch.
+在传感器前一个焦距（50 mm）处放置单个 Pixel2D DOE，其中每个像素都是独立、随机
+初始化的相位值。从随机相位开始，最大化轴上 PSF 的峰值（Strehl）强度
+（``PSFStrehlLoss``），使准直的轴上光束在传感器平面汇聚为紧致光斑。换言之，
+DOE 将从零开始学习类似镜头的 Fresnel 相位轮廓。
 
-Technical Paper:
+技术论文：
     [1] Vincent Sitzmann et al., "End-to-end optimization of optics and image
         processing for achromatic extended depth of field and super-resolution
         imaging," SIGGRAPH 2018.
@@ -32,7 +31,7 @@ def main() -> None:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Result directory
+    # 结果目录
     tag = "".join(random.choice(string.ascii_letters + string.digits) for _ in range(4))
     result_dir = (
         f"./results/{datetime.now().strftime('%m%d-%H%M%S')}-diffraclens-design-{tag}"
@@ -41,7 +40,7 @@ def main() -> None:
     set_logger(result_dir)
     logging.info(f"Device: {device}")
 
-    # Load a single randomly-initialized Pixel2D phase plate, sensor 50 mm behind.
+    # 加载单个随机初始化的 Pixel2D 相位板，传感器位于其后 50 mm 处。
     lens = DiffractiveLens(
         filename="./datasets/lenses/diffraclens/pixel2d.json",
         device=device,
@@ -54,10 +53,10 @@ def main() -> None:
         f"Phase randomly initialized."
     )
 
-    # On-axis collimated source (object at infinity).
+    # 轴上准直光源（物体位于无穷远）。
     on_axis_inf = [0.0, 0.0, float("-inf")]
 
-    # Initial (random-phase) state.
+    # 初始（随机相位）状态。
     with torch.no_grad():
         doe.draw_phase_map(save_name=f"{result_dir}/phase_init.png")
         psf_init = lens.psf(points=on_axis_inf, ks=None)
@@ -66,16 +65,15 @@ def main() -> None:
         )
     lens.draw_layout(save_name=f"{result_dir}/layout.png")
 
-    # Optimize the on-axis PSF to focus (PSFStrehlLoss maximizes the center-pixel
-    # intensity, i.e. the Strehl ratio).
+    # 优化轴上 PSF 使其聚焦（PSFStrehlLoss 最大化中心像素强度，即 Strehl 比）。
     optimizer = lens.get_optimizer(lr=0.1)
     loss_fn = PSFStrehlLoss()
 
     pbar = tqdm(range(1000 + 1), desc="Designing DOE")
     for i in pbar:
         psf = lens.psf(points=on_axis_inf, ks=None)
-        # PSFStrehlLoss expects an RGB [3, ks, ks] PSF and returns a score to
-        # maximize; replicate the mono PSF and minimize its negative.
+        # PSFStrehlLoss 接收 RGB [3, ks, ks] PSF 并返回待最大化的分数；复制单色
+        # PSF，并最小化该分数的负值。
         strehl = loss_fn(psf.unsqueeze(0).repeat(3, 1, 1))
         loss = -strehl
 
@@ -93,7 +91,7 @@ def main() -> None:
                     normalize=True,
                 )
 
-    # Final result.
+    # 最终结果。
     with torch.no_grad():
         doe.draw_phase_map(save_name=f"{result_dir}/phase_final.png")
         psf_final = lens.psf(points=on_axis_inf, ks=None)

@@ -1,5 +1,5 @@
 """
-Tests for deeplens/optics/geometric_surface/ - Geometric surface classes.
+deeplens/optics/geometric_surface/ 测试——几何表面类。
 """
 
 import pytest
@@ -12,14 +12,14 @@ from deeplens.light import Ray
 
 
 class TestSphericSurface:
-    """Test Spheric surface class."""
+    """测试 Spheric 表面类。"""
 
     def test_spheric_init(self, device_auto):
-        """Spheric surface should initialize with curvature."""
+        """Spheric 表面应使用曲率初始化。"""
         surf = Spheric(
-            c=0.1,  # curvature = 1/radius
-            r=5.0,  # aperture radius
-            d=0.0,  # distance from origin
+            c=0.1,  # 曲率 = 1/半径
+            r=5.0,  # 光圈半径
+            d=0.0,  # 与原点的距离
             mat2="bk7",
             device=device_auto,
         )
@@ -28,7 +28,7 @@ class TestSphericSurface:
         assert surf.r == 5.0
 
     def test_spheric_sag_center(self, device_auto):
-        """Sag at center should be zero."""
+        """中心处的 sag 应为零。"""
         surf = Spheric(c=0.1, r=5.0, d=0.0, mat2="bk7", device=device_auto)
         
         x = torch.tensor([0.0], device=device_auto)
@@ -38,7 +38,7 @@ class TestSphericSurface:
         assert torch.allclose(z, torch.tensor([0.0], device=device_auto), atol=1e-6)
 
     def test_spheric_sag_offaxis(self, device_auto):
-        """Sag should increase with distance from axis."""
+        """sag 应随距光轴的距离增大。"""
         surf = Spheric(c=0.1, r=5.0, d=0.0, mat2="bk7", device=device_auto)
         
         x1 = torch.tensor([1.0], device=device_auto)
@@ -48,11 +48,11 @@ class TestSphericSurface:
         z1 = surf.sag(x1, y)
         z2 = surf.sag(x2, y)
         
-        # For positive curvature, sag grows with radius
+        # 对于正曲率，sag 随半径增大
         assert z2.abs() > z1.abs()
 
     def test_spheric_sag_symmetry(self, device_auto):
-        """Sag should be symmetric about optical axis."""
+        """sag 应关于光轴对称。"""
         surf = Spheric(c=0.1, r=5.0, d=0.0, mat2="bk7", device=device_auto)
         
         x_pos = torch.tensor([2.0], device=device_auto)
@@ -65,44 +65,44 @@ class TestSphericSurface:
         assert torch.allclose(z_pos, z_neg)
 
     def test_spheric_intersect(self, device_auto):
-        """Ray should intersect spheric surface."""
+        """光线应与 Spheric 表面相交。"""
         surf = Spheric(c=0.1, r=5.0, d=10.0, mat2="bk7", device=device_auto)
         
         o = torch.tensor([[0.0, 0.0, 0.0]], device=device_auto)
         d = torch.tensor([[0.0, 0.0, 1.0]], device=device_auto)
         ray = Ray(o, d, wvln=0.55, device=device_auto)
         
-        # Use ray_reaction which handles coordinate transforms
-        n1 = 1.0  # air
+        # 使用负责处理坐标变换的 ray_reaction
+        n1 = 1.0  # 空气
         n2 = surf.mat2.ior(torch.tensor([0.55], device=device_auto)).item()
         ray = surf.ray_reaction(ray, n1, n2)
         
-        # Ray should hit the surface near z=10
+        # 光线应在 z=10 附近击中表面
         assert ray.o[0, 2].item() > 9.0
         assert ray.o[0, 2].item() < 11.0
 
     def test_spheric_refract(self, device_auto):
-        """Ray should refract at spheric surface."""
+        """光线应在 Spheric 表面发生折射。"""
         surf = Spheric(c=0.05, r=5.0, d=10.0, mat2="bk7", device=device_auto)
         
-        # Off-axis ray
+        # 轴外光线
         o = torch.tensor([[1.0, 0.0, 0.0]], device=device_auto)
         d = torch.tensor([[0.0, 0.0, 1.0]], device=device_auto)
         ray = Ray(o, d, wvln=0.55, device=device_auto)
         
         original_d = ray.d.clone()
         
-        # Get refractive indices
-        n1 = 1.0  # air
+        # 获取折射率
+        n1 = 1.0  # 空气
         n2 = surf.mat2.ior(torch.tensor([0.55], device=device_auto)).item()
         
         ray = surf.ray_reaction(ray, n1, n2)
         
-        # Direction should change due to refraction at curved surface
+        # 方向应因曲面折射而改变
         assert not torch.allclose(ray.d, original_d, atol=1e-3)
 
     def test_spheric_init_from_dict(self, device_auto):
-        """Spheric should initialize from dictionary."""
+        """Spheric 应从字典初始化。"""
         surf_dict = {
             "type": "Spheric",
             "c": 0.05,
@@ -117,7 +117,7 @@ class TestSphericSurface:
         assert surf.r == 5.0
 
     def test_spheric_surf_dict(self, device_auto):
-        """Spheric should export to dictionary."""
+        """Spheric 应导出为字典。"""
         surf = Spheric(c=0.1, r=5.0, d=10.0, mat2="bk7", device=device_auto)
         
         d = surf.surf_dict()
@@ -128,14 +128,14 @@ class TestSphericSurface:
 
 
 class TestAsphericSurface:
-    """Test Aspheric surface class."""
+    """测试 Aspheric 表面类。"""
 
     def test_aspheric_init(self, device_auto):
-        """Aspheric surface should initialize with coefficients."""
+        """Aspheric 表面应使用系数初始化。"""
         surf = Aspheric(
             c=0.1,
-            k=0.0,  # conic constant
-            ai=[0.0] * 6,  # higher-order coefficients
+            k=0.0,  # 圆锥常数
+            ai=[0.0] * 6,  # 高阶系数
             r=5.0,
             d=0.0,
             mat2="bk7",
@@ -146,7 +146,7 @@ class TestAsphericSurface:
         assert len(surf.ai) == 6
 
     def test_aspheric_reduces_to_spheric(self, device_auto):
-        """Aspheric with k=0 and ai=0 should equal spheric."""
+        """k=0 且 ai=0 的 Aspheric 应等同于 Spheric。"""
         c = 0.05
         r = 5.0
         
@@ -162,7 +162,7 @@ class TestAsphericSurface:
         assert torch.allclose(z_asph, z_sph, atol=1e-5)
 
     def test_aspheric_conic_parabola(self, device_auto):
-        """k=-1 should give parabolic sag z = c*r^2 / 2."""
+        """k=-1 应给出抛物面 sag z = c*r^2 / 2。"""
         c = 0.1
         surf = Aspheric(c=c, k=-1.0, ai=[0.0]*6, r=5.0, d=0.0, mat2="bk7", device=device_auto)
         
@@ -171,14 +171,14 @@ class TestAsphericSurface:
         r_sq = x**2 + y**2
         
         z = surf.sag(x, y)
-        expected = c * r_sq / 2  # Parabolic formula
+        expected = c * r_sq / 2  # 抛物面公式
         
         assert torch.allclose(z, expected, atol=1e-5)
 
     def test_aspheric_higher_order(self, device_auto):
-        """Higher-order coefficients should affect sag."""
-        c = 0.0  # No base curvature
-        ai = [0.01, 0.0, 0.0, 0.0, 0.0, 0.0]  # Only ai4
+        """高阶系数应影响 sag。"""
+        c = 0.0  # 无基础曲率
+        ai = [0.01, 0.0, 0.0, 0.0, 0.0, 0.0]  # 仅 ai4
 
         surf = Aspheric(c=c, k=0.0, ai=ai, r=5.0, d=0.0, mat2="bk7", device=device_auto)
 
@@ -192,7 +192,7 @@ class TestAsphericSurface:
         assert torch.allclose(z, expected, atol=1e-5)
 
     def test_aspheric_init_from_dict(self, device_auto):
-        """Aspheric should initialize from dictionary."""
+        """Aspheric 应从字典初始化。"""
         surf_dict = {
             "type": "Aspheric",
             "c": 0.05,
@@ -210,25 +210,25 @@ class TestAsphericSurface:
 
 
 class TestApertureSurface:
-    """Test Aperture surface class."""
+    """测试 Aperture 表面类。"""
 
     def test_aperture_init(self, device_auto):
-        """Aperture should initialize with radius."""
+        """Aperture 应使用半径初始化。"""
         aper = Aperture(r=2.0, d=5.0, device=device_auto)
         
         assert aper.r == 2.0
         assert aper.d.item() == pytest.approx(5.0)
 
     def test_aperture_clips_rays(self, device_auto):
-        """Aperture should invalidate rays outside radius."""
+        """Aperture 应使半径外的光线失效。"""
         aper = Aperture(r=2.0, d=5.0, device=device_auto)
         
-        # Ray inside aperture
+        # 光圈内的光线
         o_in = torch.tensor([[0.0, 0.0, 0.0]], device=device_auto)
         d = torch.tensor([[0.0, 0.0, 1.0]], device=device_auto)
         ray_in = Ray(o_in, d, wvln=0.55, device=device_auto)
         
-        # Ray outside aperture
+        # 光圈外的光线
         o_out = torch.tensor([[5.0, 0.0, 0.0]], device=device_auto)
         ray_out = Ray(o_out, d.clone(), wvln=0.55, device=device_auto)
         
@@ -239,7 +239,7 @@ class TestApertureSurface:
         assert ray_out.is_valid[0].item() == 0.0
 
     def test_aperture_surf_dict(self, device_auto):
-        """Aperture should export to dictionary."""
+        """Aperture 应导出为字典。"""
         aper = Aperture(r=2.0, d=5.0, device=device_auto)
         
         d = aper.surf_dict()
@@ -249,17 +249,17 @@ class TestApertureSurface:
 
 
 class TestPlaneSurface:
-    """Test Plane surface class."""
+    """测试 Plane 表面类。"""
 
     def test_plane_init(self, device_auto):
-        """Plane surface should initialize."""
+        """Plane 表面应完成初始化。"""
         plane = Plane(r=5.0, d=10.0, mat2="bk7", device=device_auto)
         
         assert plane.r == 5.0
         assert plane.d.item() == pytest.approx(10.0)
 
     def test_plane_sag_zero(self, device_auto):
-        """Plane sag should be zero everywhere."""
+        """Plane sag 应处处为零。"""
         plane = Plane(r=5.0, d=10.0, mat2="bk7", device=device_auto)
         
         x = torch.tensor([0.0, 1.0, 2.0, 3.0], device=device_auto)
@@ -270,14 +270,14 @@ class TestPlaneSurface:
         assert torch.allclose(z, torch.zeros_like(z))
 
     def test_plane_intersect(self, device_auto):
-        """Ray should intersect plane at z=d."""
+        """光线应在 z=d 处与平面相交。"""
         plane = Plane(r=5.0, d=10.0, mat2="bk7", device=device_auto)
         
         o = torch.tensor([[0.0, 0.0, 0.0]], device=device_auto)
         d = torch.tensor([[0.0, 0.0, 1.0]], device=device_auto)
         ray = Ray(o, d, wvln=0.55, device=device_auto)
         
-        # Use ray_reaction which handles coordinate transforms
+        # 使用负责处理坐标变换的 ray_reaction
         n1 = 1.0
         n2 = plane.mat2.ior(torch.tensor([0.55], device=device_auto)).item()
         ray = plane.ray_reaction(ray, n1, n2)
@@ -286,10 +286,10 @@ class TestPlaneSurface:
 
 
 class TestSurfaceBase:
-    """Test Surface base class functionality."""
+    """测试 Surface 基类功能。"""
 
     def test_surface_normal_vec(self, device_auto):
-        """Normal vector should point toward light source."""
+        """法向量应指向光源。"""
         surf = Spheric(c=0.1, r=5.0, d=10.0, mat2="bk7", device=device_auto)
         
         o = torch.tensor([[0.0, 0.0, 0.0]], device=device_auto)
@@ -299,14 +299,14 @@ class TestSurfaceBase:
         ray = surf.intersect(ray)
         n = surf.normal_vec(ray)
         
-        # At center, normal should point in -z direction (toward light)
+        # 在中心处，法向量应指向 -z 方向（朝向光源）
         assert n[0, 2].item() < 0
 
     def test_surface_reflect(self, device_auto):
-        """Reflection should obey law of reflection."""
-        surf = Spheric(c=0.0, r=5.0, d=10.0, mat2="bk7", device=device_auto)  # Flat mirror
+        """反射应遵循反射定律。"""
+        surf = Spheric(c=0.0, r=5.0, d=10.0, mat2="bk7", device=device_auto)  # 平面镜
         
-        # 45 degree incidence
+        # 45 度入射
         o = torch.tensor([[0.0, 0.0, 0.0]], device=device_auto)
         d = torch.tensor([[1.0, 0.0, 1.0]], device=device_auto)
         d = d / torch.norm(d)
@@ -315,12 +315,12 @@ class TestSurfaceBase:
         ray = surf.intersect(ray)
         ray = surf.reflect(ray)
         
-        # Reflected ray should go in x, -z direction
+        # 反射光线应沿 x、-z 方向传播
         assert ray.d[0, 0].item() > 0  # +x
         assert ray.d[0, 2].item() < 0  # -z
 
     def test_surface_local_coord_transform(self, device_auto):
-        """Local coordinate transform should be invertible."""
+        """局部坐标变换应可逆。"""
         surf = Spheric(c=0.1, r=5.0, d=10.0, mat2="bk7", device=device_auto)
         
         o = torch.tensor([[1.0, 2.0, 0.0]], device=device_auto)
@@ -339,10 +339,10 @@ class TestSurfaceBase:
 
 
 class TestSurfaceDerivatives:
-    """Test surface derivative calculations."""
+    """测试表面导数计算。"""
 
     def test_spheric_dfdxy_center(self, device_auto):
-        """Derivatives at center should be zero."""
+        """中心处的导数应为零。"""
         surf = Spheric(c=0.1, r=5.0, d=0.0, mat2="bk7", device=device_auto)
         
         x = torch.tensor([0.0], device=device_auto)
@@ -354,7 +354,7 @@ class TestSurfaceDerivatives:
         assert torch.allclose(dfdy, torch.tensor([0.0], device=device_auto), atol=1e-5)
 
     def test_spheric_dfdxy_symmetry(self, device_auto):
-        """Derivatives should have appropriate symmetry."""
+        """导数应具有适当的对称性。"""
         surf = Spheric(c=0.1, r=5.0, d=0.0, mat2="bk7", device=device_auto)
         
         x = torch.tensor([2.0], device=device_auto)
@@ -363,11 +363,11 @@ class TestSurfaceDerivatives:
         dfdx1, dfdy1 = surf._dfdxy(x, y)
         dfdx2, dfdy2 = surf._dfdxy(-x, y)
         
-        # dfdx should be antisymmetric
+        # dfdx 应为反对称
         assert torch.allclose(dfdx1, -dfdx2, atol=1e-5)
 
     def test_aspheric_dfdxy(self, device_auto):
-        """Aspheric derivatives should be consistent with numerical gradient."""
+        """Aspheric 导数应与数值梯度一致。"""
         surf = Aspheric(c=0.05, k=-0.5, ai=[0.001]*6, r=5.0, d=0.0, mat2="bk7", device=device_auto)
         
         x = torch.tensor([1.5], device=device_auto, requires_grad=True)

@@ -1,23 +1,19 @@
-"""Demonstrate the three paper-based diffractive surfaces and their PSFs.
+"""演示三种基于论文的衍射表面及其 PSF。
 
-For each surface we save its design-wavelength phase map and its PSF(s), and
-print a quantitative descriptor. Runs on CUDA when available (AutoDL),
-otherwise CPU.
+对每个表面，保存其设计波长相位图和 PSF，并输出一个定量描述符。若 CUDA 可用
+（AutoDL）则在 CUDA 上运行，否则使用 CPU。
 
-  * Rank1 (Sun et al., CVPR 2020): low-rank height map h = h_max*sigmoid(V@Q.T).
-    A saddle initialization gives an anisotropic streak-like PSF. The strong
-    cross PSF used for single-shot HDR emerges from end-to-end HDR training
-    (out of scope here).
-  * DiffractedRotation (Jeon et al., TOG 2019): per-angle blazed Fresnel sectors
-    (Eq. 12) -> an N-fold "spiral" phase map. NOTE: the wavelength-rotating PSF
-    reported in the paper emerges at the focal plane under their reconstruction
-    pipeline; DeepLens's paraxial ASM model shows the fixed N-fold anisotropic
-    structure instead.
-  * RotationallySymmetric (Dun et al., Optica 2020): free-form 1D radial profile.
-    The PSF is rotationally symmetric at every wavelength (achromaticity itself
-    requires end-to-end training, out of scope).
+  * Rank1（Sun 等，CVPR 2020）：低秩高度图 h = h_max*sigmoid(V@Q.T)。鞍形
+    初始化会产生各向异性的条纹状 PSF。用于单次曝光 HDR 的强十字 PSF 来自端到端
+    HDR 训练（不在本示例范围内）。
+  * DiffractedRotation（Jeon 等，TOG 2019）：按角度划分的闪耀 Fresnel 扇区
+    （公式 12）-> N 重“螺旋”相位图。注意：论文中报告的随波长旋转的 PSF 是在其
+    重建流程下的焦平面产生的；DeepLens 的近轴 ASM 模型则显示固定的 N 重各向
+    异性结构。
+  * RotationallySymmetric（Dun 等，Optica 2020）：自由形式一维径向轮廓。
+    PSF 在各波长下均为旋转对称（消色差本身需要端到端训练，不在本示例范围内）。
 
-Outputs are written to ./outputs/diffractive_surfaces/.
+输出写入 ./outputs/diffractive_surfaces/。
 """
 
 import os
@@ -30,13 +26,13 @@ from deeplens.diffractive_surface import DiffractedRotation, Rank1
 
 OUT = "./outputs/diffractive_surfaces"
 os.makedirs(OUT, exist_ok=True)
-# Avoid MPS: DeepLens wave propagation uses float64, unsupported on Apple MPS.
+# 避免使用 MPS：DeepLens 波传播使用 Apple MPS 不支持的 float64。
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {DEVICE}")
 
 
 def _axis_ratio(psf):
-    """Ratio of the PSF intensity-covariance eigenvalues (1.0 = isotropic)."""
+    """PSF 强度协方差特征值之比（1.0 = 各向同性）。"""
     h, w = psf.shape
     yy, xx = torch.meshgrid(
         torch.arange(h, device=psf.device, dtype=psf.dtype),
@@ -56,13 +52,13 @@ def _axis_ratio(psf):
 
 
 def demo_rank1():
-    """Saddle-initialized rank-1 DOE -> anisotropic streak-like PSF."""
+    """鞍形初始化的 rank-1 DOE -> 各向异性条纹状 PSF。"""
     lens = DiffractiveLens(
         filename="./datasets/lenses/diffraclens/rank1.json", device=DEVICE
     )
     r1 = [s for s in lens.surfaces if isinstance(s, Rank1)][0]
     n0, n1 = r1.res
-    # Saddle init: V @ Q.T = outer(ramp, ramp) -> astigmatic (cross) phase.
+    # 鞍形初始化：V @ Q.T = outer(ramp, ramp) -> 像散（十字）相位。
     r1.V = torch.linspace(-3, 3, n0, device=lens.device)[:, None]
     r1.Q = torch.linspace(-3, 3, n1, device=lens.device)[:, None]
 
@@ -74,7 +70,7 @@ def demo_rank1():
 
 
 def demo_diffracted_rotation():
-    """Save the spiral phase map and a wavelength PSF montage (N-fold structure)."""
+    """保存螺旋相位图和波长 PSF 拼图（N 重结构）。"""
     lens = DiffractiveLens(
         filename="./datasets/lenses/diffraclens/diffracted_rotation.json", device=DEVICE
     )
@@ -93,7 +89,7 @@ def demo_diffracted_rotation():
 
 
 def demo_rotational_symmetric():
-    """Rotationally-symmetric PSF at several wavelengths."""
+    """多个波长下的旋转对称 PSF。"""
     lens = DiffractiveLens(
         filename="./datasets/lenses/diffraclens/rotational_symmetric.json", device=DEVICE
     )

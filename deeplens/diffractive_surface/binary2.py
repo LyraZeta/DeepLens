@@ -4,29 +4,29 @@
 # Licensed under the Apache License, Version 2.0.
 # See LICENSE file in the project root for full license information.
 
-"""Binary2 DOE parameterization."""
+"""Binary2 DOE 参数化。"""
 
 import torch
 from .diffractive import DiffractiveSurface
 
 
 class Binary2(DiffractiveSurface):
-    """Binary2 (Zemax-style) rotationally symmetric DOE surface.
+    """Binary2（Zemax 风格）旋转对称 DOE 表面。
 
-    Parameterizes the design-wavelength phase as an even polynomial in the
-    radial coordinate, $\\phi(r) = \\pi \\sum_{i=1}^{5} \\alpha_{2i}\\, r^{2i}$,
-    with coefficients `alpha2`, `alpha4`, `alpha6`, `alpha8`, `alpha10`. The
-    radial grid is cached so only the five scalar coefficients are optimized.
+    将设计波长下的相位参数化为径向坐标的偶次多项式
+    $\\phi(r) = \\pi \\sum_{i=1}^{5} \\alpha_{2i}\\, r^{2i}$，系数为
+    `alpha2`、`alpha4`、`alpha6`、`alpha8`、`alpha10`。径向网格会被缓存，
+    因此只需优化这五个标量系数。
 
-    Attributes:
-        alpha2 (torch.Tensor): Coefficient of $r^2$. Scalar tensor, shape [1].
-        alpha4 (torch.Tensor): Coefficient of $r^4$. Scalar tensor, shape [1].
-        alpha6 (torch.Tensor): Coefficient of $r^6$. Scalar tensor, shape [1].
-        alpha8 (torch.Tensor): Coefficient of $r^8$. Scalar tensor, shape [1].
-        alpha10 (torch.Tensor): Coefficient of $r^{10}$. Scalar tensor, shape [1].
-        x (torch.Tensor): Pixel x-coordinates. [H, W]. [mm]
-        y (torch.Tensor): Pixel y-coordinates. [H, W]. [mm]
-        r2 (torch.Tensor): Cached squared radius $x^2 + y^2$. [H, W]. [mm^2]
+    属性：
+        alpha2 (torch.Tensor): $r^2$ 的系数。标量张量，shape 为 [1]。
+        alpha4 (torch.Tensor): $r^4$ 的系数。标量张量，shape 为 [1]。
+        alpha6 (torch.Tensor): $r^6$ 的系数。标量张量，shape 为 [1]。
+        alpha8 (torch.Tensor): $r^8$ 的系数。标量张量，shape 为 [1]。
+        alpha10 (torch.Tensor): $r^{10}$ 的系数。标量张量，shape 为 [1]。
+        x (torch.Tensor): 像素的 x 坐标。[H, W]。[mm]
+        y (torch.Tensor): 像素的 y 坐标。[H, W]。[mm]
+        r2 (torch.Tensor): 缓存的半径平方 $x^2 + y^2$。[H, W]。[mm^2]
     """
 
     def __init__(
@@ -40,25 +40,25 @@ class Binary2(DiffractiveSurface):
         is_square=True,
         device="cpu",
     ):
-        """Initialize a Binary2 DOE with small random polynomial coefficients.
+        """使用较小的随机多项式系数初始化 Binary2 DOE。
 
-        Args:
-            d (float): Axial position of the DOE surface. [mm]
-            res (tuple or int, optional): Resolution as (H, W); an int is
-                expanded to (res, res). [pixel]. Defaults to (2000, 2000).
-            mat (str, optional): DOE material name. Defaults to "fused_silica".
-            wvln0 (float, optional): Design wavelength. [um]. Defaults to 0.55.
-            fab_ps (float, optional): Fabrication pixel size. [mm]. Defaults to 0.001.
-            fab_step (int, optional): Number of fabrication quantization levels. Defaults to 16.
-            is_square (bool, optional): Whether the aperture is square. Defaults to True.
-            device (str, optional): Device to store tensors on. Defaults to "cpu".
+        参数：
+            d (float): DOE 表面的轴向位置。[mm]
+            res (tuple or int, optional): 分辨率，格式为 (H, W)；整数会扩展为
+                (res, res)。[pixel]。默认值为 (2000, 2000)。
+            mat (str, optional): DOE 材料名称。默认值为 "fused_silica"。
+            wvln0 (float, optional): 设计波长。[um]。默认值为 0.55。
+            fab_ps (float, optional): 制造像素尺寸。[mm]。默认值为 0.001。
+            fab_step (int, optional): 制造量化级数。默认值为 16。
+            is_square (bool, optional): 孔径是否为方形。默认值为 True。
+            device (str, optional): 存放张量的设备。默认值为 "cpu"。
         """
         super().__init__(
             d=d, res=res, mat=mat, wvln0=wvln0, fab_ps=fab_ps, fab_step=fab_step,
             is_square=is_square, device=device,
         )
 
-        # Initialize with random small values
+        # 使用较小的随机值初始化
         self.alpha2 = (torch.rand(1) - 0.5) * 0.02
         self.alpha4 = (torch.rand(1) - 0.5) * 0.002
         self.alpha6 = (torch.rand(1) - 0.5) * 0.0002
@@ -71,22 +71,21 @@ class Binary2(DiffractiveSurface):
             indexing="xy",
         )
 
-        # Cache static r² grid (x, y never change after init)
+        # 缓存静态 r² 网格（初始化后 x、y 不再变化）
         self.r2 = self.x**2 + self.y**2
 
         self.to(device)
 
     @classmethod
     def init_from_dict(cls, doe_dict):
-        """Initialize a Binary2 DOE from a serialized surface dict.
+        """从序列化的表面字典初始化 Binary2 DOE。
 
-        Args:
-            doe_dict (dict): Surface dict. Requires keys "d" and "res"; optional
-                keys "mat", "wvln0", "fab_ps", "fab_step", "is_square" fall back
-                to the constructor defaults.
+        参数：
+            doe_dict (dict): 表面字典。必须包含 "d" 和 "res"；可选键 "mat"、
+                "wvln0"、"fab_ps"、"fab_step"、"is_square" 缺省时使用构造函数默认值。
 
-        Returns:
-            doe (Binary2): The constructed Binary2 surface.
+        返回：
+            doe (Binary2): 构造得到的 Binary2 表面。
         """
         return cls(
             d=doe_dict["d"],
@@ -99,16 +98,16 @@ class Binary2(DiffractiveSurface):
         )
 
     def phase_func(self):
-        """Compute the raw (unwrapped) phase at the design wavelength.
+        """计算设计波长下的原始（未包裹）相位。
 
-        Evaluates $\\phi(r) = \\pi\\,(\\alpha_2 r^2 + \\alpha_4 r^4 + \\alpha_6 r^6
-        + \\alpha_8 r^8 + \\alpha_{10} r^{10})$ via Horner's method on the cached
-        $r^2$ grid.
+        在缓存的 $r^2$ 网格上使用 Horner 法计算
+        $\\phi(r) = \\pi\\,(\\alpha_2 r^2 + \\alpha_4 r^4 + \\alpha_6 r^6
+        + \\alpha_8 r^8 + \\alpha_{10} r^{10})$。
 
-        Returns:
-            phase (torch.Tensor): Raw phase map. [H, W]. [rad]
+        返回：
+            phase (torch.Tensor): 原始相位图。[H, W]。[rad]
         """
-        # Horner's method: r2*(a2 + r2*(a4 + r2*(a6 + r2*(a8 + r2*a10))))
+        # Horner 法：r2*(a2 + r2*(a4 + r2*(a6 + r2*(a8 + r2*a10))))
         r2 = self.r2
         phase = torch.pi * r2 * (
             self.alpha2
@@ -117,21 +116,20 @@ class Binary2(DiffractiveSurface):
         return phase
 
     # =======================================
-    # Optimization
+    # 优化
     # =======================================
     def get_optimizer_params(self, lr=0.001):
-        """Enable gradients and build per-coefficient optimizer parameter groups.
+        """启用梯度并为各系数构建优化器参数组。
 
-        Higher-order coefficients use progressively larger learning rates
-        (`lr`, 10x, 100x, 1000x, 10000x for `alpha2` through `alpha10`) to
-        compensate for their smaller magnitude.
+        高阶系数使用逐级增大的学习率（从 `alpha2` 到 `alpha10` 依次为
+        `lr`、10x、100x、1000x、10000x），以补偿其较小的量级。
 
-        Args:
-            lr (float): Base learning rate for `alpha2`. Defaults to 0.001.
+        参数：
+            lr (float): `alpha2` 的基础学习率。默认值为 0.001。
 
-        Returns:
-            optimizer_params (list): List of parameter-group dicts, one per
-                coefficient, each with keys "params" and "lr".
+        返回：
+            optimizer_params (list): 参数组字典列表，每个系数对应一组，
+                各组包含键 "params" 和 "lr"。
         """
         self.alpha2.requires_grad = True
         self.alpha4.requires_grad = True
@@ -150,14 +148,14 @@ class Binary2(DiffractiveSurface):
         return optimizer_params
 
     # =======================================
-    # IO
+    # 输入输出
     # =======================================
     def surf_dict(self):
-        """Serialize the surface to a dict, including the polynomial coefficients.
+        """将表面及其多项式系数序列化为字典。
 
-        Returns:
-            surf_dict (dict): Base surface dict extended with the five rounded
-                coefficients "alpha2", "alpha4", "alpha6", "alpha8", "alpha10".
+        返回：
+            surf_dict (dict): 在基础表面字典中加入五个经过舍入的系数
+                "alpha2"、"alpha4"、"alpha6"、"alpha8"、"alpha10"。
         """
         surf_dict = super().surf_dict()
         surf_dict["alpha2"] = round(self.alpha2.item(), 6)

@@ -1,31 +1,28 @@
-"""4F optical system with a diffractive surface at the Fourier plane.
+"""在 Fourier 平面放置衍射表面的 4F 光学系统。
 
-A 4F system relays the input plane to the output (sensor) plane through two
-Fourier-transforming lenses. A diffractive surface placed at the shared Fourier
-(spatial-frequency) plane acts as a frequency-domain filter, so the system PSF
-is the inverse Fourier transform of that mask:
+4F 系统通过两个执行 Fourier 变换的镜头，将输入平面中继到输出（传感器）平面。
+放置在共用 Fourier（空间频率）平面的衍射表面充当频域滤波器，因此系统 PSF 是
+该掩码的逆 Fourier 变换：
 
     input(z=-f) --f--> ThinLens(f) --f--> Fresnel DOE --f--> ThinLens(f) --f--> sensor
        z=-50              z=0               z=50             z=100            z=150
 
-This script loads the 4F system from JSON, draws the layout, and computes the
-on-axis PSF (response to a point at the input plane = the front focal plane of
-Lens 1) both with the Fourier-plane DOE and with it neutralized (a plain 4F
-relay), so the filter's effect is visible.
+本脚本从 JSON 加载 4F 系统、绘制布局，并分别在启用 Fourier 平面 DOE 和将其置为
+中性（普通 4F 中继）时计算轴上 PSF（输入平面，即镜头 1 前焦平面上的点响应），
+从而直观显示滤波器的效果。
 
-The PSF is computed directly with ``ComplexWave.point_wave`` + ``lens.forward``
-(the full output field), rather than ``lens.psf`` whose recenter/crop assumes a
-single-lens imaging geometry and mis-centers a 4F relay.
+PSF 使用 ``ComplexWave.point_wave`` + ``lens.forward``（完整输出光场）直接计算，
+而不使用 ``lens.psf``；后者的重新居中/裁剪假设单镜头成像几何，会使 4F 中继偏离
+中心。
 
-Sampling note: the lenses and DOE apply a quadratic phase pointwise on the
-0.02mm grid, which is only band-limited if f/# > ps/lambda (~34). The full 20mm
-aperture (f/2.5) aliases the phase into ghost lattices, so the input point is
-stopped down to ``APERTURE_MM`` via ``point_wave(valid_r=...)`` -- keeping every
-surface well-sampled while still resolving the Airy spot and the DOE's blur.
+采样说明：镜头和 DOE 在 0.02mm 网格上逐点施加二次相位，仅当
+f/# > ps/lambda (~34) 时才满足带限条件。完整 20mm 光圈（f/2.5）会使相位混叠成
+伪影晶格，因此通过 ``point_wave(valid_r=...)`` 将输入点的光圈收缩至
+``APERTURE_MM``，以确保各表面均得到充分采样，同时仍能分辨 Airy 光斑和 DOE 模糊。
 
-Run:
-    python 4f_system.py            # default device (CUDA on the GPU machine)
-    python 4f_system.py cpu        # force CPU (local smoke test)
+运行：
+    python 4f_system.py            # 默认设备（GPU 机器上使用 CUDA）
+    python 4f_system.py cpu        # 强制使用 CPU（本地冒烟测试）
 """
 
 import os
@@ -41,15 +38,15 @@ device = sys.argv[1] if len(sys.argv) > 1 else None
 save_dir = "./outputs"
 os.makedirs(save_dir, exist_ok=True)
 
-# Front focal distance of Lens 1: the input plane sits one focal length in front.
+# 镜头 1 的前焦距：输入平面位于其前方一个焦距处。
 F = 50.0
-# Entrance-aperture diameter [mm]: stops f/# down so the 0.02mm grid samples the
-# lens/DOE quadratic phase without aliasing (needs f/# > ps/lambda ~ 34).
+# 入射光圈直径 [mm]：缩小光圈，使 0.02mm 网格能无混叠地采样镜头/DOE 二次相位
+# （要求 f/# > ps/lambda ~ 34）。
 APERTURE_MM = 0.3
-ZOOM = 64  # half-size [px] of the centred zoom shown for each PSF
+ZOOM = 64  # 每个 PSF 居中放大视图的半尺寸 [px]
 
 # =====================================================================
-# Load the 4F system
+# 加载 4F 系统
 # =====================================================================
 lens = DiffractiveLens(
     filename="./datasets/lenses/diffraclens/4f_doe.json", device=device
@@ -65,8 +62,8 @@ for i, s in enumerate(lens.surfaces):
         f"res={tuple(s.res)}  ps={s.ps:.4f} mm  size={float(s.w):.1f} mm"
     )
 
-# Propagation-regime check: every 4F segment propagates a distance F, which must
-# stay within the Angular Spectrum Method's Nyquist limit (size * ps / lambda).
+# 传播范围检查：每个 4F 区段的传播距离均为 F，必须保持在角谱法的 Nyquist 极限
+# （size * ps / lambda）内。
 ps = lens.surfaces[0].ps
 size = lens.surfaces[0].res[0] * ps
 wvln = lens.primary_wvln
@@ -76,9 +73,8 @@ print(
     f"-> {'ASM (OK)' if F < asm_zmax else 'OUT OF ASM REGIME!'}"
 )
 
-# Band-limit check (the one the propagation regime alone does not catch): the
-# lens/DOE quadratic phase aliases unless f/# > ps/lambda. APERTURE_MM stops the
-# beam down to stay below that floor.
+# 带限检查（仅检查传播范围无法发现此问题）：除非 f/# > ps/lambda，否则镜头/DOE
+# 二次相位会发生混叠。APERTURE_MM 会缩小光束，以满足该下限要求。
 fnum_floor = ps / (wvln * 1e-3)
 fnum = F / APERTURE_MM
 aperture_max = wvln * 1e-3 * F / ps
@@ -89,17 +85,17 @@ print(
 )
 
 # =====================================================================
-# Layout
+# 布局
 # =====================================================================
 lens.draw_layout(save_name=f"{save_dir}/4f_layout.png")
 print(f"Saved layout to {save_dir}/4f_layout.png")
 
 
 # =====================================================================
-# PSF (response to an input-plane point, via the full output field)
+# PSF（通过完整输出光场获得的输入平面点响应）
 # =====================================================================
 def psf_full(depth):
-    """Full sensor-plane intensity for a point source at the input plane."""
+    """输入平面点光源在完整传感器平面上的强度。"""
     s0 = lens.surfaces[0]
     field_res = [s0.res[0], s0.res[1]]
     field_size = [s0.res[0] * s0.ps, s0.res[1] * s0.ps]
@@ -116,28 +112,27 @@ def psf_full(depth):
 
 
 def peak_pixel(intensity):
-    """Pixel (row, col) of the intensity maximum = the on-axis image point."""
+    """强度最大值所在像素 (row, col)，即轴上像点。"""
     W = intensity.shape[1]
     flat = int(torch.argmax(intensity))
     return flat // W, flat % W
 
 
 def save_psf(intensity, name, center):
-    """Save full + centred-zoom (linear & log) views and report concentration.
+    """保存完整视图和居中放大视图（线性与对数），并报告能量集中度。
 
-    The crop is centred on ``center`` (the relayed on-axis image point) rather
-    than the grid centre: the 4F relay images the on-axis point to a fixed pixel
-    offset from H//2 by an FFT-centering convention, identical for baseline/DOE.
+    裁剪以 ``center``（中继后的轴上像点）而非网格中心为中心：由于 FFT 居中约定，
+    4F 中继会将轴上点成像到相对 H//2 固定偏移的像素处，基线和 DOE 的偏移相同。
     """
     I = intensity.detach().float().cpu()
     H, W = I.shape
-    ci = max(ZOOM, min(H - ZOOM, center[0]))  # keep the crop window in-bounds
+    ci = max(ZOOM, min(H - ZOOM, center[0]))  # 保证裁剪窗口不越界
     cj = max(ZOOM, min(W - ZOOM, center[1]))
 
-    # Full sensor view.
+    # 完整传感器视图。
     save_image((I / I.max())[None], f"{save_dir}/{name}_full.png")
 
-    # Centred zoom (linear + log) for a clean, comparable view.
+    # 居中放大视图（线性 + 对数），便于清晰比较。
     crop = I[ci - ZOOM : ci + ZOOM, cj - ZOOM : cj + ZOOM]
     save_image((crop / crop.max())[None], f"{save_dir}/{name}.png")
     crop_log = torch.log10(crop + 1e-6 * crop.max())
@@ -152,9 +147,9 @@ def save_psf(intensity, name, center):
     )
 
 
-# Baseline first: neutralize the Fourier DOE (Fresnel f0 -> ~infinity = flat
-# phase), reducing the system to a plain 4F relay (point -> point). Its sharp
-# peak locates the on-axis image point used to centre both crops.
+# 首先计算基线：将 Fourier DOE 置为中性（Fresnel f0 -> ~infinity = 平坦相位），
+# 使系统退化为普通 4F 中继（点 -> 点）。其尖锐峰值可定位轴上像点，用于将两次
+# 裁剪居中。
 f0_orig = lens.surfaces[1].f0.clone()
 lens.surfaces[1].f0 = torch.full_like(lens.surfaces[1].f0, 1e9)
 baseline = psf_full(-F)
@@ -167,7 +162,7 @@ print(
 save_psf(baseline, "4f_psf_baseline", (ci, cj))
 lens.surfaces[1].f0 = f0_orig
 
-# PSF with the Fourier-plane diffractive surface, centred on the same point.
+# 含 Fourier 平面衍射表面的 PSF，以同一点为中心。
 save_psf(psf_full(-F), "4f_psf_doe", (ci, cj))
 
 print(f"Saved PSFs to {save_dir}/4f_psf_doe.png and {save_dir}/4f_psf_baseline.png")

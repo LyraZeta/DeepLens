@@ -4,23 +4,22 @@
 # Licensed under the Apache License, Version 2.0.
 # See LICENSE file in the project root for full license information.
 
-"""Q-type (Forbes Q-polynomial) freeform surface.
+"""Q-type（Forbes Q 多项式）自由曲面。
 
-Q-type polynomials are orthogonal polynomial representations commonly used for
-freeform optical surface design. This module implements the Qbfs (Q "best-fit
-sphere" freeform sag) representation. All lengths are in millimetres [mm].
+Q-type 多项式是自由光学曲面设计中常用的正交多项式表示。本模块实现 Qbfs
+（Q “最佳拟合球面”自由形状矢高）表示。所有长度单位均为 [mm]。
 
-The total surface sag is the sum of a base conic and a Q-polynomial departure:
+总表面矢高为基础圆锥面与 Q 多项式偏离量之和：
 
 $$
 z(x, y) = \\frac{c\\,r^2}{1 + \\sqrt{1 - (1+k)\\,c^2 r^2}}
           + u^4 \\sum_m a_m\\, Q_m^{bfs}(u^2)
 $$
 
-with $r = \\sqrt{x^2 + y^2}$, curvature $c$ [1/mm], conic constant $k$, and
-normalized radial coordinate $u = r / r_{norm}$ (valid for $0 \\le u \\le 1$).
+其中 $r = \\sqrt{x^2 + y^2}$，曲率为 $c$ [1/mm]，圆锥常数为 $k$，
+归一化径向坐标为 $u = r / r_{norm}$（有效范围 $0 \\le u \\le 1$）。
 
-Reference:
+参考文献：
     G. W. Forbes, "Shape specification for axially symmetric optical surfaces,"
     Opt. Express 15, 5218-5226 (2007).
     G. W. Forbes, "Robust, efficient computational methods for axially symmetric
@@ -36,34 +35,33 @@ from .base import EPSILON, Surface
 
 
 def compute_qbfs_polynomials(u2, n_terms):
-    """Compute Qbfs polynomials $Q_0, Q_1, \\ldots, Q_{n-1}$ evaluated at $u^2$.
+    """计算在 $u^2$ 处取值的 Qbfs 多项式 $Q_0, Q_1, \\ldots, Q_{n-1}$。
 
-    The Qbfs polynomials are built from the Jacobi polynomials
-    $P_m^{(0,4)}(1 - 2u^2)$ via a three-term recurrence, then rescaled by the
-    Qbfs orthonormalization factor. The $(1 - u^2)^{-5/2}$ weighting of the full
-    Forbes definition is NOT applied here (it is folded into the sag computation
-    for numerical stability), so these are the bare normalized polynomials.
+    Qbfs 多项式通过三项递推由 Jacobi 多项式 $P_m^{(0,4)}(1 - 2u^2)$ 构建，
+    再按 Qbfs 正交归一化因子缩放。此处不施加完整 Forbes 定义中的
+    $(1 - u^2)^{-5/2}$ 权重（为提高数值稳定性，该权重并入矢高计算），
+    因此这里得到的是不带权的归一化多项式。
 
-    Args:
-        u2 (torch.Tensor): Squared normalized radial coordinate
-            $u^2 = r^2 / r_{norm}^2$, any shape.
-        n_terms (int): Number of Q-polynomial terms to compute.
+    参数：
+        u2 (torch.Tensor): 归一化径向坐标平方
+            $u^2 = r^2 / r_{norm}^2$，任意 shape。
+        n_terms (int): 要计算的 Q 多项式项数。
 
-    Returns:
-        Q (list[torch.Tensor]): List of length `n_terms` holding
-            $Q_0(u^2), Q_1(u^2), \\ldots, Q_{n\\_terms-1}(u^2)$, each the same
-            shape as `u2`. Empty list when `n_terms` is 0.
+    返回：
+        Q (list[torch.Tensor]): 长度为 `n_terms` 的列表，包含
+            $Q_0(u^2), Q_1(u^2), \\ldots, Q_{n\\_terms-1}(u^2)$；各项的
+            shape 均与 `u2` 相同。`n_terms` 为 0 时返回空列表。
     """
     if n_terms == 0:
         return []
 
-    # Transform to Jacobi polynomial argument: x = 1 - 2*u²
+    # 转换为 Jacobi 多项式自变量：x = 1 - 2*u²
     x = 1 - 2 * u2
 
-    # Compute Jacobi polynomials P_m^(0,4)(x) using recurrence
+    # 使用递推计算 Jacobi 多项式 P_m^(0,4)(x)
     # P_0^(0,4)(x) = 1
     # P_1^(0,4)(x) = -2 + 3x
-    # Recurrence: P_{n+1}^(0,4)(x) = (A_n * x + B_n) * P_n^(0,4)(x) - C_n * P_{n-1}^(0,4)(x)
+    # 递推式：P_{n+1}^(0,4)(x) = (A_n * x + B_n) * P_n^(0,4)(x) - C_n * P_{n-1}^(0,4)(x)
 
     P = [torch.ones_like(u2)]  # P_0
 
@@ -72,7 +70,7 @@ def compute_qbfs_polynomials(u2, n_terms):
 
     alpha, beta = 0, 4
     for n in range(1, n_terms - 1):
-        # Recurrence coefficients for Jacobi polynomials
+        # Jacobi 多项式的递推系数
         an = 2 * n + alpha + beta
         A_n = (
             (2 * n + alpha + beta + 1)
@@ -94,20 +92,20 @@ def compute_qbfs_polynomials(u2, n_terms):
         P_next = (A_n * x + B_n) * P[n] - C_n * P[n - 1]
         P.append(P_next)
 
-    # Convert to Qbfs: Q_m = P_m^(0,4)(1-2u²) * normalization / (1-u²)^(5/2)
-    # The normalization ensures orthogonality
-    # For numerical stability, we compute without the (1-u²)^(-5/2) factor here
-    # and include it in the sag computation
+    # 转换为 Qbfs：Q_m = P_m^(0,4)(1-2u²) * normalization / (1-u²)^(5/2)
+    # 归一化因子保证正交性
+    # 为提高数值稳定性，此处计算时不包含 (1-u²)^(-5/2) 因子，
+    # 而在矢高计算中将其纳入
 
-    # Normalization factors for Qbfs
+    # Qbfs 的归一化因子
     # f_m = sqrt((m+1) * (m+5) * (m+2) * (m+4) * (m+3)^2 / (8 * (2m+5)))
     Q = []
     for m in range(n_terms):
-        # Normalization factor
+        # 归一化因子
         norm = np.sqrt(
             (m + 1) * (m + 5) * (m + 2) * (m + 4) * (m + 3) ** 2 / (8 * (2 * m + 5))
         )
-        # Jacobi polynomial normalization at x=1: P_m^(0,4)(1) = C(m+4, m)
+        # Jacobi 多项式在 x=1 处的归一化：P_m^(0,4)(1) = C(m+4, m)
         jacobi_norm = 1.0
         for k in range(1, 5):
             jacobi_norm *= (m + k) / k
@@ -117,22 +115,19 @@ def compute_qbfs_polynomials(u2, n_terms):
 
 
 class QTypeFreeform(Surface):
-    """Q-type (Forbes Qbfs polynomial) freeform surface.
+    """Q-type（Forbes Qbfs 多项式）自由曲面。
 
-    Represents a rotationally symmetric surface as a base conic plus a Forbes
-    Qbfs polynomial departure. The orthogonality of the basis makes the
-    coefficients well-conditioned for gradient-based optimization. Individual
-    coefficients are also stored as attributes `q0`, `q1`, ... so they can be
-    optimized independently. All lengths are in millimetres [mm].
+    将旋转对称表面表示为基础圆锥面与 Forbes Qbfs 多项式偏离量之和。基函数
+    的正交性使系数在基于梯度的优化中具有良好条件。各个系数还会分别存储为
+    属性 `q0`、`q1`、……，以便独立优化。所有长度单位均为 [mm]。
 
-    Attributes:
-        c (torch.Tensor): Base-surface curvature (1 / radius of curvature) [1/mm].
-        k (torch.Tensor): Conic constant.
-        r_norm (float): Normalization radius for the Q polynomials [mm]; defaults
-            to the aperture radius `r`.
-        qm (torch.Tensor or None): Q-polynomial coefficients
-            $[a_0, a_1, \\ldots, a_{n-1}]$, or None when no coefficients are set.
-        n_qterms (int): Number of Q-polynomial terms (length of `qm`).
+    属性：
+        c (torch.Tensor): 基础表面曲率（1 / 曲率半径）[1/mm]。
+        k (torch.Tensor): 圆锥常数。
+        r_norm (float): Q 多项式的归一化半径 [mm]；默认使用孔径半径 `r`。
+        qm (torch.Tensor or None): Q 多项式系数
+            $[a_0, a_1, \\ldots, a_{n-1}]$；未设置系数时为 None。
+        n_qterms (int): Q 多项式项数（`qm` 的长度）。
     """
 
     def __init__(
@@ -149,25 +144,24 @@ class QTypeFreeform(Surface):
         is_square=False,
         device="cpu",
     ):
-        """Initialize a Q-type freeform surface.
+        """初始化 Q-type 自由曲面。
 
-        Args:
-            r (float): Aperture radius (semi-diameter) of the surface [mm].
-            d (float): Axial distance from the origin to the surface vertex [mm].
-            c (float): Base-surface curvature (1 / radius of curvature) [1/mm].
-            k (float): Conic constant (k=0 sphere, k=-1 paraboloid).
-            qm (list): Q-polynomial coefficients $[a_0, a_1, \\ldots, a_{n-1}]$;
-                an empty list or None gives a pure conic.
-            mat2 (str or Material): Material on the exit side of the surface.
-            r_norm (float, optional): Normalization radius for the Q polynomials
-                [mm]. Defaults to None, in which case `r` is used.
-            pos_xy (list, optional): Surface center position [x, y] [mm].
-                Defaults to [0.0, 0.0].
-            vec_local (list, optional): Local surface normal vector.
-                Defaults to [0.0, 0.0, 1.0].
-            is_square (bool, optional): Whether the aperture is square.
-                Defaults to False.
-            device (str, optional): Torch device. Defaults to "cpu".
+        参数：
+            r (float): 表面孔径半径（半直径）[mm]。
+            d (float): 从原点到表面顶点的轴向距离 [mm]。
+            c (float): 基础表面曲率（1 / 曲率半径）[1/mm]。
+            k (float): 圆锥常数（k=0 为球面，k=-1 为抛物面）。
+            qm (list): Q 多项式系数 $[a_0, a_1, \\ldots, a_{n-1}]$；
+                空列表或 None 表示纯圆锥面。
+            mat2 (str or Material): 表面出射侧的材料。
+            r_norm (float, optional): Q 多项式的归一化半径 [mm]。默认值为
+                None，此时使用 `r`。
+            pos_xy (list, optional): 表面中心位置 [x, y] [mm]。
+                默认值为 [0.0, 0.0]。
+            vec_local (list, optional): 局部表面法向量。
+                默认值为 [0.0, 0.0, 1.0]。
+            is_square (bool, optional): 孔径是否为方形。默认值为 False。
+            device (str, optional): Torch 设备。默认值为 "cpu"。
         """
         Surface.__init__(
             self,
@@ -184,11 +178,11 @@ class QTypeFreeform(Surface):
         self.k = torch.tensor(k)
         self.r_norm = r_norm if r_norm is not None else r
 
-        # Store Q polynomial coefficients
+        # 存储 Q 多项式系数
         if qm is not None and len(qm) > 0:
             self.qm = torch.tensor(qm, dtype=torch.float64)
             self.n_qterms = len(qm)
-            # Also store individual coefficients for optimization
+            # 同时存储各个系数以便优化
             for i, coef in enumerate(qm):
                 setattr(self, f"q{i}", torch.tensor(coef))
         else:
@@ -199,18 +193,17 @@ class QTypeFreeform(Surface):
 
     @classmethod
     def init_from_dict(cls, surf_dict):
-        """Construct a `QTypeFreeform` from a surface specification dictionary.
+        """从表面规格字典构造 `QTypeFreeform`。
 
-        Accepts either `roc` (radius of curvature, converted to curvature
-        $c = 1 / roc$) or `c` directly. The keys `k`, `qm`, and `r_norm` are
-        optional and fall back to a conic with no Q departure.
+        可接受 `roc`（曲率半径，转换为曲率 $c = 1 / roc$），也可直接接受
+        `c`。键 `k`、`qm` 和 `r_norm` 为可选，缺省时使用不含 Q 偏离量的圆锥面。
 
-        Args:
-            surf_dict (dict): Surface specification with keys `r`, `d`, `mat2`,
-                and either `roc` or `c`; optional keys `k`, `qm`, `r_norm`.
+        参数：
+            surf_dict (dict): 表面规格，包含键 `r`、`d`、`mat2`，以及
+                `roc` 或 `c` 之一；可选键为 `k`、`qm`、`r_norm`。
 
-        Returns:
-            surface (QTypeFreeform): The constructed surface instance.
+        返回：
+            surface (QTypeFreeform): 构造得到的表面实例。
         """
         if "roc" in surf_dict:
             c = 1 / surf_dict["roc"]
@@ -228,59 +221,58 @@ class QTypeFreeform(Surface):
         )
 
     def _sag(self, x, y):
-        """Compute the surface sag $z = f(x, y)$.
+        """计算表面矢高 $z = f(x, y)$。
 
-        The sag is the base conic plus the Q-polynomial departure:
+        矢高为基础圆锥面与 Q 多项式偏离量之和：
 
         $$
         z = \\frac{c\\,r^2}{1 + \\sqrt{1 - (1+k)\\,c^2 r^2}}
             + u^4 (1 - u^2)^{5/2} \\sum_m a_m\\, Q_m(u^2)
         $$
 
-        with $r^2 = x^2 + y^2$ and $u^2 = r^2 / r_{norm}^2$. The conic radicand
-        and $1 - u^2$ are clamped to `EPSILON` to avoid NaN sag/gradients beyond
-        the surface boundary.
+        其中 $r^2 = x^2 + y^2$，$u^2 = r^2 / r_{norm}^2$。将圆锥面的被开方数
+        和 $1 - u^2$ 限制到 `EPSILON`，以避免表面边界外出现 NaN 矢高／梯度。
 
-        Args:
-            x (torch.Tensor): x coordinates [mm], any shape.
-            y (torch.Tensor): y coordinates [mm], same shape as `x`.
+        参数：
+            x (torch.Tensor): x 坐标 [mm]，任意 shape。
+            y (torch.Tensor): y 坐标 [mm]，shape 与 `x` 相同。
 
-        Returns:
-            z (torch.Tensor): Surface sag [mm], same shape as `x`.
+        返回：
+            z (torch.Tensor): 表面矢高 [mm]，shape 与 `x` 相同。
         """
         c = self.c
         k = self.k
 
-        # Radial distance squared
+        # 径向距离平方
         r2 = x**2 + y**2
 
-        # Base conic sag. Clamp the radicand (not + EPSILON): beyond the conic
-        # boundary (1+k)c^2 r^2 > 1 the argument goes negative and torch.sqrt
-        # returns NaN (and NaN gradients). Matches Aspheric._sag.
+        # 基础圆锥面矢高。限制被开方数（而非加 EPSILON）：超过圆锥面边界
+        # (1+k)c^2 r^2 > 1 后，自变量会变为负数，torch.sqrt 将返回 NaN
+        # （梯度也为 NaN）。该处理与 Aspheric._sag 一致。
         sqrt_term = torch.sqrt(torch.clamp(1 - (1 + k) * r2 * c**2, min=EPSILON))
         z_base = r2 * c / (1 + sqrt_term)
 
-        # Q-polynomial departure
+        # Q 多项式偏离量
         if self.n_qterms > 0:
-            # Normalized radial coordinate
+            # 归一化径向坐标
             u2 = r2 / (self.r_norm**2)
             u4 = u2**2
 
-            # Compute Q polynomials
+            # 计算 Q 多项式
             Q_polys = compute_qbfs_polynomials(u2, self.n_qterms)
 
-            # Weighting factor: (1 - u²)^(5/2) for proper Qbfs behavior
-            # But for numerical stability near u=1, we use a soft clamp
+            # 权重因子：(1 - u²)^(5/2)，用于得到正确的 Qbfs 行为
+            # 但为保证 u=1 附近的数值稳定性，这里使用软限制
             one_minus_u2 = torch.clamp(1 - u2, min=EPSILON)
             weight = one_minus_u2 ** (5 / 2)
 
-            # Sum Q polynomial contributions
+            # 累加 Q 多项式贡献
             z_q = torch.zeros_like(x)
             for m in range(self.n_qterms):
                 qm_coef = getattr(self, f"q{m}")
                 z_q = z_q + qm_coef * Q_polys[m]
 
-            # Apply u⁴ factor and weight
+            # 应用 u⁴ 因子和权重
             z_q = u4 * weight * z_q
 
             return z_base + z_q
@@ -288,30 +280,28 @@ class QTypeFreeform(Surface):
         return z_base
 
     def _dfdxy(self, x, y):
-        """Compute first-order sag derivatives w.r.t. $x$ and $y$.
+        """计算矢高关于 $x$ 和 $y$ 的一阶导数。
 
-        Applies the chain rule through $r^2$: $\\partial z/\\partial x =
-        (\\partial z/\\partial r^2)\\,(2x)$. The base-conic part is differentiated
-        analytically; the Q-polynomial derivative $\\partial Q_m/\\partial u^2$ is
-        approximated by a forward finite difference (step $10^{-7}$).
+        通过 $r^2$ 应用链式法则：$\\partial z/\\partial x =
+        (\\partial z/\\partial r^2)\\,(2x)$。基础圆锥面部分采用解析求导；
+        Q 多项式导数 $\\partial Q_m/\\partial u^2$ 使用前向有限差分近似
+        （步长为 $10^{-7}$）。
 
-        Args:
-            x (torch.Tensor): x coordinates [mm], any shape.
-            y (torch.Tensor): y coordinates [mm], same shape as `x`.
+        参数：
+            x (torch.Tensor): x 坐标 [mm]，任意 shape。
+            y (torch.Tensor): y 坐标 [mm]，shape 与 `x` 相同。
 
-        Returns:
-            dfdx (torch.Tensor): $\\partial z/\\partial x$ [dimensionless], same
-                shape as `x`.
-            dfdy (torch.Tensor): $\\partial z/\\partial y$ [dimensionless], same
-                shape as `x`.
+        返回：
+            dfdx (torch.Tensor): $\\partial z/\\partial x$ [无量纲]，shape 与 `x` 相同。
+            dfdy (torch.Tensor): $\\partial z/\\partial y$ [无量纲]，shape 与 `x` 相同。
         """
         c = self.c
         k = self.k
 
         r2 = x**2 + y**2
 
-        # Base conic derivative dz_base/dr². Clamp the radicand to keep it
-        # non-negative (see _sag); + EPSILON does not prevent a NaN sqrt.
+        # 基础圆锥面导数 dz_base/dr²。限制被开方数使其非负（参见 _sag）；
+        # 加 EPSILON 无法避免 sqrt 产生 NaN。
         sqrt_term = torch.sqrt(torch.clamp(1 - (1 + k) * r2 * c**2, min=EPSILON))
         dz_base_dr2 = (
             c
@@ -319,26 +309,26 @@ class QTypeFreeform(Surface):
             / (1 + sqrt_term) ** 2
         )
 
-        # Q-polynomial derivative
+        # Q 多项式导数
         if self.n_qterms > 0:
             u2 = r2 / (self.r_norm**2)
             u4 = u2**2
 
-            # Compute Q polynomials and their derivatives
+            # 计算 Q 多项式及其导数
             Q_polys = compute_qbfs_polynomials(u2, self.n_qterms)
 
-            # Weight factor
+            # 权重因子
             one_minus_u2 = torch.clamp(1 - u2, min=EPSILON)
             weight = one_minus_u2 ** (5 / 2)
 
             # d(weight)/du² = (5/2) * (1-u²)^(3/2) * (-1) = -(5/2) * (1-u²)^(3/2)
             dweight_du2 = -2.5 * one_minus_u2 ** (3 / 2)
 
-            # Sum and derivatives
+            # 求和及其导数
             Q_sum = torch.zeros_like(x)
             dQ_sum_du2 = torch.zeros_like(x)
 
-            # For derivative of Q polynomials, use finite difference for now
+            # Q 多项式的导数目前使用有限差分
             delta = 1e-7
             Q_polys_plus = compute_qbfs_polynomials(u2 + delta, self.n_qterms)
 
@@ -356,46 +346,43 @@ class QTypeFreeform(Surface):
                 + u4 * weight * dQ_sum_du2
             )
 
-            # Convert du²/dr² = 1/r_norm²
+            # 转换 du²/dr² = 1/r_norm²
             dz_q_dr2 = dz_q_du2 / (self.r_norm**2)
 
             dz_dr2 = dz_base_dr2 + dz_q_dr2
         else:
             dz_dr2 = dz_base_dr2
 
-        # Chain rule: dz/dx = dz/dr² * 2x, dz/dy = dz/dr² * 2y
+        # 链式法则：dz/dx = dz/dr² * 2x，dz/dy = dz/dr² * 2y
         return dz_dr2 * 2 * x, dz_dr2 * 2 * y
 
     def is_within_data_range(self, x, y):
-        """Check whether points lie within the valid surface data range.
+        """检查点是否位于表面的有效数据范围内。
 
-        A point is valid when it is inside the conic boundary (only present when
-        $k > -1$ and $c \\ne 0$) AND within the Q-polynomial normalization radius
-        ($u^2 \\le 1$). The conic test is fully tensorized so it is safe under
-        `torch.compile`.
+        当点位于圆锥面边界内（仅在 $k > -1$ 且 $c \\ne 0$ 时存在），并且位于
+        Q 多项式归一化半径内（$u^2 \\le 1$）时有效。圆锥面测试完全张量化，
+        因此可在 `torch.compile` 下安全使用。
 
-        Args:
-            x (torch.Tensor): x coordinates [mm], any shape.
-            y (torch.Tensor): y coordinates [mm], same shape as `x`.
+        参数：
+            x (torch.Tensor): x 坐标 [mm]，任意 shape。
+            y (torch.Tensor): y 坐标 [mm]，shape 与 `x` 相同。
 
-        Returns:
-            mask (torch.Tensor): Boolean tensor, True where the point is valid,
-                same shape as `x`.
+        返回：
+            mask (torch.Tensor): 布尔张量，点有效处为 True，shape 与 `x` 相同。
         """
         c = self.c
         k = self.k
 
         r2 = x**2 + y**2
 
-        # Check conic validity. Fully tensorized (no Python branch on the
-        # tensor values of k/c) so the function is safe under torch.compile.
-        # A real conic boundary exists only when k > -1 AND c != 0; otherwise
-        # every point is treated as valid (mirrors Aspheric.is_within_data_range).
+        # 检查圆锥面有效性。该过程完全张量化（不根据张量 k/c 的值进行 Python
+        # 分支），因此可在 torch.compile 下安全使用。仅当 k > -1 且 c != 0
+        # 时存在实数圆锥边界；否则所有点均视为有效
+        # （与 Aspheric.is_within_data_range 一致）。
         has_boundary = (1 + k > 0) & (c.abs() > EPSILON)
         one_plus_k = 1 + k
         c2 = c * c
-        # Avoid div-by-zero / negative when the boundary is absent; the bogus
-        # value is masked out by the where below.
+        # 边界不存在时避免除零或除以负数；无意义的值会被下方的 where 屏蔽。
         denom = torch.where(
             has_boundary, c2 * one_plus_k, torch.ones_like(c2 * one_plus_k)
         )
@@ -403,104 +390,100 @@ class QTypeFreeform(Surface):
         inside = r2 < limit_sq
         valid_conic = torch.where(has_boundary, inside, torch.ones_like(inside))
 
-        # Check normalized radius (should be <= 1 for Q polynomials)
+        # 检查归一化半径（对于 Q 多项式应 <= 1）
         u2 = r2 / (self.r_norm**2)
         valid_qpoly = u2 <= 1 + EPSILON
 
         return valid_conic & valid_qpoly
 
     def max_height(self):
-        """Return the maximum valid radial height of the surface.
+        """返回表面的最大有效径向高度。
 
-        Takes the smaller of the conic boundary radius (when $k > -1$ and
-        $c \\ne 0$, else a large fallback of 1e4) and the Q-polynomial
-        normalization radius `r_norm`.
+        取圆锥面边界半径（$k > -1$ 且 $c \\ne 0$ 时；否则使用较大的备用值
+        1e4）与 Q 多项式归一化半径 `r_norm` 中的较小值。
 
-        Returns:
-            height (float): Maximum valid radial distance [mm].
+        返回：
+            height (float): 最大有效径向距离 [mm]。
         """
         c = self.c
         k = self.k
 
-        # Conic limit
+        # 圆锥面限制
         if k > -1 and abs(c) > EPSILON:
             max_conic = np.sqrt(1 / ((k + 1) * c**2)) - 0.001
         else:
             max_conic = 10e3
 
-        # Q polynomial limit (normalization radius)
+        # Q 多项式限制（归一化半径）
         max_q = self.r_norm
 
         return min(max_conic, max_q)
 
     # =======================================
-    # Optimization
+    # 优化
     # =======================================
 
     def get_optimizer_params(
         self, lrs=[1e-4, 1e-4, 1e-2, 1e-6], decay=0.1, optim_mat=False
     ):
-        """Build per-parameter optimizer groups for this surface.
+        """为该表面的每个参数构建优化器参数组。
 
-        Enables gradients on `d`, `c`, `k`, and each Q coefficient. The learning
-        rate for the m-th Q coefficient is `lrs[3] * decay**m`, so higher-order
-        terms are tuned more slowly.
+        启用 `d`、`c`、`k` 及每个 Q 系数的梯度。第 m 个 Q 系数的学习率为
+        `lrs[3] * decay**m`，因此高阶项调整得更慢。
 
-        Args:
-            lrs (list, optional): Learning rates for [d, c, k, q_coefficients].
-                Defaults to [1e-4, 1e-4, 1e-2, 1e-6].
-            decay (float, optional): Per-order decay applied to the Q-coefficient
-                learning rate. Defaults to 0.1.
-            optim_mat (bool, optional): Whether to also optimize the exit-side
-                material. Defaults to False.
+        参数：
+            lrs (list, optional): [d, c, k, q_coefficients] 的学习率。
+                默认值为 [1e-4, 1e-4, 1e-2, 1e-6]。
+            decay (float, optional): 应用于 Q 系数学习率的逐阶衰减。
+                默认值为 0.1。
+            optim_mat (bool, optional): 是否同时优化出射侧材料。默认值为 False。
 
-        Returns:
-            params (list): List of optimizer parameter-group dicts, each with
-                keys "params" and "lr".
+        返回：
+            params (list): 优化器参数组字典列表，每组包含键 "params" 和 "lr"。
         """
         params = []
 
-        # Distance
+        # 距离
         self.d.requires_grad_(True)
         params.append({"params": [self.d], "lr": lrs[0]})
 
-        # Curvature
+        # 曲率
         self.c.requires_grad_(True)
         params.append({"params": [self.c], "lr": lrs[1]})
 
-        # Conic constant
+        # 圆锥常数
         self.k.requires_grad_(True)
         params.append({"params": [self.k], "lr": lrs[2]})
 
-        # Q polynomial coefficients
+        # Q 多项式系数
         if self.n_qterms > 0:
             base_lr = lrs[3] if len(lrs) > 3 else 1e-6
             for m in range(self.n_qterms):
                 qm = getattr(self, f"q{m}")
                 qm.requires_grad_(True)
-                # Decay learning rate for higher order terms
+                # 衰减高阶项的学习率
                 lr = base_lr * (decay**m)
                 params.append({"params": [qm], "lr": lr})
 
-        # Material parameters
+        # 材料参数
         if optim_mat and self.mat2.get_name() != "air":
             params += self.mat2.get_optimizer_params()
 
         return params
 
     # =======================================
-    # IO
+    # 输入输出
     # =======================================
 
     def surf_dict(self):
-        """Serialize the surface to a dictionary.
+        """将表面序列化为字典。
 
-        Includes the type tag, geometry (`r`, `d`, `c`, `roc`, `k`, `r_norm`),
-        the Q-coefficient list `qm`, and the exit material name. Display-only
-        keys such as `(c)` and `(q0)` carry rounded scalar values.
+        包含类型标记、几何参数（`r`、`d`、`c`、`roc`、`k`、`r_norm`）、
+        Q 系数列表 `qm` 和出射材料名称。`(c)`、`(q0)` 等仅显示键存储经过
+        舍入的标量值。
 
-        Returns:
-            surf_dict (dict): Dictionary representation of the surface.
+        返回：
+            surf_dict (dict): 表面的字典表示。
         """
         surf_dict = {
             "type": "QTypeFreeform",
@@ -526,21 +509,21 @@ class QTypeFreeform(Surface):
         return surf_dict
 
     def zmx_str(self, surf_idx, d_next):
-        """Return the Zemax (.zmx) surface description string.
+        """返回 Zemax（.zmx）表面描述字符串。
 
-        Emits a `QTYPE` surface with curvature, thickness, aperture, conic, the
-        normalization radius (PARM 1), and the Q coefficients (PARM 2, 3, ...).
+        输出 `QTYPE` 表面，包括曲率、厚度、孔径、圆锥常数、归一化半径
+        （PARM 1）和 Q 系数（PARM 2、3、……）。
 
-        Args:
-            surf_idx (int): Surface index in the Zemax file.
-            d_next (torch.Tensor): Distance to the next surface [mm] (scalar).
+        参数：
+            surf_idx (int): Zemax 文件中的表面索引。
+            d_next (torch.Tensor): 到下一表面的距离 [mm]（标量）。
 
-        Returns:
-            zmx_str (str): Multi-line Zemax surface description.
+        返回：
+            zmx_str (str): 多行 Zemax 表面描述。
 
-        Note:
-            Zemax's QTYPE representation differs from this implementation, so the
-            export is approximate and may need adjustment for specific versions.
+        说明：
+            Zemax 的 QTYPE 表示与本实现不同，因此导出结果为近似值，
+            针对特定版本可能需要调整。
         """
         if self.mat2.get_name() == "air":
             zmx_str = f"""SURF {surf_idx}
@@ -562,7 +545,7 @@ class QTypeFreeform(Surface):
     PARM 1 {self.r_norm}
 """
 
-        # Add Q coefficients
+        # 添加 Q 系数
         for m in range(self.n_qterms):
             qm = getattr(self, f"q{m}")
             zmx_str += f"    PARM {m + 2} {qm.item()}\n"

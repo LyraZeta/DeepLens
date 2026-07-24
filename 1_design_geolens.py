@@ -1,16 +1,13 @@
-"""GeoLens design example: optimize a refractive cellphone camera lens.
+"""GeoLens 设计示例：优化折射式手机相机镜头。
 
-This experiment demonstrates the differentiable geometric lens optimization
-loop in DeepLens. We load an existing 80-degree cellphone lens, run an initial
-optical analysis, and then refine the lens with Adam to reduce RGB RMS spot
-size across the field of view.
+本实验演示 DeepLens 中的可微分几何镜头优化循环。首先加载一个现有的 80 度手机
+镜头并执行初始光学分析，然后使用 Adam 细化镜头，以减小整个视场内的 RGB RMS
+光斑尺寸。
 
-During optimization, GeoLens traces rays through the refractive surfaces,
-computes the RMS spot error, and back-propagates gradients to the trainable
-lens parameters. Shape control keeps the lens physically reasonable, while
-material optimization allows the glass parameters to be updated together with
-the surface geometry. The script saves intermediate analysis results in a
-timestamped result folder and writes the pruned final design as JSON.
+优化期间，GeoLens 追迹穿过折射表面的光线、计算 RMS 光斑误差，并将梯度反向传播
+到可训练的镜头参数。形状控制使镜头保持物理合理性，材料优化则允许玻璃参数与
+表面几何形状一同更新。脚本会将中间分析结果保存到带时间戳的结果文件夹，并将
+裁剪后的最终设计写为 JSON。
 """
 
 import logging
@@ -30,19 +27,19 @@ def main() -> None:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Result directory
+    # 结果目录
     tag = "".join(random.choice(string.ascii_letters + string.digits) for _ in range(4))
     result_dir = f"./results/{datetime.now().strftime('%m%d-%H%M%S')}-lens-optim-{tag}"
     os.makedirs(result_dir, exist_ok=True)
     set_logger(result_dir)
     logging.info(f"Device: {device}")
 
-    # Load lens
+    # 加载镜头
     lens = GeoLens(filename="./datasets/lenses/cellphone/cellphone80deg.json")
     lens.analysis(save_name=f"{result_dir}/initial")
     logging.info(f"Loaded lens: FoV={lens.rfov:.4f} rad, F/{lens.fnum:.2f}")
 
-    # Optimise
+    # 优化
     lens.optimize(
         lrs=[1e-3, 1e-3, 1e-3, 1e-4],
         iterations=10000,
@@ -52,7 +49,7 @@ def main() -> None:
         result_dir=result_dir,
     )
 
-    # Final result
+    # 最终结果
     lens.prune_surf()
     lens.post_computation()
     lens.write_lens_json(f"{result_dir}/final_lens.json")

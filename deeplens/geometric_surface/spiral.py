@@ -10,42 +10,42 @@ from .base import Surface, EPSILON
 
 
 class Spiral(Surface):
-    """Spiral diopter freeform surface.
+    """螺旋屈光度自由曲面。
 
-    A freeform surface whose sag spirals around the optical axis, producing
-    a continuously varying multifocal behavior. With $\\theta = \\mathrm{atan2}(y, x)$
-    and normalized squared radius $\\phi^2 = (x^2 + y^2) / r^2$, the sag is
+    该自由曲面的矢高绕光轴呈螺旋变化，从而产生连续变化的多焦行为。令
+    $\\theta = \\mathrm{atan2}(y, x)$，归一化半径平方为
+    $\\phi^2 = (x^2 + y^2) / r^2$，则矢高为
 
     $$
     z(x, y) = \\frac{c_1}{2}\\left(1 + \\cos(N\\theta + \\eta\\phi^2)\\right)
             + \\frac{c_2}{2}\\left(1 - \\cos(N\\theta + \\eta\\phi^2)\\right)
     $$
 
-    where lengths are in millimetres [mm].
+    其中长度单位均为 [mm]。
 
-    Attributes:
-        c1 (torch.Tensor): Scalar sag amplitude term [mm].
-        c2 (torch.Tensor): Scalar sag amplitude term [mm].
-        N (int): Number of spiral arms (angular frequency).
-        eta (float): Radial twist controlling spiral tightness.
+    属性：
+        c1 (torch.Tensor): 标量矢高振幅项 [mm]。
+        c2 (torch.Tensor): 标量矢高振幅项 [mm]。
+        N (int): 螺旋臂数量（角频率）。
+        eta (float): 控制螺旋紧密程度的径向扭转参数。
 
-    Reference:
+    参考文献：
         Spiral diopter: freeform lenses with enhanced multifocal behavior, Optica 2024.
     """
 
     def __init__(self, r, d, c1, c2, mat2, N=1, eta=5, is_square=False, device="cpu"):
-        """Initialize a Spiral surface.
+        """初始化 Spiral 表面。
 
-        Args:
-            r (float): Radius (semi-aperture) of the surface [mm].
-            d (float): Distance to the next surface along the optical axis [mm].
-            c1 (float): Sag amplitude term [mm].
-            c2 (float): Sag amplitude term [mm].
-            mat2 (str): Material of the medium after the surface.
-            N (int, optional): Number of spiral arms (angular frequency). Defaults to 1.
-            eta (float, optional): Radial twist controlling spiral tightness. Defaults to 5.
-            is_square (bool, optional): Whether the aperture is square. Defaults to False.
-            device (str, optional): Device for torch tensors. Defaults to "cpu".
+        参数：
+            r (float): 表面半径（半孔径）[mm]。
+            d (float): 沿光轴到下一表面的距离 [mm]。
+            c1 (float): 矢高振幅项 [mm]。
+            c2 (float): 矢高振幅项 [mm]。
+            mat2 (str): 表面后介质的材料。
+            N (int, optional): 螺旋臂数量（角频率）。默认值为 1。
+            eta (float, optional): 控制螺旋紧密程度的径向扭转参数。默认值为 5。
+            is_square (bool, optional): 孔径是否为方形。默认值为 False。
+            device (str, optional): torch 张量使用的设备。默认值为 "cpu"。
         """
         super().__init__(r, d, mat2, is_square=is_square, device=device)
         self.c1 = torch.tensor(c1, dtype=torch.float32, device=device)
@@ -56,15 +56,15 @@ class Spiral(Surface):
 
     @classmethod
     def init_from_dict(cls, surf_dict):
-        """Initialize a Spiral surface from a dictionary of parameters.
+        """从参数字典初始化 Spiral 表面。
 
-        Args:
-            surf_dict (dict): Surface parameters. Requires keys `r`, `d`, `c1`,
-                `c2`, `mat2`; optional keys `N` (default 1), `eta` (default 5),
-                `is_square` (default False).
+        参数：
+            surf_dict (dict): 表面参数。必须包含键 `r`、`d`、`c1`、`c2`、
+                `mat2`；可选键为 `N`（默认 1）、`eta`（默认 5）、
+                `is_square`（默认 False）。
 
-        Returns:
-            surface (Spiral): The constructed spiral surface.
+        返回：
+            surface (Spiral): 构造得到的螺旋表面。
         """
         return cls(
             surf_dict["r"],
@@ -78,23 +78,24 @@ class Spiral(Surface):
         )
 
     def _sag(self, x, y):
-        """Compute surface sag z(x, y) for the spiral surface.
+        """计算螺旋表面的矢高 z(x, y)。
 
-        With $\\theta = \\mathrm{atan2}(y, x)$ and $\\phi^2 = (x^2 + y^2) / r^2$,
+        其中 $\\theta = \\mathrm{atan2}(y, x)$，且
+        $\\phi^2 = (x^2 + y^2) / r^2$：
 
         $$
         z = \\frac{c_1}{2}\\left(1 + \\cos(N\\theta + \\eta\\phi^2)\\right)
           + \\frac{c_2}{2}\\left(1 - \\cos(N\\theta + \\eta\\phi^2)\\right)
         $$
 
-        Args:
-            x (torch.Tensor): x coordinate(s) [mm], arbitrary shape.
-            y (torch.Tensor): y coordinate(s) [mm], same shape as `x`.
+        参数：
+            x (torch.Tensor): x 坐标 [mm]，任意 shape。
+            y (torch.Tensor): y 坐标 [mm]，shape 与 `x` 相同。
 
-        Returns:
-            sag (torch.Tensor): Surface height z [mm], same shape as `x`.
+        返回：
+            sag (torch.Tensor): 表面高度 z [mm]，shape 与 `x` 相同。
 
-        Reference:
+        参考文献：
             Spiral diopter: freeform lenses with enhanced multifocal behavior, Optica 2024.
         """
         theta = torch.atan2(y, x)  # [-pi, pi]
@@ -105,27 +106,27 @@ class Spiral(Surface):
         return z1 + z2
 
     def _dfdxy(self, x, y):
-        """Compute the partial derivatives of the sag with respect to x and y.
+        """计算矢高相对于 x 和 y 的偏导数。
 
-        Args:
-            x (torch.Tensor): x coordinate(s) [mm], arbitrary shape.
-            y (torch.Tensor): y coordinate(s) [mm], same shape as `x`.
+        参数：
+            x (torch.Tensor): x 坐标 [mm]，任意 shape。
+            y (torch.Tensor): y 坐标 [mm]，shape 与 `x` 相同。
 
-        Returns:
-            dfdx (torch.Tensor): Partial derivative dz/dx [dimensionless], same shape as `x`.
-            dfdy (torch.Tensor): Partial derivative dz/dy [dimensionless], same shape as `x`.
+        返回：
+            dfdx (torch.Tensor): 偏导数 dz/dx [无量纲]，shape 与 `x` 相同。
+            dfdy (torch.Tensor): 偏导数 dz/dy [无量纲]，shape 与 `x` 相同。
         """
         phi_sq = x**2 + y**2
         phi_norm_sq = phi_sq / (self.r**2 + EPSILON)
         theta = torch.atan2(y, x)
 
-        # Argument of cosine
+        # 余弦函数的自变量
         u = self.N * theta + self.eta * phi_norm_sq
 
-        # Common term: (c2-c1)/2 * sin(u)
+        # 公共项：(c2-c1)/2 * sin(u)
         common_term = (self.c1 - self.c2) / 2 * (-torch.sin(u))
 
-        # Avoid division by zero
+        # 避免除零
         inv_phi_sq = 1.0 / (phi_sq + EPSILON)
 
         # d(u)/dx
@@ -139,56 +140,56 @@ class Spiral(Surface):
         return dfdx, dfdy
 
     # =========================================
-    # Optimization
+    # 优化
     # =========================================
     def get_optimizer_params(self, lrs=[1e-4, 1e-4, 1e-4], optim_mat=False):
-        """Return optimizer parameter groups for the surface.
+        """返回该表面的优化器参数组。
 
-        Enables gradients on the surface distance `d` and the sag amplitudes
-        `c1` and `c2`, each assigned its own learning rate.
+        启用表面距离 `d` 以及矢高振幅 `c1`、`c2` 的梯度，并为每个参数分配
+        独立学习率。
 
-        Args:
-            lrs (list, optional): Learning rates for `[d, c1, c2]`.
-                Defaults to [1e-4, 1e-4, 1e-4].
-            optim_mat (bool, optional): Whether to optimize material parameters.
-                Not supported for spiral surfaces. Defaults to False.
+        参数：
+            lrs (list, optional): `[d, c1, c2]` 的学习率。
+                默认值为 [1e-4, 1e-4, 1e-4]。
+            optim_mat (bool, optional): 是否优化材料参数。螺旋表面不支持。
+                默认值为 False。
 
-        Returns:
-            params (list): List of parameter-group dicts for a torch optimizer.
+        返回：
+            params (list): torch 优化器的参数组字典列表。
 
-        Raises:
-            ValueError: If `optim_mat` is True.
+        异常：
+            ValueError: 当 `optim_mat` 为 True 时抛出。
         """
         params = []
 
-        # Optimize distance
+        # 优化距离
         self.d.requires_grad_(True)
         params.append({"params": [self.d], "lr": lrs[0]})
 
-        # Optimize c1
+        # 优化 c1
         self.c1.requires_grad_(True)
         params.append({"params": [self.c1], "lr": lrs[1]})
 
-        # Optimize c2
+        # 优化 c2
         self.c2.requires_grad_(True)
         params.append({"params": [self.c2], "lr": lrs[2]})
 
-        # We do not optimize material parameters for spiral surface.
+        # 螺旋表面不优化材料参数。
         if optim_mat:
             raise ValueError("Material parameters are not optimized for spiral surface.")
 
         return params
 
     # =========================================
-    # IO
+    # 输入输出
     # =========================================
     def surf_dict(self):
-        """Return surface parameters as a serializable dictionary.
+        """以可序列化字典形式返回表面参数。
 
-        Extends the base surface dictionary with the spiral sag amplitudes.
+        在基础表面字典中加入螺旋矢高振幅。
 
-        Returns:
-            s_dict (dict): Surface parameters, including `c1` and `c2` as floats.
+        返回：
+            s_dict (dict): 表面参数，包括 float 类型的 `c1` 和 `c2`。
         """
         s_dict = super().surf_dict()
         s_dict.update(

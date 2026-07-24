@@ -4,36 +4,33 @@
 # Licensed under the Apache License, Version 2.0.
 # See LICENSE file in the project root for full license information.
 
-"""Build the bundled refractiveindex.info material catalog for DeepLens.
+"""为 DeepLens 构建随包分发的 refractiveindex.info 材料目录。
 
-This is a *build-time* converter, not part of the runtime package. It reads the
-public-domain refractiveindex.info database (https://github.com/polyanskiy/
-refractiveindex.info-database), extracts the optical-glass dispersion formulas
-plus a curated set of substrate crystals, validates each entry against the
-catalog's own ``nd``/``Vd`` values, and emits a single compact JSON catalog
-(``deeplens/material/refractiveindex_data.json``) consumed by
-``deeplens.material.materials``.
+这是一个构建阶段使用的转换器，不属于运行时包。它读取公有领域的
+refractiveindex.info 数据库（https://github.com/polyanskiy/
+refractiveindex.info-database），提取光学玻璃色散公式以及一组精选的
+基底晶体，并用目录自身的 nd/Vd 值验证每个条目，最后生成供
+deeplens.material.materials 使用的紧凑 JSON 目录
+（deeplens/material/refractiveindex_data.json）。
 
-Keeping this as an offline converter means the runtime has **no PyYAML
-dependency** and the bundled data stays in the ``material/*.json`` packaging
-already declared in ``pyproject.toml``.
+采用离线转换器后，运行时不依赖 PyYAML；随包数据也仍沿用
+pyproject.toml 中已经声明的 material/*.json 打包方式。
 
-Usage:
-    # 1. Obtain the upstream database (records the exact commit for provenance):
+用法：
+    # 1. 获取上游数据库（记录确切提交以便追溯）：
     #    git clone --depth 1 https://github.com/polyanskiy/refractiveindex.info-database
-    # 2. Run the converter:
+    # 2. 运行转换器：
     python deeplens/material/build_refractiveindex_data.py \
         --db /path/to/refractiveindex.info-database \
         --out deeplens/material/refractiveindex_data.json
 
-Dispersion formulas (refractiveindex.info "Dispersion formulas", 2014-06-29):
+色散公式（refractiveindex.info“Dispersion formulas”，2014-06-29）：
     1 Sellmeier (preferred):  n^2 - 1 = C1 + sum_i  C_{2i} l^2 / (l^2 - C_{2i+1}^2)
     2 Sellmeier-2:            n^2 - 1 = C1 + sum_i  C_{2i} l^2 / (l^2 - C_{2i+1})
     3 Polynomial:             n^2     = C1 + sum_i  C_{2i} l^{C_{2i+1}}
-with wavelength l in micrometres. Only the formula types that actually appear in
-the vendored scope (1, 2, 3) plus tabulated ``n`` are handled; the converter
-fails loudly on any other type so the scope stays in sync with the runtime
-evaluator.
+其中波长 l 的单位为微米。这里只处理收录范围内实际出现的公式类型
+（1、2、3）以及表格形式的 n；如果遇到其他类型，转换器会明确报错，
+以确保数据范围与运行时求值器保持同步。
 """
 
 import argparse
@@ -43,31 +40,28 @@ import subprocess
 
 import numpy as np
 
-# ``yaml`` (PyYAML) is a build-time-only dependency. It is imported lazily inside
-# build() so that merely importing this module (which now lives inside the
-# runtime package) never requires PyYAML to be installed.
+# yaml（PyYAML）仅在构建阶段依赖，并在 build() 内延迟导入，因此仅仅导入
+# 这个模块（目前位于运行时包中）并不要求安装 PyYAML。
 
-# Spectral lines for the d-line index (nd) and Abbe number (Vd).
-WVLN_D = 0.5875618  # He d-line  [um]
-WVLN_F = 0.4861327  # H  F-line  [um]
-WVLN_C = 0.6562725  # H  C-line  [um]
+# 用于 d 线折射率（nd）和阿贝数（Vd）的谱线。
+WVLN_D = 0.5875618  # He d 谱线 [um]
+WVLN_F = 0.4861327  # H F 谱线  [um]
+WVLN_C = 0.6562725  # H C 谱线  [um]
 
-# Manufacturer catalogs to vendor (specs/<maker>/optical/*.yml). These are the
-# standard optical-glass catalogs; crystran additionally provides substrate
-# crystals as tabulated n.
+# 要收录的制造商目录（specs/<maker>/optical/*.yml）。这些是标准光学玻璃
+# 目录；crystran 还以表格 n 的形式提供基底晶体数据。
 GLASS_MAKERS = ["schott", "ohara", "hoya", "hikari", "sumita", "cdgm", "lzos", "crystran"]
 
-# Tie-break order when the same bare material name appears in more than one
-# catalog (rare; mostly substrate crystals). Earlier wins.
+# 同一个不带前缀的材料名出现在多个目录中时的决胜顺序（这种情况很少，
+# 主要出现在基底晶体中）。排列靠前者优先。
 MAKER_PRIORITY = {m: i for i, m in enumerate(GLASS_MAKERS)}
 
-# Curated substrate crystals from the main shelf (main/<book>/nk/<page>.yml).
-# These complement the manufacturer glasses with the canonical wide-range
-# Sellmeier/Cauchy fits used for IR/UV optics. Each is a gold-standard
-# reference page; expected n is the literature value at the listed wavelength,
-# used as a sanity oracle (these crystals carry no nd/Vd).
+# 从主目录（main/<book>/nk/<page>.yml）精选的基底晶体。
+# 这些条目用红外/紫外光学常用的标准宽波段 Sellmeier/Cauchy 拟合补充制造商
+# 玻璃数据。每项都来自权威参考页面；预期 n 是文献在指定波长下的值，
+# 用作合理性校验基准（这些晶体不提供 nd/Vd）。
 SUBSTRATES = [
-    # name        main-shelf path             aliases               (wvln_um, n_expected, tol)
+    # 名称        主目录路径                    别名                  (wvln_um, n_expected, tol)
     ("sio2",      "SiO2/nk/Malitson.yml",      ["fused_silica"],     (0.5875618, 1.4585, 0.002)),
     ("al2o3",     "Al2O3/nk/Malitson-o.yml",   ["sapphire"],         (0.5875618, 1.7681, 0.003)),
     ("mgf2",      "MgF2/nk/Li-o.yml",          [],                   (0.5875618, 1.3777, 0.003)),
@@ -81,25 +75,25 @@ SUPPORTED_FORMULAS = {1, 2, 3}
 
 
 def _eval_formula(formula, coeffs, wvln):
-    """Evaluate an refractiveindex.info dispersion formula (numpy oracle).
+    """计算 refractiveindex.info 色散公式（NumPy 校验基准）。
 
-    Mirror of the runtime ``Material.ior`` "rii" branch, kept here in numpy so
-    the converter can self-validate against the catalog's nd/Vd without torch.
+    这里用 NumPy 复现运行时 Material.ior 的 rii 分支，使转换器无需 Torch
+    即可依据目录中的 nd/Vd 进行自校验。
     """
     w = np.asarray(wvln, dtype=np.float64)
     w2 = w * w
     c = coeffs
-    if formula == 1:  # Sellmeier (preferred): squared denominators
+    if formula == 1:  # Sellmeier（首选）：分母平方
         n2 = 1.0 + c[0]
         for i in range(1, len(c) - 1, 2):
             n2 = n2 + c[i] * w2 / (w2 - c[i + 1] ** 2)
         return np.sqrt(n2)
-    if formula == 2:  # Sellmeier-2: non-squared denominators
+    if formula == 2:  # Sellmeier-2：分母不平方
         n2 = 1.0 + c[0]
         for i in range(1, len(c) - 1, 2):
             n2 = n2 + c[i] * w2 / (w2 - c[i + 1])
         return np.sqrt(n2)
-    if formula == 3:  # Polynomial
+    if formula == 3:  # 多项式
         n2 = c[0] + np.zeros_like(w)
         for i in range(1, len(c) - 1, 2):
             n2 = n2 + c[i] * w ** c[i + 1]
@@ -108,7 +102,7 @@ def _eval_formula(formula, coeffs, wvln):
 
 
 def _abbe(formula, coeffs):
-    """Compute (nd, Vd) from a dispersion formula."""
+    """根据色散公式计算 (nd, Vd)。"""
     nd = float(_eval_formula(formula, coeffs, WVLN_D))
     nf = float(_eval_formula(formula, coeffs, WVLN_F))
     nc = float(_eval_formula(formula, coeffs, WVLN_C))
@@ -117,17 +111,16 @@ def _abbe(formula, coeffs):
 
 
 def _parse_data_block(doc):
-    """Return ('formula', num, coeffs, wrange) or ('interp', wvlns, n, wrange).
+    """返回 ('formula', num, coeffs, wrange) 或 ('interp', wvlns, n, wrange)。
 
-    Picks the first dispersion-formula entry in DATA; otherwise the first
-    ``tabulated n`` entry. Returns None if neither is present (e.g. a
-    ``tabulated k`` only file).
+    优先选取 DATA 中第一个色散公式条目，否则选取第一个 tabulated n 条目。
+    如果两者都不存在（例如文件仅含 tabulated k），则返回 None。
     """
     data = doc.get("DATA")
     if not isinstance(data, list):
         return None
 
-    # Prefer a closed-form dispersion formula.
+    # 优先使用闭式色散公式。
     for entry in data:
         t = str(entry.get("type", ""))
         if t.startswith("formula"):
@@ -136,7 +129,7 @@ def _parse_data_block(doc):
             wr = [float(x) for x in str(entry.get("wavelength_range", "")).split()] or None
             return ("formula", num, coeffs, wr)
 
-    # Fall back to a tabulated refractive index (n, or the n column of nk).
+    # 如果没有公式，则回退到表格折射率（n 或 nk 中的 n 列）。
     for entry in data:
         t = str(entry.get("type", ""))
         if t in ("tabulated n", "tabulated nk"):
@@ -147,10 +140,9 @@ def _parse_data_block(doc):
                     wvlns.append(float(parts[0]))
                     ns.append(float(parts[1]))
             if len(wvlns) >= 2:
-                # Some upstream tables list points out of order. The runtime
-                # interpolation (searchsorted / np.interp) requires ascending
-                # wavelengths, so sort the (wvln, n) pairs and drop any exact
-                # duplicate wavelengths.
+                # 某些上游表格中的采样点顺序混乱。运行时插值
+                #（searchsorted / np.interp）要求波长升序，因此先对
+                # (wvln, n) 数据对排序，并删除波长完全重复的项。
                 pairs = sorted(zip(wvlns, ns), key=lambda p: p[0])
                 wvlns, ns, seen = [], [], set()
                 for w, nval in pairs:
@@ -165,7 +157,7 @@ def _parse_data_block(doc):
 
 
 def _get_props(doc):
-    """Return (nd, Vd) from PROPERTIES, or (None, None)."""
+    """返回 PROPERTIES 中的 (nd, Vd)，不存在时返回 (None, None)。"""
     props = doc.get("PROPERTIES") or {}
     nd = props.get("nd")
     vd = props.get("Vd")
@@ -174,7 +166,7 @@ def _get_props(doc):
 
 
 def _load_agf_names(material_dir):
-    """Lowercase names already bundled in the AGF catalogs (for a coverage report)."""
+    """读取 AGF 目录中已有的材料名并转为小写，用于生成覆盖率报告。"""
     names = set()
     for fn in os.listdir(material_dir):
         if not fn.upper().endswith(".AGF"):
@@ -193,20 +185,20 @@ def _load_agf_names(material_dir):
 
 
 def build(db_root, material_dir):
-    """Parse the database and return (catalog_dict, report_dict)."""
-    import yaml  # build-time-only dependency; see module header
+    """解析数据库并返回 (catalog_dict, report_dict)。"""
+    import yaml  # 仅构建阶段依赖；参见模块说明
 
     data_root = os.path.join(db_root, "database", "data")
     formula_table, interp_table = {}, {}
-    provenance = {}  # name -> maker, used for collision tie-break
+    provenance = {}  # 名称 -> 制造商，用于同名冲突决胜
     report = {"parsed": 0, "skipped_no_n": 0, "oracle_fail": [], "collisions": []}
 
     def _consider(name, maker, kind, payload, priority):
-        """Insert with collision tie-break by (priority, MAKER_PRIORITY)."""
+        """插入条目，并按 (priority, MAKER_PRIORITY) 解决同名冲突。"""
         prev = provenance.get(name)
         if prev is not None:
             report["collisions"].append((name, prev["maker"], maker))
-            # Lower priority value wins; substrates carry priority -1.
+            # priority 值越小优先级越高；基底材料的 priority 为 -1。
             if (priority, MAKER_PRIORITY.get(maker, 99)) >= (prev["priority"], MAKER_PRIORITY.get(prev["maker"], 99)):
                 return
             formula_table.pop(name, None)
@@ -217,7 +209,7 @@ def build(db_root, material_dir):
         else:
             interp_table[name] = payload
 
-    # --- Manufacturer optical-glass catalogs --------------------------------
+    # --- 制造商光学玻璃目录 -------------------------------------------------
     for maker in GLASS_MAKERS:
         opt_dir = os.path.join(data_root, "specs", maker, "optical")
         if not os.path.isdir(opt_dir):
@@ -240,7 +232,7 @@ def build(db_root, material_dir):
                 if num not in SUPPORTED_FORMULAS:
                     raise ValueError(f"{maker}/{fn}: unsupported formula {num} in scope")
                 nd_calc, vd_calc = _abbe(num, coeffs)
-                # nd/Vd oracle: validate parsing, formula choice, unit handling.
+                # 以 nd/Vd 为基准，校验解析、公式选择及单位处理。
                 if nd_cat is not None and abs(nd_calc - nd_cat) > 1.5e-3:
                     report["oracle_fail"].append(
                         f"{maker}/{name}: nd calc={nd_calc:.5f} cat={nd_cat:.5f}")
@@ -263,7 +255,7 @@ def build(db_root, material_dir):
                 payload = {"wvlns": wvlns, "n": ns, "wvln_range": wr, "maker": maker}
                 _consider(name, maker, "interp", payload, priority=0)
 
-    # --- Curated substrate crystals (main shelf) ----------------------------
+    # --- 精选基底晶体（主目录） ---------------------------------------------
     for name, rel, aliases, (w_chk, n_chk, tol) in SUBSTRATES:
         path = os.path.join(data_root, "main", rel)
         if not os.path.isfile(path):
@@ -283,12 +275,11 @@ def build(db_root, material_dir):
             report["oracle_fail"].append(
                 f"substrate {name}: n({w_chk})={n_got:.4f} expected {n_chk:.4f}")
             continue
-        # nd/Vd are defined at the visible He/H lines. For IR-only crystals
-        # (e.g. Si, Ge) those lines fall outside the fit's validity range, so a
-        # d-line evaluation would be a meaningless extrapolation. Only report
-        # true nd/Vd when all three lines are in-band; otherwise expose the
-        # documented in-band reference index and mark Vd non-applicable (1e38,
-        # the same "non-dispersive at these lines" sentinel air uses).
+        # nd/Vd 定义在可见光 He/H 谱线上。对于仅适用于红外的晶体（如 Si、
+        # Ge），这些谱线超出拟合有效范围，计算 d 线值会成为无意义的外推。
+        # 只有三条谱线均位于有效波段内时才给出真实 nd/Vd；否则使用文献给出的
+        # 波段内参考折射率，并将 Vd 标为不适用（1e38，与空气表示“在这些
+        # 谱线处无色散”所用的哨兵值相同）。
         wmin, wmax = (wr[0], wr[1]) if wr else (0.0, float("inf"))
         if wmin <= WVLN_F and WVLN_C <= wmax:
             nd_calc, vd_calc = _abbe(num, coeffs)
@@ -306,7 +297,7 @@ def build(db_root, material_dir):
         for nm in [name] + aliases:
             _consider(nm, "refractiveindex.info (main)", "formula", payload, priority=-1)
 
-    # --- Provenance / commit ------------------------------------------------
+    # --- 来源与提交信息 -----------------------------------------------------
     commit, commit_date = "unknown", "unknown"
     try:
         commit = subprocess.check_output(
@@ -362,7 +353,7 @@ def main():
     material_dir = os.path.dirname(os.path.abspath(args.out))
     catalog, report = build(args.db, material_dir)
 
-    with open(args.out, "w") as f:
+    with open(args.out, "w", encoding="utf-8") as f:
         json.dump(catalog, f, separators=(",", ":"), sort_keys=False)
         f.write("\n")
 

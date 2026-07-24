@@ -1,7 +1,7 @@
 """
-Automated lens design from scratch. This code uses RMS spot size for lens design, which is much faster than image-based lens design.
+从零开始自动设计镜头。本代码使用 RMS 光斑尺寸进行镜头设计，速度远快于基于图像的镜头设计。
 
-Technical Paper:
+技术论文：
     Xinge Yang, Qiang Fu and Wolfgang Heidrich, "Curriculum learning for ab initio deep learned refractive optics," Nature Communications 2024.
 """
 
@@ -23,12 +23,12 @@ from deeplens.utils import create_video_from_images, set_logger, set_seed
 
 
 def config():
-    """Config file for training."""
-    # Config file
-    with open("configs/2_auto_lens_design.yml") as f:
+    """训练配置文件。"""
+    # 配置文件
+    with open("configs/2_auto_lens_design.yml", encoding="utf-8") as f:
         args = yaml.load(f, Loader=yaml.FullLoader)
 
-    # Result dir
+    # 结果目录
     characters = string.ascii_letters + string.digits
     random_string = "".join(random.choice(characters) for i in range(4))
     current_time = datetime.now().strftime("%m%d-%H%M%S")
@@ -42,11 +42,11 @@ def config():
         args["seed"] = seed
     set_seed(args["seed"])
 
-    # Log
+    # 日志
     set_logger(result_dir)
     logging.info(f"EXP: {args['EXP_NAME']}")
 
-    # Device
+    # 设备
     if torch.cuda.is_available():
         args["device"] = torch.device("cuda")
         args["num_gpus"] = torch.cuda.device_count()
@@ -55,12 +55,12 @@ def config():
         args["device"] = torch.device("cpu")
         logging.info("Using CPU")
 
-    # ==> Save config and original code
-    with open(f"{result_dir}/config.yml", "w") as f:
+    # ==> 保存配置和原始代码
+    with open(f"{result_dir}/config.yml", "w", encoding="utf-8") as f:
         yaml.dump(args, f)
 
-    with open(f"{result_dir}/2_autolens_rms.py", "w") as f:
-        with open("2_autolens_rms.py", "r") as code:
+    with open(f"{result_dir}/2_autolens_rms.py", "w", encoding="utf-8") as f:
+        with open("2_autolens_rms.py", "r", encoding="utf-8") as code:
             f.write(code.read())
 
     return args
@@ -75,8 +75,8 @@ def curriculum_design(
     shape_control=True,
     result_dir="./results",
 ):
-    """Optimize the lens by minimizing rms errors."""
-    # Preparation
+    """通过最小化 RMS 误差来优化镜头。"""
+    # 准备
     depth = DEPTH
     num_ring = 16
     num_arm = 4
@@ -85,30 +85,30 @@ def curriculum_design(
     aper_start = self.surfaces[self.aper_idx].r * 0.25
     aper_final = self.surfaces[self.aper_idx].r
 
-    # Log
+    # 日志
     if not logging.getLogger().hasHandlers():
         set_logger(result_dir)
     logging.info(
         f"lr:{lrs}, iterations:{iterations}, spp:{spp}, num_ring:{num_ring}, num_arm:{num_arm}."
     )
 
-    # Optimizer
+    # 优化器
     optimizer = self.get_optimizer(lrs, optim_mat=optim_mat)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
         optimizer, T_0=iterations // 4, T_mult=1
     )
 
-    # Training loop
+    # 训练循环
     pbar = tqdm(
         total=iterations + 1, desc="Progress", postfix={"loss_rms": 0, "loss_reg": 0}
     )
     for i in range(iterations + 1):
         # =======================================
-        # Evaluate the lens
+        # 评估镜头
         # =======================================
         if i % test_per_iter == 0:
             with torch.no_grad():
-                # Curriculum learning: gradually increase aperture size
+                # 课程学习：逐步增大光圈尺寸
                 progress = 0.5 * (1 + math.cos(math.pi * (1 - i / iterations)))
                 aper_r = min(
                     aper_start + (aper_final - aper_start) * progress,
@@ -117,17 +117,17 @@ def curriculum_design(
                 self.surfaces[self.aper_idx].update_r(aper_r)
                 self.calc_pupil()
 
-                # Correct lens shape and evaluate current design
+                # 校正镜头形状并评估当前设计
                 if i > 0:
                     if shape_control:
                         self.correct_shape()
                         # self.refocus()
 
-                # Save lens
+                # 保存镜头
                 self.write_lens_json(f"{result_dir}/iter{i}.json")
                 self.analysis(f"{result_dir}/iter{i}")
 
-                # Sample new rays and calculate target centers
+                # 采样新光线并计算目标中心
                 rays_backup = []
                 for wv in WAVE_RGB:
                     ray = self.sample_ring_arm_rays(
@@ -144,51 +144,51 @@ def curriculum_design(
                 center_ref = center_ref.unsqueeze(-2).repeat(1, 1, spp, 1)
 
         # =======================================
-        # Optimize lens by minimizing rms
+        # 通过最小化 RMS 优化镜头
         # =======================================
         loss_rms = []
         for wv_idx, wv in enumerate(WAVE_RGB):
-            # Ray tracing to sensor, [num_grid, num_grid, num_rays, 3]
+            # 将光线追迹到传感器，[num_grid, num_grid, num_rays, 3]
             ray = rays_backup[wv_idx].clone()
             ray = self.trace2sensor(ray)
 
-            # Ray error to center and valid mask
+            # 光线相对中心的误差与有效掩码
             ray_xy = ray.o[..., :2]
             ray_valid = ray.is_valid
             ray_err = ray_xy - center_ref
 
-            # Weight mask (non-differentiable), shape of [num_grid, num_grid]
+            # 权重掩码（不可微分），shape 为 [num_grid, num_grid]
             if wv_idx == 0:
                 with torch.no_grad():
                     weight_mask = ((ray_err**2).sum(-1) * ray_valid).sum(-1)
                     weight_mask /= ray_valid.sum(-1) + EPSILON
                     weight_mask /= weight_mask.mean()
 
-                    # Drop out (20% of weight mask)
+                    # 丢弃（权重掩码的 20%）
                     dropout_mask = torch.rand_like(weight_mask) < 0.1
                     weight_mask = weight_mask * (~dropout_mask)
 
-            # Loss on rms error, shape of [num_grid, num_grid]
+            # RMS 误差损失，shape 为 [num_grid, num_grid]
             l_rms = ((ray_err**2).sum(-1) * ray_valid).sum(-1)
             l_rms /= ray_valid.sum(-1) + EPSILON
             l_rms = (l_rms + EPSILON).sqrt()
 
-            # Weighted loss
+            # 加权损失
             l_rms_weighted = (l_rms * weight_mask).sum()
             l_rms_weighted /= weight_mask.sum() + EPSILON
             loss_rms.append(l_rms_weighted)
 
-        # RMS loss for all wavelengths
+        # 所有波长的 RMS 损失
         loss_rms = sum(loss_rms) / len(loss_rms)
 
-        # Add focus loss and lens design constraint
+        # 添加聚焦损失和镜头设计约束
         w_focus = 0.1
         loss_focus = self.loss_infocus()
         loss_reg, loss_dict = self.loss_reg()
         w_reg = 0.05
         L_total = loss_rms + w_focus * loss_focus + w_reg * loss_reg
 
-        # Gradient-based optimization
+        # 基于梯度的优化
         optimizer.zero_grad()
         L_total.backward()
         optimizer.step()
@@ -205,10 +205,10 @@ if __name__ == "__main__":
     result_dir = args["result_dir"]
     device = args["device"]
 
-    # Bind function
+    # 绑定函数
     GeoLens.curriculum_design = curriculum_design
 
-    # Create a lens
+    # 创建镜头
     lens = create_lens(
         foclen=args["foclen"],
         fov=args["fov"],
@@ -226,8 +226,9 @@ if __name__ == "__main__":
         f"==> Design target: focal length {round(args['foclen'], 2)}, diagonal FoV {args['fov']}deg, F/{args['fnum']}"
     )
 
-    # Curriculum learning with RMS errors
-    # Curriculum learning is used to find an optimization path when starting from scratch, where the optimization difficulty is high and the gradients are unstable. 3000 iterations is a good starting value, while increasing the number of iterations will improve the optical performance. Also, we can choose to optimize materials in this stage.
+    # 使用 RMS 误差进行课程学习
+    # 从零开始时优化难度较高且梯度不稳定，课程学习用于寻找优化路径。3000 次迭代是
+    # 合理的起始值，增加迭代次数可改善光学性能。此阶段也可选择优化材料。
     lens.curriculum_design(
         lrs=[float(lr) for lr in args["lrs"]],
         iterations=2000,
@@ -237,12 +238,14 @@ if __name__ == "__main__":
         result_dir=args["result_dir"],
     )
 
-    # Match materials and set fnum
+    # 匹配材料并设置 fnum
     lens.match_materials()
     lens.set_fnum(args["fnum"])
     lens.write_lens_json(f"{result_dir}/curriculum_final.json")
 
-    # To obtain optimal optical performance, we typically need additional training iterations. This code uses strong lens design constraints with small learning rates, making optimization slow but steadily improving optical performance. For demonstration purposes, here we only train for 3000 steps.
+    # 为获得最佳光学性能，通常还需要额外的训练迭代。本代码使用较强的镜头设计约束
+    # 和较小的学习率，因此优化较慢，但能稳定改善光学性能。为便于演示，此处仅训练
+    # 3000 步。
     lens = GeoLens(filename=f"{result_dir}/curriculum_final.json")
     lens.set_target_fov_fnum(
         rfov=args["fov"] / 2 / 57.3,
@@ -257,7 +260,7 @@ if __name__ == "__main__":
         result_dir=f"{args['result_dir']}/fine-tune",
     )
 
-    # Analyze final result
+    # 分析最终结果
     lens.prune_surf()
     lens.post_computation()
 
@@ -267,5 +270,5 @@ if __name__ == "__main__":
     lens.write_lens_json(f"{result_dir}/final_lens.json")
     lens.analysis(save_name=f"{result_dir}/final_lens")
 
-    # Create video
+    # 创建视频
     create_video_from_images(f"{result_dir}", f"{result_dir}/autolens.mp4", fps=10)

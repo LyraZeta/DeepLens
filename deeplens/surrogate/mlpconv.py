@@ -6,42 +6,40 @@ import torch.nn.functional as F
 
 
 class MLPConv(nn.Module):
-    """MLP encoder plus convolutional decoder for high-resolution PSF prediction.
+    """用于高分辨率 PSF 预测的 MLP 编码器与卷积解码器。
 
-    The MLP encoder maps the input features to a low-resolution feature map of
-    spatial size `min(ks, 32)`, which a transposed-convolution decoder then
-    upsamples by powers of two to the target PSF size `ks`. The decoder output is
-    always Sigmoid-activated and L1-normalized over the two spatial dimensions so
-    each predicted PSF sums to one.
+    MLP 编码器将输入特征映射为空间尺寸为 `min(ks, 32)` 的低分辨率特征图，
+    随后转置卷积解码器按 2 的幂逐级上采样至目标 PSF 尺寸 `ks`。解码器输出
+    始终经过 Sigmoid 激活，并在两个空间维度上进行 L1 归一化，使每个预测
+    PSF 的总和为 1。
 
-    Reference:
+    参考文献：
         "Differentiable Compound Optics and Processing Pipeline Optimization for
         End-To-end Camera Design".
 
-    Attributes:
-        ks (int): Spatial size of the output PSF.
-        ks_mlp (int): Spatial size of the MLP feature map, `min(ks, 32)`.
-        channels (int): Number of output channels.
-        encoder (nn.Sequential): Linear encoder producing the feature map.
-        decoder (nn.Sequential): Transposed-convolution upsampling decoder.
-        activation (nn.Module): Activation module selected by `activation`. Note
-            that the forward pass uses a Sigmoid regardless of this attribute.
+    属性：
+        ks (int): 输出 PSF 的空间尺寸。
+        ks_mlp (int): MLP 特征图的空间尺寸，即 `min(ks, 32)`。
+        channels (int): 输出通道数。
+        encoder (nn.Sequential): 生成特征图的线性编码器。
+        decoder (nn.Sequential): 使用转置卷积的上采样解码器。
+        activation (nn.Module): 由 `activation` 选择的激活模块。请注意，无论
+            该属性为何值，前向传播都会使用 Sigmoid。
 
-    Args:
-        in_features (int): Number of input features (e.g. field angle plus wavelength).
-        ks (int): Spatial size of the output PSF. When greater than 32 it must be a
-            multiple of 32 (asserted), and in practice $32 \\cdot 2^n$ so the decoder
-            upsamples by integer powers of two.
-        channels (int, optional): Number of output channels. Defaults to 3.
-        activation (str, optional): Activation name, `"relu"` or `"sigmoid"`, stored
-            on `self.activation` but unused by `forward`. Defaults to `"relu"`.
+    参数：
+        in_features (int): 输入特征数，例如视场角与波长。
+        ks (int): 输出 PSF 的空间尺寸。大于 32 时必须是 32 的倍数（通过断言
+            检查），实际应为 $32 \\cdot 2^n$，以便解码器按 2 的整数次幂上采样。
+        channels (int, optional): 输出通道数，默认为 3。
+        activation (str, optional): 激活函数名称，可为 `"relu"` 或 `"sigmoid"`。
+            该值保存在 `self.activation` 中，但 `forward` 不会使用，默认为 `"relu"`。
     """
 
     def __init__(self, in_features, ks, channels=3, activation="relu"):
         super(MLPConv, self).__init__()
 
         self.ks_mlp = min(ks, 32)
-        upsample_times = 0  # ks <= 32 needs no upsampling (decoder loop runs 0 times)
+        upsample_times = 0  # ks <= 32 时无需上采样，解码器循环执行 0 次
         if ks > 32:
             assert ks % 32 == 0, "ks must be 32n"
             upsample_times = int(math.log(ks / 32, 2))
@@ -50,7 +48,7 @@ class MLPConv(nn.Module):
         self.ks = ks
         self.channels = channels
 
-        # MLP encoder
+        # MLP 编码器
         self.encoder = nn.Sequential(
             nn.Linear(in_features, 256),
             nn.ReLU(),
@@ -61,7 +59,7 @@ class MLPConv(nn.Module):
             nn.Linear(512, linear_output),
         )
 
-        # Conv decoder
+        # 卷积解码器
         conv_layers = []
         conv_layers.append(
             nn.ConvTranspose2d(channels, 64, kernel_size=3, stride=1, padding=1)
@@ -89,31 +87,31 @@ class MLPConv(nn.Module):
             self.activation = nn.Sigmoid()
 
     def forward(self, x):
-        """Predict normalized PSFs from input feature vectors.
+        """根据输入特征向量预测归一化 PSF。
 
-        Encodes `x` into a `(batch_size, channels, ks_mlp, ks_mlp)` feature map,
-        upsamples it through the conv decoder, then applies Sigmoid and L1
-        normalization over the spatial dimensions so each PSF sums to one.
+        将 `x` 编码为形状 `(batch_size, channels, ks_mlp, ks_mlp)` 的特征图，
+        经卷积解码器上采样后应用 Sigmoid，并在空间维度上进行 L1 归一化，
+        使每个 PSF 的总和为 1。
 
-        Args:
-            x (torch.Tensor): Input tensor of shape `(batch_size, in_features)`.
+        参数：
+            x (torch.Tensor): 形状为 `(batch_size, in_features)` 的输入张量。
 
-        Returns:
-            decoded (torch.Tensor): Normalized PSF tensor of shape
-                `(batch_size, channels, ks, ks)`.
+        返回：
+            decoded (torch.Tensor): 形状为 `(batch_size, channels, ks, ks)` 的
+                归一化 PSF 张量。
         """
-        # Encode the input using the MLP
+        # 使用 MLP 编码输入
         encoded = self.encoder(x)
 
-        # Reshape the output from the MLP to feed to the CNN
+        # 重塑 MLP 输出以输入 CNN
         decoded_input = encoded.view(
             -1, self.channels, self.ks_mlp, self.ks_mlp
-        )  # reshape to (batch_size, channels, height, width)
+        )  # 重塑为 (batch_size, channels, height, width)
 
-        # Decode the output using the CNN
+        # 使用 CNN 解码输出
         decoded = self.decoder(decoded_input)
 
-        # This normalization only works for PSF network
+        # 此归一化方式仅适用于 PSF 网络
         decoded = nn.Sigmoid()(decoded)
         decoded = F.normalize(decoded, p=1, dim=[-1, -2])
 
@@ -121,23 +119,23 @@ class MLPConv(nn.Module):
 
 
 if __name__ == "__main__":
-    # Test case
-    # Create a model with 4 input features and a 64x64 output
+    # 测试用例
+    # 创建具有 4 个输入特征和 64x64 输出的模型
     model = MLPConv(in_features=4, ks=64, channels=3)
 
-    # Create a dummy input tensor with batch size 1 and 4 features
-    # Shape: [batch_size, in_features]
+    # 创建批大小为 1、包含 4 个特征的虚拟输入张量
+    # 形状：[batch_size, in_features]
     input_tensor = torch.randn(1, 4)
 
-    # Get the model output
+    # 获取模型输出
     output_tensor = model(input_tensor)
 
-    # Print the shapes
+    # 打印形状
     print("Input shape:", input_tensor.shape)
     print("Output shape:", output_tensor.shape)
 
-    # Verify the output shape
-    # Expected shape: [batch_size, channels, ks, ks]
+    # 验证输出形状
+    # 预期形状：[batch_size, channels, ks, ks]
     assert output_tensor.shape == (1, 3, 64, 64)
     print("Test passed!")
 

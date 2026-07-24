@@ -1,5 +1,5 @@
 """
-Tests for deeplens/optics/wave.py - Wave optics and propagation.
+deeplens/optics/wave.py 测试——波动光学与传播。
 """
 
 import pytest
@@ -10,10 +10,10 @@ from deeplens.light import ComplexWave, AngularSpectrumMethod
 
 
 class TestComplexWaveInit:
-    """Test ComplexWave initialization."""
+    """测试 ComplexWave 初始化。"""
 
     def test_complex_wave_init_default(self, device_auto):
-        """Should initialize with default parameters."""
+        """应使用默认参数初始化。"""
         wave = ComplexWave(
             wvln=0.55,
             z=0.0,
@@ -27,7 +27,7 @@ class TestComplexWaveInit:
         assert wave.res == (256, 256)
 
     def test_complex_wave_init_with_field(self, device_auto):
-        """Should initialize with custom field."""
+        """应使用自定义光场初始化。"""
         u = torch.ones(256, 256, dtype=torch.complex64, device=device_auto)
         
         wave = ComplexWave(
@@ -40,10 +40,10 @@ class TestComplexWaveInit:
 
 
 class TestComplexWavePointWave:
-    """Test point source spherical wave."""
+    """测试点光源球面波。"""
 
     def test_point_wave_center(self, device_auto):
-        """Point wave at center should be symmetric."""
+        """中心处的点波应对称。"""
         wave = ComplexWave.point_wave(
             point=(0, 0, -1000.0),
             wvln=0.55,
@@ -52,12 +52,12 @@ class TestComplexWavePointWave:
         )
         
         assert wave.u.shape[-2:] == (256, 256)
-        # Check approximate symmetry
+        # 检查近似对称性
         irr = torch.abs(wave.u)**2
         assert torch.allclose(irr[0, 0, 128, 64], irr[0, 0, 128, 192], rtol=0.1)
 
     def test_point_wave_intensity(self, device_auto):
-        """Point wave should have non-zero intensity."""
+        """点波应具有非零强度。"""
         wave = ComplexWave.point_wave(
             point=(0, 0, -1000.0),
             wvln=0.55,
@@ -71,10 +71,10 @@ class TestComplexWavePointWave:
 
 
 class TestComplexWavePlaneWave:
-    """Test plane wave initialization."""
+    """测试平面波初始化。"""
 
     def test_plane_wave_uniform(self, device_auto):
-        """Plane wave should have uniform amplitude."""
+        """平面波应具有均匀振幅。"""
         wave = ComplexWave.plane_wave(
             wvln=0.55,
             phy_size=(4.0, 4.0),
@@ -82,12 +82,12 @@ class TestComplexWavePlaneWave:
         )
         
         amp = torch.abs(wave.u)
-        # All amplitudes should be equal (within numerical precision)
-        # All amplitudes should be equal (within numerical precision)
+        # 所有振幅应相等（在数值精度范围内）
+        # 所有振幅应相等（在数值精度范围内）
         assert torch.allclose(amp, amp[0, 0, 0, 0].expand_as(amp), atol=1e-5)
 
     def test_plane_wave_with_valid_r(self, device_auto):
-        """Plane wave should respect valid radius."""
+        """平面波应遵循有效半径。"""
         wave = ComplexWave.plane_wave(
             wvln=0.55,
             phy_size=(4.0, 4.0),
@@ -95,16 +95,16 @@ class TestComplexWavePlaneWave:
             valid_r=1.0,
         )
         
-        # Corners should be zero (outside valid radius)
-        # Corners should be zero (outside valid radius)
+        # 角点应为零（位于有效半径之外）
+        # 角点应为零（位于有效半径之外）
         assert wave.u[0, 0, 0, 0].abs().item() == pytest.approx(0.0, abs=1e-5)
 
 
 class TestComplexWaveImageWave:
-    """Test image-modulated wave."""
+    """测试图像调制波。"""
 
     def test_image_wave(self, device_auto):
-        """Should create wave from image."""
+        """应从图像创建波。"""
         img = torch.rand(256, 256, device=device_auto)
         
         wave = ComplexWave.image_wave(
@@ -113,17 +113,17 @@ class TestComplexWaveImageWave:
             phy_size=(4.0, 4.0),
         )
         
-        # Amplitude should match sqrt(image)
+        # 振幅应与 sqrt(image) 匹配
         amp = torch.abs(wave.u)
         expected = torch.sqrt(img)
         assert torch.allclose(amp, expected, atol=1e-4)
 
 
 class TestComplexWavePropagation:
-    """Test wave propagation."""
+    """测试波传播。"""
 
     def test_wave_prop_distance(self, device_auto):
-        """Propagation should update z coordinate."""
+        """传播应更新 z 坐标。"""
         wave = ComplexWave.plane_wave(
             wvln=0.55,
             z=0.0,
@@ -136,7 +136,7 @@ class TestComplexWavePropagation:
         assert (wave.z == 10.0).all().item()
 
     def test_wave_prop_to(self, device_auto):
-        """prop_to should propagate to specific z."""
+        """prop_to 应传播到指定 z。"""
         wave = ComplexWave.plane_wave(
             wvln=0.55,
             z=0.0,
@@ -149,7 +149,7 @@ class TestComplexWavePropagation:
         assert (wave.z == 10.0).all().item()
 
     def test_wave_prop_energy_conservation(self, device_auto):
-        """Propagation should conserve energy."""
+        """传播应守恒能量。"""
         wave = ComplexWave.plane_wave(
             wvln=0.55,
             z=0.0,
@@ -164,7 +164,7 @@ class TestComplexWavePropagation:
         assert torch.allclose(energy_before, energy_after, rtol=0.1)
 
     def test_wave_prop_with_refractive_index(self, device_auto):
-        """Propagation should account for refractive index."""
+        """传播应考虑折射率。"""
         wave = ComplexWave.plane_wave(
             wvln=0.55,
             z=0.0,
@@ -172,30 +172,30 @@ class TestComplexWavePropagation:
             res=(256, 256),
         )
         
-        # Propagate in medium with n=1.5
+        # 在 n=1.5 的介质中传播
         wave.prop(prop_dist=10.0, n=1.5)
         
         assert (wave.z == 10.0).all().item()
 
 
 class TestAngularSpectrumMethod:
-    """Test Angular Spectrum Method propagation."""
+    """测试角谱法传播。"""
 
     def test_asm_basic(self, device_auto):
-        """ASM should propagate field."""
+        """ASM 应传播光场。"""
         u = torch.ones(256, 256, dtype=torch.complex64, device=device_auto)
         
         u_prop = AngularSpectrumMethod(
             u=u,
             z=10.0,
             wvln=0.55,
-            ps=0.01,  # pixel size [mm]
+            ps=0.01,  # 像素尺寸 [mm]
         )
         
         assert u_prop.shape == u.shape
 
     def test_asm_zero_distance(self, device_auto):
-        """Zero propagation should return same field."""
+        """传播距离为零时应返回相同光场。"""
         u = torch.rand(256, 256, dtype=torch.complex64, device=device_auto)
         
         u_prop = AngularSpectrumMethod(
@@ -208,7 +208,7 @@ class TestAngularSpectrumMethod:
         assert torch.allclose(u_prop, u, atol=1e-5)
 
     def test_asm_with_padding(self, device_auto):
-        """ASM with padding should avoid aliasing."""
+        """带填充的 ASM 应避免混叠。"""
         u = torch.ones(128, 128, dtype=torch.complex64, device=device_auto)
         
         u_prop = AngularSpectrumMethod(
@@ -222,7 +222,7 @@ class TestAngularSpectrumMethod:
         assert u_prop.shape == u.shape
 
     def test_asm_batch(self, device_auto):
-        """ASM should support batch dimension."""
+        """ASM 应支持 batch 维度。"""
         u = torch.ones(1, 1, 256, 256, dtype=torch.complex64, device=device_auto)
         
         u_prop = AngularSpectrumMethod(
@@ -236,11 +236,10 @@ class TestAngularSpectrumMethod:
 
 
 class TestBandLimitedASM:
-    """Test band-limited Angular Spectrum Method (Matsushima & Shimobaba 2009)."""
+    """测试带限角谱法（Matsushima & Shimobaba 2009）。"""
 
     def test_bandlimited_reduces_to_asm_at_short_range(self, device_auto):
-        """At short distances the band-limit window covers the whole spectrum,
-        so band-limited ASM must match the standard ASM exactly."""
+        """短距离下，带限窗口覆盖整个频谱，因此带限 ASM 必须与标准 ASM 精确匹配。"""
         from deeplens.light import BandLimitedASM
 
         u = torch.rand(256, 256, dtype=torch.complex64, device=device_auto)
@@ -252,8 +251,8 @@ class TestBandLimitedASM:
         assert torch.allclose(u_bl, u_asm, atol=1e-5)
 
     def test_bandlimited_asm_runs_at_long_range(self, device_auto):
-        """Band-limited ASM should run at large distances (where standard ASM
-        aliases) and return a finite field of the same shape."""
+        """带限 ASM 应能在标准 ASM 会发生混叠的长距离下运行，并返回 shape 相同的
+        有限光场。"""
         from deeplens.light import BandLimitedASM
 
         u = torch.ones(256, 256, dtype=torch.complex64, device=device_auto)
@@ -265,12 +264,11 @@ class TestBandLimitedASM:
         assert torch.isfinite(u_prop.imag).all()
 
     def test_bandlimited_asm_suppresses_aliasing_at_long_range(self, device_auto):
-        """At a distance where standard ASM is undersampled, the band-limit must
-        drop the aliasing-prone high frequencies, so band-limited ASM carries no
-        more energy than standard ASM (strictly less for a sharp aperture)."""
+        """在标准 ASM 欠采样的距离下，带限处理必须丢弃容易混叠的高频，因此带限
+        ASM 携带的能量不应多于标准 ASM（对锐利光圈应严格更少）。"""
         from deeplens.light import BandLimitedASM
 
-        # Sharp centered aperture -> broad spectrum that aliases at long range.
+        # 锐利的居中光圈 -> 宽频谱，在长距离下会发生混叠。
         u = torch.zeros(256, 256, dtype=torch.complex64, device=device_auto)
         u[120:136, 120:136] = 1.0
         kwargs = dict(z=200.0, wvln=0.55, ps=0.01, padding=False)
@@ -282,8 +280,8 @@ class TestBandLimitedASM:
         assert e_bl < e_asm
 
     def test_prop_handles_intermediate_distance(self, device_auto):
-        """prop() should handle distances between the ASM and Fresnel regimes
-        (previously unsupported and raised) via band-limited ASM."""
+        """prop() 应通过带限 ASM 处理 ASM 与 Fresnel 适用范围之间的距离（过去不支持
+        并会抛出异常）。"""
         wave = ComplexWave.plane_wave(
             wvln=0.55,
             z=0.0,
@@ -291,17 +289,17 @@ class TestBandLimitedASM:
             res=(256, 256),
         )
 
-        wave.prop(prop_dist=200.0)  # 200 mm lies in the former gap
+        wave.prop(prop_dist=200.0)  # 200 mm 位于此前的空缺范围内
 
         assert (wave.z == 200.0).all().item()
         assert torch.isfinite(wave.u.real).all()
 
 
 class TestComplexWaveGrids:
-    """Test grid generation."""
+    """测试网格生成。"""
 
     def test_gen_xy_grid(self, device_auto):
-        """Should generate correct xy grid."""
+        """应生成正确的 xy 网格。"""
         wave = ComplexWave.plane_wave(
             wvln=0.55,
             phy_size=(4.0, 4.0),
@@ -316,7 +314,7 @@ class TestComplexWaveGrids:
         assert wave.y.shape == (256, 256)
 
     def test_gen_freq_grid(self, device_auto):
-        """Should generate frequency grid."""
+        """应生成频率网格。"""
         wave = ComplexWave.plane_wave(
             wvln=0.55,
             phy_size=(4.0, 4.0),
@@ -330,10 +328,10 @@ class TestComplexWaveGrids:
 
 
 class TestComplexWaveOperations:
-    """Test wave manipulation operations."""
+    """测试波操作。"""
 
     def test_wave_pad(self, device_auto):
-        """Padding should increase resolution and physical size."""
+        """填充应增大分辨率和物理尺寸。"""
         wave = ComplexWave.plane_wave(
             wvln=0.55,
             phy_size=(4.0, 4.0),
@@ -347,7 +345,7 @@ class TestComplexWaveOperations:
         assert wave.phy_size[0] > original_size[0]
 
     def test_wave_flip(self, device_auto):
-        """Flip should reverse field."""
+        """flip 应翻转光场。"""
         wave = ComplexWave(
             u=torch.arange(16).reshape(4, 4).float().to(dtype=torch.complex64),
             wvln=0.55,
@@ -357,16 +355,16 @@ class TestComplexWaveOperations:
         original_u = wave.u.clone()
         wave.flip()
         
-        # Check that corners swapped
-        # Check that corners swapped
+        # 检查角点已交换
+        # 检查角点已交换
         assert wave.u[0, 0, 0, 0] == original_u[0, 0, -1, -1]
 
 
 class TestComplexWaveIO:
-    """Test save/load functionality."""
+    """测试保存/加载功能。"""
 
     def test_wave_save_load(self, device_auto, test_output_dir):
-        """Should save and load wave."""
+        """应保存并加载波。"""
         import os
         
         wave = ComplexWave.plane_wave(
@@ -380,7 +378,7 @@ class TestComplexWaveIO:
         
         assert os.path.exists(filepath)
         
-        # Load back
+        # 重新加载
         wave2 = ComplexWave(
             wvln=0.55,
             phy_size=(4.0, 4.0),
@@ -392,10 +390,10 @@ class TestComplexWaveIO:
 
 
 class TestComplexWaveVisualization:
-    """Test visualization methods."""
+    """测试可视化方法。"""
 
     def test_wave_show_irradiance(self, device_auto, test_output_dir):
-        """Should save irradiance image."""
+        """应保存辐照度图像。"""
         import os
         
         wave = ComplexWave.plane_wave(

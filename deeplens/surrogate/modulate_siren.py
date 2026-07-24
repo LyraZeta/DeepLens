@@ -9,38 +9,35 @@ from einops import rearrange
 
 
 class ModulateSiren(nn.Module):
-    """Modulated SIREN for latent-conditioned image synthesis.
+    """用于潜变量条件图像合成的调制 SIREN。
 
-    Combines a SIREN synthesizer network (mapping a fixed pixel-coordinate grid to
-    output values) with a modulator network that scales each synthesizer layer based
-    on a conditioning latent vector. Used to predict spatially-varying PSFs
-    conditioned on lens parameters. The output is always tanh-activated and reshaped
-    to an image regardless of the `outermost_linear` / `final_activation` settings.
+    将 SIREN 合成器网络（把固定像素坐标网格映射为输出值）与调制器网络结合，
+    后者根据条件潜向量缩放各合成器层。该模型用于预测以镜头参数为条件的空间
+    变化 PSF。无论 `outermost_linear` / `final_activation` 如何设置，输出始终
+    经过 tanh 激活并重塑为图像。
 
-    Attributes:
-        synthesizer (nn.ModuleList): SIREN sine layers plus the final output layer.
-        modulator (nn.ModuleList): Per-layer Linear+ReLU blocks producing modulation
-            vectors from the latent (and previous modulation).
-        grid (torch.Tensor): Registered coordinate buffer of shape
-            `(image_height * image_width, dim_in)`, spanning $[-1, 1]$ on each axis.
+    属性：
+        synthesizer (nn.ModuleList): SIREN 正弦层及最终输出层。
+        modulator (nn.ModuleList): 各层的 Linear+ReLU 模块，根据潜向量（以及
+            上一层调制结果）生成调制向量。
+        grid (torch.Tensor): 已注册的坐标缓冲区，形状为
+            `(image_height * image_width, dim_in)`，每个坐标轴覆盖 $[-1, 1]$。
 
-    Args:
-        dim_in (int): Input coordinate dimension (typically 2 for x, y).
-        dim_hidden (int): Hidden layer width for both synthesizer and modulator.
-        dim_out (int): Output dimension per pixel (e.g., 1 for grayscale PSF).
-        dim_latent (int): Dimension of the conditioning latent vector.
-        num_layers (int): Number of SIREN + modulator layers (excluding the final
-            output layer of the synthesizer).
-        image_width (int): Output image width in pixels.
-        image_height (int): Output image height in pixels.
-        w0 (float, optional): Frequency multiplier for hidden sine layers. Defaults to 1.0.
-        w0_initial (float, optional): Frequency multiplier for the first sine layer. Defaults to 30.0.
-        use_bias (bool, optional): Whether to use bias in sine layers. Defaults to True.
-        final_activation (nn.Module or None, optional): Activation for the final
-            `Siren` layer when `outermost_linear` is False. Defaults to None
-            (Identity).
-        outermost_linear (bool, optional): If True, the final synthesizer layer is a
-            plain `nn.Linear`; otherwise it is a `Siren` layer. Defaults to True.
+    参数：
+        dim_in (int): 输入坐标维度，x、y 坐标通常为 2。
+        dim_hidden (int): 合成器和调制器的隐藏层宽度。
+        dim_out (int): 每个像素的输出维度，例如灰度 PSF 为 1。
+        dim_latent (int): 条件潜向量的维度。
+        num_layers (int): SIREN 与调制器层数，不含合成器最终输出层。
+        image_width (int): 输出图像宽度，单位为像素。
+        image_height (int): 输出图像高度，单位为像素。
+        w0 (float, optional): 隐藏正弦层的频率乘子，默认为 1.0。
+        w0_initial (float, optional): 首个正弦层的频率乘子，默认为 30.0。
+        use_bias (bool, optional): 正弦层是否使用偏置，默认为 True。
+        final_activation (nn.Module or None, optional): 当 `outermost_linear` 为
+            False 时最终 `Siren` 层使用的激活函数，默认为 None（Identity）。
+        outermost_linear (bool, optional): 为 True 时，合成器最终层是普通
+            `nn.Linear`；否则为 `Siren` 层。默认为 True。
     """
 
     def __init__(
@@ -64,7 +61,7 @@ class ModulateSiren(nn.Module):
         self.img_width = image_width
         self.img_height = image_height
 
-        # ==> Synthesizer
+        # ==> 合成器
         synthesizer_layers = nn.ModuleList([])
         for ind in range(num_layers):
             is_first = ind == 0
@@ -105,7 +102,7 @@ class ModulateSiren(nn.Module):
         self.synthesizer = synthesizer_layers
         # self.synthesizer = nn.Sequential(*synthesizer)
 
-        # ==> Modulator
+        # ==> 调制器
         modulator_layers = nn.ModuleList([])
         for ind in range(num_layers):
             is_first = ind == 0
@@ -127,7 +124,7 @@ class ModulateSiren(nn.Module):
         self.modulator = modulator_layers
         # self.modulator = nn.Sequential(*modulator_layers)
 
-        # ==> Positions
+        # ==> 坐标位置
         tensors = [
             torch.linspace(-1, 1, steps=image_height),
             torch.linspace(-1, 1, steps=image_width),
@@ -137,20 +134,17 @@ class ModulateSiren(nn.Module):
         self.register_buffer("grid", mgrid)
 
     def forward(self, latent):
-        """Synthesize a batch of images from conditioning latent vectors.
+        """根据条件潜向量合成一批图像。
 
-        Runs the shared coordinate grid through the SIREN synthesizer, scaling each
-        layer by the corresponding modulator output, then applies a tanh and reshapes
-        to a channel-first image batch.
+        将共享坐标网格送入 SIREN 合成器，并用相应调制器输出缩放每一层，
+        随后应用 tanh，并重塑为通道优先的图像批次。
 
-        Args:
-            latent (torch.Tensor): Conditioning latent vector of shape
-                `(batch_size, dim_latent)`.
+        参数：
+            latent (torch.Tensor): 形状为 `(batch_size, dim_latent)` 的条件潜向量。
 
-        Returns:
-            x (torch.Tensor): Output image tensor of shape
-                `(batch_size, 1, image_height, image_width)`, with values in
-                $[-1, 1]$.
+        返回：
+            x (torch.Tensor): 形状为 `(batch_size, 1, image_height, image_width)`
+                的输出图像张量，取值范围为 $[-1, 1]$。
         """
         x = self.grid.clone().detach().requires_grad_()
 
@@ -163,32 +157,32 @@ class ModulateSiren(nn.Module):
             x = self.synthesizer[i](x)
             x = x * z
 
-        x = self.synthesizer[-1](x)  # shape of (h*w, 1)
+        x = self.synthesizer[-1](x)  # 形状为 (h*w, 1)
         x = torch.tanh(x)
         x = x.view(
             -1, self.img_height, self.img_width, 1
-        )  # reshape to (batch_size, height, width, channels)
-        x = x.permute(0, 3, 1, 2)  # reshape to (batch_size, channels, height, width)
+        )  # 重塑为 (batch_size, height, width, channels)
+        x = x.permute(0, 3, 1, 2)  # 重塑为 (batch_size, channels, height, width)
         return x
 
 
 class SineLayer(nn.Module):
-    """Single SIREN layer applying a sine nonlinearity to a linear projection.
+    """在线性投影后应用正弦非线性的单个 SIREN 层。
 
-    Computes $\\sin(\\omega_0 \\cdot (W x + b))$, with weights initialized following
-    the SIREN scheme so that activations keep a stable distribution across depth.
+    计算 $\\sin(\\omega_0 \\cdot (W x + b))$，并按照 SIREN 方案初始化权重，
+    使激活值在不同网络深度下保持稳定分布。
 
-    Attributes:
-        linear (nn.Linear): The affine projection applied before the sine.
-        omega_0 (float): Frequency multiplier inside the sine.
-        is_first (bool): Whether this is the first layer (changes weight init).
+    属性：
+        linear (nn.Linear): 正弦运算前应用的仿射投影。
+        omega_0 (float): 正弦函数内部的频率乘子。
+        is_first (bool): 是否为首层；该值会改变权重初始化方式。
 
-    Args:
-        in_features (int): Input feature dimension.
-        out_features (int): Output feature dimension.
-        bias (bool, optional): Whether to include a bias term. Defaults to True.
-        is_first (bool, optional): Whether this is the first SIREN layer. Defaults to False.
-        omega_0 (float, optional): Frequency multiplier inside the sine. Defaults to 30.
+    参数：
+        in_features (int): 输入特征维度。
+        out_features (int): 输出特征维度。
+        bias (bool, optional): 是否包含偏置项，默认为 True。
+        is_first (bool, optional): 是否为首个 SIREN 层，默认为 False。
+        omega_0 (float, optional): 正弦函数内部的频率乘子，默认为 30。
     """
 
     def __init__(
@@ -204,10 +198,11 @@ class SineLayer(nn.Module):
         self.init_weights()
 
     def init_weights(self):
-        """Initialize the linear weights following the SIREN scheme.
+        """按照 SIREN 方案初始化线性层权重。
 
-        First layers draw uniformly from $[-1/n, 1/n]$; later layers draw from
-        $[-\\sqrt{6/n}/\\omega_0, \\sqrt{6/n}/\\omega_0]$, where $n$ is `in_features`.
+        首层从 $[-1/n, 1/n]$ 均匀采样；后续层从
+        $[-\\sqrt{6/n}/\\omega_0, \\sqrt{6/n}/\\omega_0]$ 均匀采样，
+        其中 $n$ 为 `in_features`。
         """
         with torch.no_grad():
             if self.is_first:
@@ -219,40 +214,41 @@ class SineLayer(nn.Module):
                 )
 
     def forward(self, input):
-        """Apply the linear projection followed by a scaled sine.
+        """应用线性投影及带缩放的正弦函数。
 
-        Args:
-            input (torch.Tensor): Input tensor of shape `(..., in_features)`.
+        参数：
+            input (torch.Tensor): 形状为 `(..., in_features)` 的输入张量。
 
-        Returns:
-            out (torch.Tensor): Activated tensor of shape `(..., out_features)`.
+        返回：
+            out (torch.Tensor): 形状为 `(..., out_features)` 的激活后张量。
         """
         return torch.sin(self.omega_0 * self.linear(input))
 
 
 class Siren(nn.Module):
-    """SIREN layer with explicit weight/bias parameters and a sine activation.
+    """显式保存权重/偏置参数并使用正弦激活的 SIREN 层。
 
-    Equivalent to a `SineLayer` but stores `weight`/`bias` as raw `nn.Parameter`
-    tensors and allows a custom activation (defaulting to `Sine`). Used as the final
-    synthesizer layer of `ModulateSiren` when `outermost_linear` is False.
+    功能等价于 `SineLayer`，但会把 `weight`/`bias` 保存为原始 `nn.Parameter`
+    张量，并允许自定义激活函数（默认为 `Sine`）。当 `outermost_linear` 为
+    False 时，该层用作 `ModulateSiren` 的最终合成器层。
 
-    Attributes:
-        weight (nn.Parameter): Weight tensor of shape `(dim_out, dim_in)`.
-        bias (nn.Parameter or None): Bias tensor of shape `(dim_out,)`, or None.
-        activation (nn.Module): Nonlinearity applied after the linear projection.
+    属性：
+        weight (nn.Parameter): 形状为 `(dim_out, dim_in)` 的权重张量。
+        bias (nn.Parameter or None): 形状为 `(dim_out,)` 的偏置张量，或为 None。
+        activation (nn.Module): 在线性投影后应用的非线性函数。
 
-    Args:
-        dim_in (int): Input feature dimension.
-        dim_out (int): Output feature dimension.
-        w0 (float, optional): Frequency multiplier passed to the default `Sine`
-            activation and used in weight init. Defaults to 1.0.
-        c (float, optional): Constant in the weight-init bound $\\sqrt{c/\\text{dim\\_in}}/w_0$. Defaults to 6.0.
-        is_first (bool, optional): Whether this is the first SIREN layer (changes
-            weight init). Defaults to False.
-        use_bias (bool, optional): Whether to include a bias term. Defaults to True.
-        activation (nn.Module or None, optional): Activation applied after the linear
-            projection. Defaults to None (a `Sine` with frequency `w0`).
+    参数：
+        dim_in (int): 输入特征维度。
+        dim_out (int): 输出特征维度。
+        w0 (float, optional): 传给默认 `Sine` 激活函数并用于权重初始化的频率乘子，
+            默认为 1.0。
+        c (float, optional): 权重初始化边界 $\\sqrt{c/\\text{dim\\_in}}/w_0$
+            中的常数，默认为 6.0。
+        is_first (bool, optional): 是否为首个 SIREN 层；该值会改变权重初始化，
+            默认为 False。
+        use_bias (bool, optional): 是否包含偏置项，默认为 True。
+        activation (nn.Module or None, optional): 在线性投影后应用的激活函数。
+            默认为 None，即使用频率为 `w0` 的 `Sine`。
     """
 
     def __init__(
@@ -278,18 +274,18 @@ class Siren(nn.Module):
         self.activation = Sine(w0) if activation is None else activation
 
     def init_(self, weight, bias, c, w0):
-        """Initialize weights in place following the SIREN scheme.
+        """按照 SIREN 方案原地初始化权重。
 
-        Samples uniformly from $[-w_{std}, w_{std}]$ where $w_{std}$ is $1/\\text{dim\\_in}$
-        for the first layer and $\\sqrt{c/\\text{dim\\_in}}/w_0$ otherwise. The `bias`
-        argument is accepted but left unchanged (zero-initialized by the caller).
+        从 $[-w_{std}, w_{std}]$ 均匀采样。首层的 $w_{std}$ 为
+        $1/\\text{dim\\_in}$，其他层为 $\\sqrt{c/\\text{dim\\_in}}/w_0$。
+        `bias` 参数会被接收但保持不变，由调用方将其初始化为零。
 
-        Args:
-            weight (torch.Tensor): Weight tensor of shape `(dim_out, dim_in)`,
-                modified in place.
-            bias (torch.Tensor or None): Bias tensor; unused.
-            c (float): Constant in the non-first-layer std bound.
-            w0 (float): Frequency multiplier used in the non-first-layer std bound.
+        参数：
+            weight (torch.Tensor): 形状为 `(dim_out, dim_in)` 的权重张量，
+                将被原地修改。
+            bias (torch.Tensor or None): 偏置张量，未使用。
+            c (float): 非首层标准差边界中的常数。
+            w0 (float): 非首层标准差边界使用的频率乘子。
         """
         dim = self.dim_in
 
@@ -297,13 +293,13 @@ class Siren(nn.Module):
         weight.uniform_(-w_std, w_std)
 
     def forward(self, x):
-        """Apply the linear projection followed by the activation.
+        """应用线性投影及后续激活函数。
 
-        Args:
-            x (torch.Tensor): Input tensor of shape `(..., dim_in)`.
+        参数：
+            x (torch.Tensor): 形状为 `(..., dim_in)` 的输入张量。
 
-        Returns:
-            out (torch.Tensor): Activated tensor of shape `(..., dim_out)`.
+        返回：
+            out (torch.Tensor): 形状为 `(..., dim_out)` 的激活后张量。
         """
         out = F.linear(x, self.weight, self.bias)
         out = self.activation(out)
@@ -311,12 +307,12 @@ class Siren(nn.Module):
 
 
 class Sine(nn.Module):
-    """Sine activation module computing $\\sin(w_0 x)$.
+    """计算 $\\sin(w_0 x)$ 的正弦激活模块。
 
-    The frequency multiplier $w_0$ is the default activation used by `Siren` layers.
+    频率乘子 $w_0$ 是 `Siren` 层默认激活函数使用的参数。
 
-    Args:
-        w0 (float, optional): Frequency multiplier inside the sine. Defaults to 1.0.
+    参数：
+        w0 (float, optional): 正弦函数内部的频率乘子，默认为 1.0。
     """
 
     def __init__(self, w0=1.0):
@@ -324,13 +320,12 @@ class Sine(nn.Module):
         self.w0 = w0
 
     def forward(self, x):
-        """Apply the scaled sine activation.
+        """应用带缩放的正弦激活。
 
-        Args:
-            x (torch.Tensor): Input tensor of any shape.
+        参数：
+            x (torch.Tensor): 任意形状的输入张量。
 
-        Returns:
-            out (torch.Tensor): Tensor of the same shape with $\\sin(w_0 x)$ applied
-                elementwise.
+        返回：
+            out (torch.Tensor): 与输入形状相同、逐元素应用 $\\sin(w_0 x)$ 后的张量。
         """
         return torch.sin(self.w0 * x)

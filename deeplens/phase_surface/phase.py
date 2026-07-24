@@ -1,4 +1,4 @@
-"""Phase class: a plane substrate with phase pattern on it."""
+"""Phase 类：承载相位图案的平面基底。"""
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,33 +11,29 @@ from ..material import Material
 
 
 class Phase(DeepObj):
-    """Base phase profile for diffractive surfaces (metasurface or DOE).
+    """衍射表面（超表面或 DOE）的基础相位分布。
 
-    Represents a flat (zero-sag) substrate carrying a phase pattern $\\phi(x, y)$,
-    placed at axial position $d$ in the global coordinate system. Provides the
-    common ray-tracing machinery (intersection, refraction, generalized-Snell
-    diffraction, local/global transforms); the phase profile $\\phi$ and its
-    gradient are defined by subclasses.
+    表示承载相位图案 $\\phi(x, y)$ 的平坦（零矢高）基底，位于全局坐标系的
+    轴向位置 $d$。提供通用光线追迹机制（求交、折射、广义 Snell 衍射、
+    局部／全局坐标变换）；相位分布 $\\phi$ 及其梯度由子类定义。
 
-    Attributes:
-        vec_global (torch.Tensor): Global axis direction $[0, 0, 1]$, shape [3].
-        d (torch.Tensor): Axial position of the surface plane in [mm], scalar.
-        pos_x (torch.Tensor): Surface x-offset in [mm], scalar.
-        pos_y (torch.Tensor): Surface y-offset in [mm], scalar.
-        vec_local (torch.Tensor): Unit surface normal in global coordinates, shape [3].
-        mat2 (Material): Material on the exit side of the surface.
-        r (float): Surface radius / half-aperture in [mm].
-        is_square (bool): If True the aperture is a square of side $r\\sqrt{2}$;
-            otherwise a circle of radius $r$.
-        w (float): Square aperture width $r\\sqrt{2}$ in [mm].
-        h (float): Square aperture height $r\\sqrt{2}$ in [mm].
-        diffraction_order (int): Diffraction order $m$ used in the generalized
-            Snell's law. Defaults to 1.
-        norm_radii (float): Radius in [mm] used to normalize coordinates for the
-            phase polynomial. Defaults to `r`.
-        device (str or torch.device): Device holding the tensor state.
+    属性：
+        vec_global (torch.Tensor): 全局轴方向 $[0, 0, 1]$，shape 为 [3]。
+        d (torch.Tensor): 表面平面的轴向位置 [mm]，标量。
+        pos_x (torch.Tensor): 表面 x 偏移 [mm]，标量。
+        pos_y (torch.Tensor): 表面 y 偏移 [mm]，标量。
+        vec_local (torch.Tensor): 全局坐标中的单位表面法线，shape 为 [3]。
+        mat2 (Material): 表面出射侧材料。
+        r (float): 表面半径／半孔径 [mm]。
+        is_square (bool): 为 True 时孔径是边长 $r\\sqrt{2}$ 的方形；
+            否则是半径为 $r$ 的圆形。
+        w (float): 方形孔径宽度 $r\\sqrt{2}$ [mm]。
+        h (float): 方形孔径高度 $r\\sqrt{2}$ [mm]。
+        diffraction_order (int): 广义 Snell 定律使用的衍射级次 $m$。默认值为 1。
+        norm_radii (float): 相位多项式坐标归一化所用半径 [mm]。默认值为 `r`。
+        device (str or torch.device): 存放张量状态的设备。
 
-    Reference:
+    参考资料：
         [1] https://support.zemax.com/hc/en-us/articles/1500005489061-How-diffractive-surfaces-are-modeled-in-OpticStudio
         [2] https://optics.ansys.com/hc/en-us/articles/360042097313-Small-Scale-Metalens-Field-Propagation
         [3] https://optics.ansys.com/hc/en-us/articles/18254409091987-Large-Scale-Metalens-Ray-Propagation
@@ -54,39 +50,39 @@ class Phase(DeepObj):
         is_square=True,
         device="cpu",
     ):
-        """Initialize a flat phase substrate.
+        """初始化平坦相位基底。
 
-        Args:
-            r (float): Surface radius / half-aperture in [mm].
-            d (float): Axial position of the surface plane in [mm].
-            norm_radii (float or None, optional): Radius in [mm] used to normalize
-                coordinates for the phase polynomial. Defaults to None, which uses `r`.
-            mat2 (str, optional): Material on the exit side of the surface. Defaults to "air".
-            pos_xy (tuple, optional): Lateral (x, y) offset of the surface center in [mm].
-                Defaults to (0.0, 0.0).
-            vec_local (tuple, optional): Surface normal direction (not necessarily
-                normalized) in global coordinates. Defaults to (0.0, 0.0, 1.0).
-            is_square (bool, optional): If True the aperture is a square of side
-                $r\\sqrt{2}$; otherwise a circle of radius $r$. Defaults to True.
-            device (str, optional): Device for the tensor state. Defaults to "cpu".
+        参数：
+            r (float): 表面半径／半孔径 [mm]。
+            d (float): 表面平面的轴向位置 [mm]。
+            norm_radii (float or None, optional): 相位多项式坐标归一化所用半径
+                [mm]。默认值为 None，此时使用 `r`。
+            mat2 (str, optional): 表面出射侧材料。默认值为 "air"。
+            pos_xy (tuple, optional): 表面中心的横向 (x, y) 偏移 [mm]。
+                默认值为 (0.0, 0.0)。
+            vec_local (tuple, optional): 全局坐标中的表面法线方向（不要求已归一化）。
+                默认值为 (0.0, 0.0, 1.0)。
+            is_square (bool, optional): 为 True 时孔径是边长 $r\\sqrt{2}$ 的方形；
+                否则是半径为 $r$ 的圆形。默认值为 True。
+            device (str, optional): 张量状态使用的设备。默认值为 "cpu"。
         """
         super().__init__()
 
-        # Global direction vector, always pointing to the positive z-axis
+        # 全局方向向量，始终指向 z 轴正方向
         self.vec_global = torch.tensor([0.0, 0.0, 1.0])
 
-        # Surface position in global coordinate system
+        # 表面在全局坐标系中的位置
         self.d = torch.tensor(d)
         self.pos_x = torch.tensor(pos_xy[0])
         self.pos_y = torch.tensor(pos_xy[1])
 
-        # Surface direction vector in global coordinate system
+        # 表面在全局坐标系中的方向向量
         self.vec_local = F.normalize(torch.tensor(vec_local), p=2, dim=-1)
 
-        # Material after the surface
+        # 表面后的材料
         self.mat2 = Material(mat2)
 
-        # DOE geometry
+        # DOE 几何参数
         self.r = float(r)
         self.is_square = is_square
         self.w = self.r * float(np.sqrt(2))
@@ -98,11 +94,11 @@ class Phase(DeepObj):
         self.device = device if device is not None else torch.device("cpu")
         self.to(self.device)
 
-        # Pre-compute rotation matrices (depends only on static vec_local/vec_global)
+        # 预计算旋转矩阵（仅依赖静态的 vec_local/vec_global）
         self._cache_rotation_matrices()
 
     def _cache_rotation_matrices(self):
-        """Pre-compute and cache rotation matrices for local/global transforms."""
+        """预计算并缓存局部／全局坐标变换的旋转矩阵。"""
         needs_rotation = (
             torch.abs(torch.dot(self.vec_local, self.vec_global) - 1.0) > EPSILON
         )
@@ -118,33 +114,32 @@ class Phase(DeepObj):
             self._R_to_global = None
 
     # ==============================
-    # Abstract methods to be implemented by subclasses
+    # 由子类实现的抽象方法
     # ==============================
     def phi(self, x, y):
-        """Reference phase map at design wavelength. Must be implemented by subclasses."""
+        """设计波长下的参考相位图，必须由子类实现。"""
         raise NotImplementedError("phi() must be implemented by subclasses")
 
     def dphi_dxy(self, x, y):
-        """Calculate phase derivatives. Must be implemented by subclasses."""
+        """计算相位导数，必须由子类实现。"""
         raise NotImplementedError("dphi_dxy() must be implemented by subclasses")
 
     # ==============================
-    # Computation (ray tracing)
+    # 计算（光线追迹）
     # ==============================
     def ray_reaction(self, ray, n1, n2):
-        """Trace a ray through the phase surface.
+        """追迹光线通过相位表面。
 
-        Transforms the ray to local coordinates, intersects it with the plane,
-        applies refraction then diffraction, and transforms back to global
-        coordinates.
+        将光线变换到局部坐标系，与平面求交，依次施加折射和衍射，再变换回
+        全局坐标系。
 
-        Args:
-            ray (Ray): Incident ray in global coordinates.
-            n1 (float): Refractive index of the medium before the surface.
-            n2 (float): Refractive index of the medium after the surface.
+        参数：
+            ray (Ray): 全局坐标中的入射光线。
+            n1 (float): 表面前介质的折射率。
+            n2 (float): 表面后介质的折射率。
 
-        Returns:
-            ray (Ray): Updated ray in global coordinates.
+        返回：
+            ray (Ray): 更新后的全局坐标光线。
         """
         ray = self.to_local_coord(ray)
         ray = self.intersect(ray, n1)
@@ -154,24 +149,21 @@ class Phase(DeepObj):
         return ray
 
     def intersect(self, ray, n=1.0):
-        """Solve ray-plane intersection in local coordinates and update the ray.
+        """在局部坐标中求解光线与平面的交点并更新光线。
 
-        Advances each ray to the $z = 0$ plane, marks rays falling outside the
-        aperture as invalid, and (for coherent rays) accumulates optical path
-        length. Rays nearly parallel to the plane are guarded against division
-        by a near-zero z-direction.
+        将每条光线推进到 $z = 0$ 平面，将落在孔径外的光线标记为无效，并对
+        相干光线累加光程。对于几乎平行于平面的光线，避免除以接近零的 z 方向。
 
-        Args:
-            ray (Ray): Ray in local coordinates.
-            n (float, optional): Refractive index of the medium the ray travels
-                through, used for OPL accumulation. Defaults to 1.0.
+        参数：
+            ray (Ray): 局部坐标中的光线。
+            n (float, optional): 光线传播介质的折射率，用于累加 OPL。
+                默认值为 1.0。
 
-        Returns:
-            ray (Ray): Ray advanced to the surface plane with updated `o`,
-                `is_valid`, and `opl`.
+        返回：
+            ray (Ray): 已推进到表面平面，并更新 `o`、`is_valid` 和 `opl` 的光线。
         """
-        # Solve intersection. Guard against a near-zero z-direction (rays
-        # parallel to the plane) before dividing, matching ray.py prop_to.
+        # 求解交点。除法前防止 z 方向接近零（光线平行于平面），
+        # 与 ray.py 的 prop_to 保持一致。
         dz = ray.d[..., 2]
         dz = torch.where(dz.abs() < EPSILON, torch.full_like(dz, EPSILON), dz)
         t = (0.0 - ray.o[..., 2]) / dz
@@ -187,7 +179,7 @@ class Phase(DeepObj):
                 ray.is_valid > 0
             )
 
-        # Update rays
+        # 更新光线
         new_o = ray.o + ray.d * t.unsqueeze(-1)
         ray.o = torch.where(valid.unsqueeze(-1), new_o, ray.o)
         ray.is_valid = ray.is_valid * valid
@@ -200,50 +192,48 @@ class Phase(DeepObj):
         return ray
 
     def diffract(self, ray, n2=1.0):
-        """Apply phase-surface diffraction to a ray.
+        """对光线施加相位表面衍射。
 
-        Two effects are applied:
+        施加以下两种效应：
 
-        1. The phase $\\phi$ (in radians) adds to the optical path length as
-           $\\phi \\cdot \\lambda / (2\\pi)$, where $\\lambda$ is converted from [µm]
-           to [mm] internally.
-        2. The phase gradient bends the ray via the generalized Snell's law
+        1. 相位 $\\phi$（单位为 rad）按 $\\phi \\cdot \\lambda / (2\\pi)$ 加入光程，
+           其中 $\\lambda$ 在内部从 [µm] 转换为 [mm]。
+        2. 相位梯度通过广义 Snell 定律弯折光线
            $n_2 \\sin\\theta_2 = n_1 \\sin\\theta_1 + m\\,\\lambda / (2\\pi)\\,\\partial\\phi/\\partial x$.
-           Since standard refraction is already applied, the remaining deflection
-           added to the unit direction is $\\Delta l = m\\,\\lambda / (2\\pi n_2)\\,\\partial\\phi/\\partial x$.
-           The deflection sign is flipped for backward-propagating rays.
+           由于标准折射已施加，加到单位方向上的剩余偏转为
+           $\\Delta l = m\\,\\lambda / (2\\pi n_2)\\,\\partial\\phi/\\partial x$。
+           对反向传播光线，偏转符号翻转。
 
-        Args:
-            ray (Ray): Ray with position, direction, and wavelength in [µm].
-            n2 (float, optional): Refractive index of the medium after the surface;
-                the deflection scales as $1/n_2$. Defaults to 1.0.
+        参数：
+            ray (Ray): 包含位置、方向和波长 [µm] 的光线。
+            n2 (float, optional): 表面后介质的折射率；偏转按 $1/n_2$ 缩放。
+                默认值为 1.0。
 
-        Returns:
-            ray (Ray): Ray with updated direction `d` and (for coherent rays) `opl`.
+        返回：
+            ray (Ray): 方向 `d` 以及相干光线的 `opl` 已更新的光线。
 
-        Note:
-            Material dispersion is not modelled here. The phase profile $\\phi(x, y)$
-            is treated as wavelength-independent; only the $\\lambda$ scaling in the
-            generalized Snell's law and the OPL accumulation vary with wavelength.
-            For a physical DOE whose phase profile itself changes with wavelength
-            (via $(n(\\lambda) - 1)\\,h$), use `DiffractiveSurface` instead.
+        说明：
+            此处不建模材料色散。相位分布 $\\phi(x, y)$ 视为与波长无关；只有广义
+            Snell 定律中的 $\\lambda$ 缩放和 OPL 累加随波长变化。对于相位分布
+            本身通过 $(n(\\lambda) - 1)\\,h$ 随波长变化的物理 DOE，请改用
+            `DiffractiveSurface`。
 
-        Reference:
+        参考文献：
             [1] https://support.zemax.com/hc/en-us/articles/1500005489061-How-diffractive-surfaces-are-modeled-in-OpticStudio
             [2] Light propagation with phase discontinuities: generalized laws of reflection and refraction. Science 2011.
         """
         forward = (ray.d * ray.is_valid.unsqueeze(-1))[..., 2].sum() > 0
         valid = ray.is_valid > 0
 
-        # Step 1: DOE phase modulation
+        # 步骤 1：DOE 相位调制
         if ray.is_coherent:
             phi = self.phi(ray.o[..., 0], ray.o[..., 1])
             new_opl = ray.opl + phi.unsqueeze(-1) * (ray.wvln * 1e-3) / (2 * torch.pi)
             ray.opl = torch.where(valid.unsqueeze(-1), new_opl, ray.opl)
 
-        # Step 2: bend rays via generalized Snell's law
+        # 步骤 2：通过广义 Snell 定律弯折光线
         # n₂·l₂ = n₁·l₁ + M·λ/(2π)·dφ/dx
-        # After refraction: l₂ = l_refracted + M·λ/(2π·n₂)·dφ/dx
+        # 折射后：l₂ = l_refracted + M·λ/(2π·n₂)·dφ/dx
         dphidx, dphidy = self.dphi_dxy(ray.o[..., 0], ray.o[..., 1])
 
         wvln_mm = ray.wvln * 1e-3
@@ -263,46 +253,45 @@ class Phase(DeepObj):
         return ray
 
     def refract(self, ray, eta):
-        """Calculate refracted ray according to Snell's law in local coordinate system.
+        """在局部坐标系中根据 Snell 定律计算折射光线。
 
-        Args:
-            ray (Ray): incident ray.
-            eta (float): ratio of indices of refraction, eta = n_i / n_t
+        参数：
+            ray (Ray): 入射光线。
+            eta (float): 折射率之比，eta = n_i / n_t
 
-        Returns:
-            ray (Ray): refracted ray.
+        返回：
+            ray (Ray): 折射光线。
         """
-        # Compute normal vectors
+        # 计算法向量
         normal_vec = self.normal_vec(ray)
 
-        # Compute refraction according to Snell's law
+        # 根据 Snell 定律计算折射
         dot_product = (-normal_vec * ray.d).sum(-1).unsqueeze(-1)
         k = 1 - eta**2 * (1 - dot_product**2)
 
-        # Total internal reflection
+        # 全反射
         valid = (k >= 0).squeeze(-1) & (ray.is_valid > 0)
         k = k * valid.unsqueeze(-1)
 
-        # Update ray direction
+        # 更新光线方向
         new_d = eta * ray.d + (eta * dot_product - torch.sqrt(k + EPSILON)) * normal_vec
         ray.d = torch.where(valid.unsqueeze(-1), new_d, ray.d)
 
-        # Update ray valid mask
+        # 更新光线有效性掩膜
         ray.is_valid = ray.is_valid * valid
 
         return ray
 
     def normal_vec(self, ray):
-        """Calculate the surface normal vector at intersection points.
+        """计算交点处的表面法向量。
 
-        The normal points from the surface toward the side the light comes from
-        (i.e. it is flipped to oppose the ray's z-direction).
+        法线从表面指向光线来向一侧（即翻转为与光线 z 方向相反）。
 
-        Args:
-            ray (Ray): Ray providing the propagation direction.
+        参数：
+            ray (Ray): 提供传播方向的光线。
 
-        Returns:
-            normal_vec (torch.Tensor): Unit normal vectors, same shape as `ray.d`.
+        返回：
+            normal_vec (torch.Tensor): 单位法向量，shape 与 `ray.d` 相同。
         """
         normal_vec = torch.zeros_like(ray.d)
         normal_vec[..., 2] = -1
@@ -311,20 +300,20 @@ class Phase(DeepObj):
         return normal_vec
 
     def to_local_coord(self, ray):
-        """Transform ray to local coordinate system.
+        """将光线变换到局部坐标系。
 
-        Args:
-            ray (Ray): input ray in global coordinate system.
+        参数：
+            ray (Ray): 全局坐标系中的输入光线。
 
-        Returns:
-            ray (Ray): transformed ray in local coordinate system.
+        返回：
+            ray (Ray): 变换到局部坐标系的光线。
         """
-        # Shift ray origin to surface origin
+        # 将光线起点平移到表面原点
         offset = torch.stack([self.pos_x, self.pos_y, self.d]).expand_as(ray.o)
         ray.o = ray.o - offset
 
-        # Rotate using the matrix cached at init instead of rebuilding it every
-        # interaction. None means no rotation is needed (surface is on-axis).
+        # 使用初始化时缓存的矩阵旋转，避免每次相互作用时重新构建。
+        # None 表示无需旋转（表面位于轴上）。
         if self._R_to_local is not None:
             ray.o = self._apply_rotation(ray.o, self._R_to_local)
             ray.d = self._apply_rotation(ray.d, self._R_to_local)
@@ -333,28 +322,28 @@ class Phase(DeepObj):
         return ray
 
     def to_global_coord(self, ray):
-        """Transform ray to global coordinate system.
+        """将光线变换到全局坐标系。
 
-        Args:
-            ray (Ray): input ray in local coordinate system.
+        参数：
+            ray (Ray): 局部坐标系中的输入光线。
 
-        Returns:
-            ray (Ray): transformed ray in global coordinate system.
+        返回：
+            ray (Ray): 变换到全局坐标系的光线。
         """
-        # Rotate using the cached inverse matrix (see to_local_coord).
+        # 使用缓存的逆矩阵旋转（参见 to_local_coord）。
         if self._R_to_global is not None:
             ray.o = self._apply_rotation(ray.o, self._R_to_global)
             ray.d = self._apply_rotation(ray.d, self._R_to_global)
             ray.d = F.normalize(ray.d, p=2, dim=-1)
 
-        # Shift ray origin back to global coordinates
+        # 将光线起点平移回全局坐标
         offset = torch.stack([self.pos_x, self.pos_y, self.d]).expand_as(ray.o)
         ray.o = ray.o + offset
 
         return ray
 
     def _get_rotation_matrix(self, vec_from, vec_to):
-        """Calculate rotation matrix to rotate vec_from to vec_to."""
+        """计算将 vec_from 旋转到 vec_to 的旋转矩阵。"""
         vec_from = F.normalize(vec_from.to(self.device), p=2, dim=-1)
         vec_to = F.normalize(vec_to.to(self.device), p=2, dim=-1)
 
@@ -390,31 +379,30 @@ class Phase(DeepObj):
         return R
 
     def _apply_rotation(self, vectors, R):
-        """Apply rotation matrix to vectors."""
+        """将旋转矩阵应用于向量。"""
         original_shape = vectors.shape
         vectors_flat = vectors.view(-1, 3)
         rotated_flat = torch.mm(vectors_flat, R.t())
         return rotated_flat.view(original_shape)
 
     # ==============================
-    # Optimization
+    # 优化
     # ==============================
     def get_optimizer_params(self, lrs=[1e-4, 1e-2], optim_mat=False):
-        """Generate optimizer parameters. Must be implemented by subclasses."""
+        """生成优化器参数，必须由子类实现。"""
         raise NotImplementedError(
             "get_optimizer_params() must be implemented by subclasses"
         )
 
     def get_optimizer(self, lrs):
-        """Build an Adam optimizer over the surface's learnable parameters.
+        """为表面的可学习参数构建 Adam 优化器。
 
-        Args:
-            lrs (list or float): Learning rate(s) for the parameter groups. A
-                single float is wrapped into a one-element list.
+        参数：
+            lrs (list or float): 参数组的学习率。单个 float 会包装为单元素列表。
 
-        Returns:
-            optimizer (torch.optim.Adam): Adam optimizer over the parameters
-                returned by `get_optimizer_params`.
+        返回：
+            optimizer (torch.optim.Adam): 用于 `get_optimizer_params` 返回参数的
+                Adam 优化器。
         """
         if isinstance(lrs, float):
             lrs = [lrs]
@@ -423,35 +411,33 @@ class Phase(DeepObj):
         return optimizer
 
     def update_r(self, r):
-        """Update surface radius / half-aperture and the square aperture extents.
+        """更新表面半径／半孔径及方形孔径范围。
 
-        A flat phase surface has no geometric height constraint, and because the
-        polynomial is normalized by a fixed `norm_radii`, phase coefficients do
-        not need rescaling.
+        平坦相位表面没有几何高度约束；由于多项式使用固定 `norm_radii` 归一化，
+        相位系数无需重新缩放。
 
-        Args:
-            r (float): New surface radius / half-aperture in [mm].
+        参数：
+            r (float): 新表面半径／半孔径 [mm]。
         """
         self.r = float(r)
         self.w = self.r * float(np.sqrt(2))
         self.h = self.r * float(np.sqrt(2))
 
     def phase2height_map(self, design_wvln, refractive_idx=1.5, res=512):
-        """Convert the phase map to a physical height map for DOE fabrication.
+        """将相位图转换为用于 DOE 制造的物理高度图。
 
-        Derived from the phase-height relation of a transmissive DOE in air,
+        根据空气中透射式 DOE 的相位－高度关系推导：
         $\\phi = (2\\pi/\\lambda)(n - 1)h$, giving $h = \\phi\\lambda / (2\\pi(n - 1))$.
 
-        Args:
-            design_wvln (float): Design wavelength in [µm].
-            refractive_idx (float, optional): Refractive index of the DOE material
-                at `design_wvln`. Defaults to 1.5.
-            res (int, optional): Pixel resolution of the returned square height map.
-                Defaults to 512.
+        参数：
+            design_wvln (float): 设计波长 [µm]。
+            refractive_idx (float, optional): DOE 材料在 `design_wvln` 处的折射率。
+                默认值为 1.5。
+            res (int, optional): 返回方形高度图的像素分辨率。默认值为 512。
 
-        Returns:
-            height_map (torch.Tensor): Height map of shape [res, res] in the same
-                units as `design_wvln` ([µm]).
+        返回：
+            height_map (torch.Tensor): shape 为 [res, res] 的高度图，单位与
+                `design_wvln` 相同（[µm]）。
         """
         x, y = torch.meshgrid(
             torch.linspace(-self.w / 2, self.w / 2, res),
@@ -459,35 +445,34 @@ class Phase(DeepObj):
             indexing="xy",
         )
         x, y = x.to(self.device), y.to(self.device)
-        phi = self.phi(x, y)  # [0, 2π], shape [res, res]
+        phi = self.phi(x, y)  # [0, 2π]，shape 为 [res, res]
         height_map = phi * design_wvln / (2 * torch.pi * (refractive_idx - 1))
         return height_map
 
     # =========================================
-    # Visualization
+    # 可视化
     # =========================================
     def draw_r(self):
-        """Effective drawing radius for 2D layout drawing."""
+        """二维布局绘制使用的有效半径。"""
         return self.r
 
     def surface_with_offset(self, *args, **kwargs):
-        """Return the surface axial position for layout drawing.
+        """返回布局绘制所需的表面轴向位置。
 
-        The surface is flat (zero sag), so this returns the plane position `d`
-        regardless of the lateral coordinates. Any positional/keyword arguments
-        are accepted for API compatibility and ignored.
+        该表面平坦（零矢高），因此无论横向坐标如何都返回平面位置 `d`。
+        为兼容 API，可接收任意位置／关键字参数，但会忽略。
 
-        Returns:
-            d (torch.Tensor): Axial plane position in [mm], scalar.
+        返回：
+            d (torch.Tensor): 平面轴向位置 [mm]，标量。
         """
         return self.d
 
     def draw_phase_map(self, save_name="./DOE_phase_map.png"):
-        """Draw the phase map (clipped to $[0, 2\\pi]$) and save it to a file.
+        """绘制截断到 $[0, 2\\pi]$ 的相位图并保存到文件。
 
-        Args:
-            save_name (str, optional): Output image path. Defaults to
-                "./DOE_phase_map.png".
+        参数：
+            save_name (str, optional): 输出图像路径。默认值为
+                "./DOE_phase_map.png"。
         """
         x, y = torch.meshgrid(
             torch.linspace(-self.w / 2, self.w / 2, 2000),
@@ -506,23 +491,21 @@ class Phase(DeepObj):
         plt.close(fig)
 
     def draw_widget(self, ax, color="black", linestyle="-"):
-        """Draw the DOE as a sawtooth (blazed) profile on a 2D layout axis.
+        """在二维布局坐标轴上将 DOE 绘制为锯齿（闪耀）轮廓。
 
-        Args:
-            ax (matplotlib.axes.Axes): Axis to draw on.
-            color (str, optional): Accepted for API consistency but ignored; the
-                profile is always drawn in orange. Defaults to "black".
-            linestyle (str, optional): Matplotlib line style for the profile.
-                Defaults to "-".
+        参数：
+            ax (matplotlib.axes.Axes): 用于绘制的坐标轴。
+            color (str, optional): 为保持 API 一致性而接收，但会忽略；轮廓始终
+                以橙色绘制。默认值为 "black"。
+            linestyle (str, optional): 轮廓的 Matplotlib 线型。默认值为 "-"。
         """
-        # Use an offset that does not depend on axial position: a DOE at d=0
-        # would otherwise give max_offset=0 (np.fmod -> NaN, blank plot), and a
-        # negative d would give a negative offset. Falling back to r keeps it
-        # strictly positive for any DOE with r>0.
+        # 使用不依赖轴向位置的偏移：否则 d=0 的 DOE 会得到 max_offset=0
+        # （np.fmod -> NaN，图像空白），负 d 还会产生负偏移。回退到 r 可保证
+        # 任意 r>0 的 DOE 都得到严格正值。
         max_offset = max(abs(self.d.item()), self.r) / 100
         d = self.d.item()
 
-        # Draw DOE
+        # 绘制 DOE
         roc = self.r * 2
         x = np.linspace(-self.r, self.r, 128)
         y = np.zeros_like(x)
@@ -532,16 +515,16 @@ class Phase(DeepObj):
         ax.plot(d + sag, x, color="orange", linestyle=linestyle, linewidth=0.75)
 
     # =========================================
-    # IO
+    # 输入输出
     # =========================================
     def save_ckpt(self, save_path="./doe.pth"):
-        """Save DOE parameters. Must be implemented by subclasses."""
+        """保存 DOE 参数，必须由子类实现。"""
         raise NotImplementedError("save_ckpt() must be implemented by subclasses")
 
     def load_ckpt(self, load_path="./doe.pth"):
-        """Load DOE parameters. Must be implemented by subclasses."""
+        """加载 DOE 参数，必须由子类实现。"""
         raise NotImplementedError("load_ckpt() must be implemented by subclasses")
 
     def surf_dict(self):
-        """Return surface parameters. Must be implemented by subclasses."""
+        """返回表面参数，必须由子类实现。"""
         raise NotImplementedError("surf_dict() must be implemented by subclasses")

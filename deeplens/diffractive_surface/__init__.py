@@ -1,4 +1,4 @@
-"""Diffractive surface module."""
+"""衍射表面模块。"""
 
 from .diffractive import DiffractiveSurface
 from .binary2 import Binary2

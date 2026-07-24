@@ -1,56 +1,55 @@
-"""Optics configuration constants and utilities for DeepLens."""
+"""DeepLens 的光学配置常量与实用工具。"""
 
 import numpy as np
 
 # ===========================================
-# Tunable per-experiment constants
+# 可按实验调整的常量
 #
-# These are safe to adjust for a given simulation or design run.
-# They control fidelity/speed trade-offs and optical defaults.
+# 可针对具体仿真或设计任务安全调整这些常量。
+# 它们控制精度/速度权衡和光学默认值。
 # ===========================================
 
-DEPTH = -20000.0  # approximate infinity [mm]
+DEPTH = -20000.0  # 近似无穷远 [mm]
 
-SPP_PSF = 2 << 12  # 8192 — samples per pixel for PSF calculation
-SPP_COHERENT = 2 << 23  # ~16.7 M — samples for coherent optics
-SPP_CALC = 1024  # samples for low-accuracy computations (e.g. refocusing)
-SPP_RENDER = 32  # samples for rendering
-SPP_PARAXIAL = 32  # samples for paraxial approximation
+SPP_PSF = 2 << 12  # 8192——计算 PSF 时每像素的采样数
+SPP_COHERENT = 2 << 23  # 约 16.7 M——相干光学采样数
+SPP_CALC = 1024  # 低精度计算（例如重新对焦）的采样数
+SPP_RENDER = 32  # 渲染采样数
+SPP_PARAXIAL = 32  # 近轴近似采样数
 
-PSF_KS = 64  # PSF kernel size [pixels]
-GEO_GRID = 21  # spatial grid size for spatially-varying PSF map
+PSF_KS = 64  # PSF 核尺寸 [pixels]
+GEO_GRID = 21  # 空间变化 PSF 图的空间网格尺寸
 
-DEFAULT_WAVE = 0.587  # [µm] default design wavelength (green, Fraunhofer d)
+DEFAULT_WAVE = 0.587  # [µm] 默认设计波长（绿色，Fraunhofer d 线）
 
 # ===========================================
-# Physical / numerical constants — do not modify
+# 物理/数值常量——请勿修改
 #
-# These encode physical reality or numerical stability thresholds.
-# Changing them will silently break chromatic aberration calculations,
-# material dispersion, Zemax export, and gradient numerics.
+# 这些常量表示物理事实或数值稳定性阈值。
+# 修改它们会悄然破坏色差计算、材料色散、Zemax 导出和梯度数值计算。
 # ===========================================
 
-# Tolerance deltas for finite-difference / paraxial approximations
+# 有限差分/近轴近似的容差增量
 DELTA = 1e-6
 DELTA_PARAXIAL = 0.01
-EPSILON = 1e-12  # numerical zero guard (replaces 0 in divisions / sqrts)
+EPSILON = 1e-12  # 数值零保护（在除法/平方根中替代 0）
 
-# Primary RGB wavelengths [µm] — used for polychromatic ray tracing and
-# Zemax WAVL export.  Order: [R, G, B].
+# 主要 RGB 波长 [µm]——用于多色光线追迹和 Zemax WAVL 导出。
+# 顺序：[R, G, B]。
 WAVE_RGB = [0.656, 0.587, 0.486]
 
-# Fraunhofer reference lines [µm] — standard spectral lines for V-number
-# and chromatic aberration (Abbe number = (nd-1)/(nF-nC)).
-WVLN_d = 0.5876  # yellow He-d line (primary)
-WVLN_F = 0.4861  # blue  H-F line
-WVLN_C = 0.6563  # red   H-C line
+# Fraunhofer 参考谱线 [µm]——用于 V 数和色差的标准谱线
+#（Abbe number = (nd-1)/(nF-nC)）。
+WVLN_d = 0.5876  # 黄色 He-d 线（主要）
+WVLN_F = 0.4861  # 蓝色 H-F 线
+WVLN_C = 0.6563  # 红色 H-C 线
 
-# Narrow-band three-line spectra [µm] — used for band-specific analysis
+# 窄带三线光谱 [µm]——用于特定波段分析
 WAVE_RED = [0.620, 0.660, 0.700]
 WAVE_GREEN = [0.500, 0.530, 0.560]
 WAVE_BLUE = [0.450, 0.470, 0.490]
 
-# Hyperspectral / full visible spectrum
-FULL_SPECTRUM = np.arange(0.400, 0.701, 0.02)  # 400–700 nm, 20 nm step
-HYPER_SPEC_RANGE = [0.42, 0.66]  # [µm] hyperspectral imaging range
-HYPER_SPEC_BAND = 49  # number of bands at 5 nm/step
+# 高光谱/完整可见光谱
+FULL_SPECTRUM = np.arange(0.400, 0.701, 0.02)  # 400–700 nm，步长 20 nm
+HYPER_SPEC_RANGE = [0.42, 0.66]  # [µm] 高光谱成像范围
+HYPER_SPEC_BAND = 49  # 以 5 nm/step 划分的波段数

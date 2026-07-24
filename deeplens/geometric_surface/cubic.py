@@ -1,4 +1,4 @@
-"""Cubic surface."""
+"""三次曲面。"""
 
 import numpy as np
 import torch
@@ -7,20 +7,23 @@ from .base import Surface
 
 
 class Cubic(Surface):
-    """Cubic phase plate surface.
+    """三次相位板表面。
 
-    A freeform surface whose sag is an odd polynomial of $x$ and $y$ with no
-    rotational symmetry: $z = b_3 (x^3 + y^3) + b_5 (x^5 + y^5) + b_7 (x^7 + y^7)$.
-    The number of active terms is set by the length of `b` (degree 1 to 3). Such
-    cubic phase masks are used in wavefront-coding / extended-depth-of-field designs.
+    该自由曲面的矢高是不具旋转对称性的 $x$、$y$ 奇次多项式：
+    $z = b_3 (x^3 + y^3) + b_5 (x^5 + y^5) + b_7 (x^7 + y^7)$。
+    有效项数由 `b` 的长度决定（1 至 3 阶）。这类三次相位掩膜用于波前编码／
+    扩展景深设计。
 
-    Attributes:
-        b (torch.Tensor): All cubic coefficients as a 1D tensor, in [1/mm^2], [1/mm^4], [1/mm^6].
-        b3 (torch.Tensor): Scalar coefficient of the cubic ($x^3 + y^3$) term, in [1/mm^2].
-        b5 (torch.Tensor): Scalar coefficient of the quintic ($x^5 + y^5$) term, in [1/mm^4]. Only present when b_degree at least 2.
-        b7 (torch.Tensor): Scalar coefficient of the septic ($x^7 + y^7$) term, in [1/mm^6]. Only present when b_degree is 3.
-        b_degree (int): Number of active polynomial terms (1, 2, or 3).
-        rotate_angle (float): In-plane rotation angle of the surface, in radians.
+    属性：
+        b (torch.Tensor): 包含所有三次曲面系数的一维张量，单位依次为
+            [1/mm^2]、[1/mm^4]、[1/mm^6]。
+        b3 (torch.Tensor): 三次项（$x^3 + y^3$）的标量系数，单位为 [1/mm^2]。
+        b5 (torch.Tensor): 五次项（$x^5 + y^5$）的标量系数，单位为 [1/mm^4]。
+            仅当 b_degree 至少为 2 时存在。
+        b7 (torch.Tensor): 七次项（$x^7 + y^7$）的标量系数，单位为 [1/mm^6]。
+            仅当 b_degree 为 3 时存在。
+        b_degree (int): 有效多项式项数（1、2 或 3）。
+        rotate_angle (float): 表面的面内旋转角，单位为 rad。
     """
 
     def __init__(
@@ -34,20 +37,23 @@ class Cubic(Surface):
         is_square=False,
         device="cpu",
     ):
-        """Initialize a cubic phase plate surface.
+        """初始化三次相位板表面。
 
-        Args:
-            r (float): Aperture radius (semi-diameter), in [mm].
-            d (float): Axial distance (position) of the surface along the optical axis, in [mm].
-            b (list): Cubic coefficients ordered as $[b_3, b_5, b_7]$. Its length (1, 2, or 3) sets the polynomial degree; units are [1/mm^2], [1/mm^4], [1/mm^6].
-            mat2 (str or Material): Material after the surface.
-            pos_xy (list, optional): Lateral $(x, y)$ offset of the surface, in [mm]. Defaults to [0.0, 0.0].
-            vec_local (list, optional): Local surface normal (optical axis) direction. Defaults to [0.0, 0.0, 1.0].
-            is_square (bool, optional): Whether the aperture is square instead of circular. Defaults to False.
-            device (str, optional): Torch device. Defaults to "cpu".
+        参数：
+            r (float): 孔径半径（半直径），单位为 [mm]。
+            d (float): 表面沿光轴的轴向距离（位置），单位为 [mm]。
+            b (list): 按 $[b_3, b_5, b_7]$ 排列的三次曲面系数。其长度
+                （1、2 或 3）决定多项式阶数；单位为 [1/mm^2]、[1/mm^4]、[1/mm^6]。
+            mat2 (str or Material): 表面后的材料。
+            pos_xy (list, optional): 表面的横向 $(x, y)$ 偏移，单位为 [mm]。
+                默认值为 [0.0, 0.0]。
+            vec_local (list, optional): 局部表面法线（光轴）方向。
+                默认值为 [0.0, 0.0, 1.0]。
+            is_square (bool, optional): 孔径是否为方形而非圆形。默认值为 False。
+            device (str, optional): Torch 设备。默认值为 "cpu"。
 
-        Raises:
-            ValueError: If `b` has length other than 1, 2, or 3.
+        异常：
+            ValueError: 当 `b` 的长度不是 1、2 或 3 时抛出。
         """
         Surface.__init__(
             self,
@@ -81,28 +87,29 @@ class Cubic(Surface):
 
     @classmethod
     def init_from_dict(cls, surf_dict):
-        """Construct a `Cubic` surface from a parameter dictionary.
+        """从参数字典构造 `Cubic` 表面。
 
-        Args:
-            surf_dict (dict): Surface parameters with keys "r", "d", "b", and "mat2".
+        参数：
+            surf_dict (dict): 包含 "r"、"d"、"b" 和 "mat2" 的表面参数。
 
-        Returns:
-            surf (Cubic): The constructed cubic surface.
+        返回：
+            surf (Cubic): 构造得到的三次曲面。
         """
         return cls(surf_dict["r"], surf_dict["d"], surf_dict["b"], surf_dict["mat2"])
 
     def _sag(self, x, y):
-        """Compute surface sag $z(x, y)$ for the cubic phase plate.
+        """计算三次相位板的表面矢高 $z(x, y)$。
 
-        Evaluates $z = b_3 (x^3 + y^3) + b_5 (x^5 + y^5) + b_7 (x^7 + y^7)$ up to the
-        active degree, optionally applying the in-plane `rotate_angle` first.
+        计算截至有效阶数的
+        $z = b_3 (x^3 + y^3) + b_5 (x^5 + y^5) + b_7 (x^7 + y^7)$，
+        并可选择先施加面内 `rotate_angle`。
 
-        Args:
-            x (torch.Tensor): Local x-coordinates, in [mm].
-            y (torch.Tensor): Local y-coordinates, in [mm], broadcastable with `x`.
+        参数：
+            x (torch.Tensor): 局部 x 坐标，单位为 [mm]。
+            y (torch.Tensor): 局部 y 坐标，单位为 [mm]，可与 `x` 广播。
 
-        Returns:
-            z (torch.Tensor): Surface sag at $(x, y)$, in [mm].
+        返回：
+            z (torch.Tensor): $(x, y)$ 处的表面矢高，单位为 [mm]。
         """
         if self.rotate_angle != 0:
             x = x * float(np.cos(self.rotate_angle)) - y * float(
@@ -139,15 +146,15 @@ class Cubic(Surface):
         return z
 
     def _dfdxy(self, x, y):
-        """Compute the partial derivatives of the sag with respect to $x$ and $y$.
+        """计算矢高相对于 $x$ 和 $y$ 的偏导数。
 
-        Args:
-            x (torch.Tensor): Local x-coordinates, in [mm].
-            y (torch.Tensor): Local y-coordinates, in [mm], broadcastable with `x`.
+        参数：
+            x (torch.Tensor): 局部 x 坐标，单位为 [mm]。
+            y (torch.Tensor): 局部 y 坐标，单位为 [mm]，可与 `x` 广播。
 
-        Returns:
-            dfdx (torch.Tensor): Partial derivative $\\partial z / \\partial x$, dimensionless.
-            dfdy (torch.Tensor): Partial derivative $\\partial z / \\partial y$, dimensionless.
+        返回：
+            dfdx (torch.Tensor): 偏导数 $\\partial z / \\partial x$，无量纲。
+            dfdy (torch.Tensor): 偏导数 $\\partial z / \\partial y$，无量纲。
         """
         if self.rotate_angle != 0:
             x = x * float(np.cos(self.rotate_angle)) - y * float(
@@ -180,24 +187,26 @@ class Cubic(Surface):
         return dfdx, dfdy
 
     def get_optimizer_params(self, lrs=[1e-4], decay=0.1, optim_mat=False):
-        """Build per-parameter optimizer groups for this surface.
+        """为该表面的每个参数构建优化器参数组。
 
-        Enables gradients on the axial distance `d` and the active cubic
-        coefficients (and optionally the material). If a single learning rate is
-        given, rates for higher-order coefficients are derived by `decay` powers.
+        启用轴向距离 `d` 和有效三次曲面系数（以及可选材料）的梯度。若只给定
+        一个学习率，则按 `decay` 的幂得到高阶系数的学习率。
 
-        Args:
-            lrs (list, optional): Learning rates. A single-element list is broadcast to all coefficients via `decay`. Defaults to [1e-4].
-            decay (float, optional): Geometric decay factor applied to higher-order coefficient learning rates. Defaults to 0.1.
-            optim_mat (bool, optional): Whether to also optimize the material parameters. Defaults to False.
+        参数：
+            lrs (list, optional): 学习率。单元素列表通过 `decay` 扩展到所有系数。
+                默认值为 [1e-4]。
+            decay (float, optional): 应用于高阶系数学习率的几何衰减因子。
+                默认值为 0.1。
+            optim_mat (bool, optional): 是否同时优化材料参数。默认值为 False。
 
-        Returns:
-            params (list): List of parameter-group dicts ({"params": [...], "lr": ...}) for a torch optimizer.
+        返回：
+            params (list): 用于 torch 优化器的参数组字典列表
+                （{"params": [...], "lr": ...}）。
 
-        Raises:
-            ValueError: If `b_degree` is not 1, 2, or 3.
+        异常：
+            ValueError: 当 `b_degree` 不是 1、2 或 3 时抛出。
         """
-        # Broadcast learning rates to all cubic coefficients
+        # 将学习率扩展到所有三次曲面系数
         if len(lrs) == 1:
             lrs = lrs + [
                 lrs[0] * decay ** (b_degree + 1)
@@ -206,11 +215,11 @@ class Cubic(Surface):
 
         params = []
 
-        # Optimize distance
+        # 优化距离
         self.d.requires_grad_(True)
         params.append({"params": [self.d], "lr": lrs[0]})
 
-        # Optimize cubic coefficients
+        # 优化三次曲面系数
         if self.b_degree == 1:
             self.b3.requires_grad_(True)
             params.append({"params": [self.b3], "lr": lrs[1]})
@@ -229,25 +238,25 @@ class Cubic(Surface):
         else:
             raise ValueError("Unsupported cubic degree!")
 
-        # Optimize material parameters
+        # 优化材料参数
         if optim_mat and self.mat2.get_name() != "air":
             params += self.mat2.get_optimizer_params()
 
         return params
 
     # =========================================
-    # IO
+    # 输入输出
     # =========================================
     def surf_dict(self):
-        """Serialize the surface parameters to a dictionary.
+        """将表面参数序列化为字典。
 
-        Emits the `b` coefficient list and `mat2` that `init_from_dict` consumes.
-        The scalar `b3`/`b5`/`b7` keys are kept for human readability, and the axial
-        position is written under the parenthesized `(d)` key (display-only; the
-        loader reconstructs `d` from accumulated surface spacings).
+        输出 `init_from_dict` 使用的 `b` 系数列表和 `mat2`。为便于阅读，保留
+        标量键 `b3`/`b5`/`b7`；轴向位置写入带括号的 `(d)` 键（仅用于显示，
+        加载器根据累积表面间距重建 `d`）。
 
-        Returns:
-            d (dict): Surface parameters with keys "type", "b3", "r", "(d)", "b", "mat2", informational "(mat2_n)"/"(mat2_V)", and (when active) "b5"/"b7".
+        返回：
+            d (dict): 表面参数，包含 "type"、"b3"、"r"、"(d)"、"b"、
+                "mat2"、信息项 "(mat2_n)"/"(mat2_V)"，以及有效时的 "b5"/"b7"。
         """
         b = [self.b3.item()]
         if self.b_degree >= 2:

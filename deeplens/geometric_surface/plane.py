@@ -1,4 +1,4 @@
-"""Plane surface, typically rectangle. Working as IR filter, lens cover glass or DOE base."""
+"""平面表面，通常为矩形，可用作红外滤光片、镜头保护玻璃或 DOE 基底。"""
 
 import torch
 
@@ -6,21 +6,19 @@ from .base import Surface
 
 
 class Plane(Surface):
-    """Flat plane surface with zero sag.
+    """矢高为零的平坦平面表面。
 
-    Models a planar optical element such as an IR filter, lens cover glass, or
-    DOE base substrate. The aperture is circular by default, or square when
-    `is_square` is set. `Aperture`, `Mirror`, and `ThinLens` inherit from this
-    class.
+    对红外滤光片、镜头保护玻璃或 DOE 基底等平面光学元件进行建模。孔径默认为
+    圆形，设置 `is_square` 后为方形。`Aperture`、`Mirror` 和 `ThinLens`
+    均继承此类。
 
-    Attributes:
-        r (float): Aperture radius [mm]. For a square aperture this is the
-            circumscribed-circle radius (half-diagonal).
-        d (torch.Tensor): Axial vertex position [mm].
-        mat2 (Material): Material on the transmission side of the surface.
-        is_square (bool): Whether the aperture is square rather than circular.
-        w (float): Square-aperture width [mm], present only when `is_square`.
-        h (float): Square-aperture height [mm], present only when `is_square`.
+    属性：
+        r (float): 孔径半径 [mm]。对于方形孔径，该值为外接圆半径（半对角线）。
+        d (torch.Tensor): 顶点轴向位置 [mm]。
+        mat2 (Material): 表面透射侧的材料。
+        is_square (bool): 孔径是否为方形而非圆形。
+        w (float): 方形孔径宽度 [mm]，仅在 `is_square` 时存在。
+        h (float): 方形孔径高度 [mm]，仅在 `is_square` 时存在。
     """
 
     def __init__(
@@ -33,21 +31,19 @@ class Plane(Surface):
         is_square=False,
         device="cpu",
     ):
-        """Initialize a flat plane surface.
+        """初始化平坦平面表面。
 
-        Args:
-            r (float): Aperture radius [mm]. For a square aperture this is the
-                circumscribed-circle radius (half-diagonal), so the side length
-                is $r\\sqrt{2}$.
-            d (float): Axial position of the surface vertex [mm].
-            mat2 (str or Material): Material on the transmission side
-                (e.g. `"N-BK7"`, `"air"`).
-            pos_xy (list[float], optional): Lateral offset $[x, y]$ [mm].
-                Defaults to [0.0, 0.0].
-            vec_local (list[float], optional): Local normal direction.
-                Defaults to [0.0, 0.0, 1.0] (on-axis).
-            is_square (bool, optional): Use a square aperture. Defaults to False.
-            device (str, optional): Compute device. Defaults to "cpu".
+        参数：
+            r (float): 孔径半径 [mm]。对于方形孔径，该值为外接圆半径
+                （半对角线），因此边长为 $r\\sqrt{2}$。
+            d (float): 表面顶点的轴向位置 [mm]。
+            mat2 (str or Material): 透射侧材料（例如 `"N-BK7"`、`"air"`）。
+            pos_xy (list[float], optional): 横向偏移 $[x, y]$ [mm]。
+                默认值为 [0.0, 0.0]。
+            vec_local (list[float], optional): 局部法线方向。
+                默认值为 [0.0, 0.0, 1.0]（轴上）。
+            is_square (bool, optional): 使用方形孔径。默认值为 False。
+            device (str, optional): 计算设备。默认值为 "cpu"。
         """
         Surface.__init__(
             self,
@@ -62,41 +58,39 @@ class Plane(Surface):
 
     @classmethod
     def init_from_dict(cls, surf_dict):
-        """Construct a Plane from a serialized surface dict.
+        """从序列化的表面字典构造 Plane。
 
-        Args:
-            surf_dict (dict): Surface parameters with keys "r" (radius [mm]),
-                "d" (axial position [mm]), and "mat2" (transmission material).
+        参数：
+            surf_dict (dict): 表面参数，包含 "r"（半径 [mm]）、"d"
+                （轴向位置 [mm]）和 "mat2"（透射材料）。
 
-        Returns:
-            plane (Plane): The reconstructed plane surface.
+        返回：
+            plane (Plane): 重建得到的平面表面。
         """
         return cls(surf_dict["r"], surf_dict["d"], surf_dict["mat2"])
 
     def intersect(self, ray, n=1.0):
-        """Solve the ray-plane intersection in local coordinates and update the ray.
+        """在局部坐标系中求解光线与平面的交点并更新光线。
 
-        Uses the closed-form solution $t = -o_z / d_z$ (the plane lies at $z = 0$
-        in local coordinates), unlike the base surface which uses Newton's method.
-        Rays falling outside the aperture, or already invalid, keep their original
-        origin and are marked invalid. For coherent rays the optical path length is
-        advanced by $n\\,t$.
+        使用闭式解 $t = -o_z / d_z$（局部坐标系中的平面位于 $z = 0$），
+        与使用 Newton 法的基础表面不同。落在孔径外或已无效的光线保留原始
+        起点并标记为无效。对于相干光线，光程增加 $n\\,t$。
 
-        Args:
-            ray (Ray): Incident ray bundle in local coordinates, with origin `o`
-                and direction `d` of shape (..., 3).
-            n (float, optional): Refractive index of the incident medium, used to
-                accumulate optical path length for coherent rays. Defaults to 1.0.
+        参数：
+            ray (Ray): 局部坐标系中的入射光线束，起点 `o` 和方向 `d` 的
+                shape 为 (..., 3)。
+            n (float, optional): 入射介质折射率，用于累加相干光线的光程。
+                默认值为 1.0。
 
-        Returns:
-            ray (Ray): The same ray with `o`, `is_valid`, and (if coherent) `opl`
-                updated in place.
+        返回：
+            ray (Ray): 原光线对象，其中 `o`、`is_valid` 以及相干时的 `opl`
+                已原位更新。
         """
-        # Solve intersection
+        # 求解交点
         t = (0.0 - ray.o[..., 2]) / ray.d[..., 2]
         new_o = ray.o + t.unsqueeze(-1) * ray.d
         
-        # Aperture mask
+        # 孔径掩膜
         if self.is_square:
             valid = (
                 (torch.abs(new_o[..., 0]) < self.w / 2)
@@ -108,7 +102,7 @@ class Plane(Surface):
                 ray.is_valid > 0
             )
 
-        # Update rays
+        # 更新光线
         new_o = ray.o + ray.d * t.unsqueeze(-1)
         ray.o = torch.where(valid.unsqueeze(-1), new_o, ray.o)
         ray.is_valid = ray.is_valid * valid
@@ -121,17 +115,16 @@ class Plane(Surface):
         return ray
 
     def normal_vec(self, ray):
-        """Return the plane normal at the intersection points in local coordinates.
+        """返回局部坐标系中交点处的平面法线。
 
-        The plane normal is constant $(0, 0, \\pm 1)$ and is flipped so that it
-        points back toward the side the light comes from (against the ray's
-        z-direction).
+        平面法线恒为 $(0, 0, \\pm 1)$，并会翻转，使其指向光线来向一侧
+        （与光线的 z 方向相反）。
 
-        Args:
-            ray (Ray): Ray bundle with direction `d` of shape (..., 3).
+        参数：
+            ray (Ray): 方向 `d` 的 shape 为 (..., 3) 的光线束。
 
-        Returns:
-            normal_vec (torch.Tensor): Unit normal vectors of shape (..., 3).
+        返回：
+            normal_vec (torch.Tensor): shape 为 (..., 3) 的单位法向量。
         """
         normal_vec = torch.zeros_like(ray.d)
         normal_vec[..., 2] = -1
@@ -141,83 +134,82 @@ class Plane(Surface):
         return normal_vec
 
     def _sag(self, x, y):
-        """Return the surface sag, which is identically zero for a flat plane.
+        """返回表面矢高；对于平面，其恒为零。
 
-        Args:
-            x (torch.Tensor): Local x-coordinates [mm].
-            y (torch.Tensor): Local y-coordinates [mm].
+        参数：
+            x (torch.Tensor): 局部 x 坐标 [mm]。
+            y (torch.Tensor): 局部 y 坐标 [mm]。
 
-        Returns:
-            sag (torch.Tensor): Zeros with the same shape as `x` [mm].
+        返回：
+            sag (torch.Tensor): 与 `x` shape 相同的零值 [mm]。
         """
         return torch.zeros_like(x)
 
     def _dfdxy(self, x, y):
-        """Return the first-order sag derivatives, both zero for a flat plane.
+        """返回一阶矢高导数；对于平面，两个方向均为零。
 
-        Args:
-            x (torch.Tensor): Local x-coordinates [mm].
-            y (torch.Tensor): Local y-coordinates [mm].
+        参数：
+            x (torch.Tensor): 局部 x 坐标 [mm]。
+            y (torch.Tensor): 局部 y 坐标 [mm]。
 
-        Returns:
-            dfdx (torch.Tensor): Zeros with the same shape as `x` [1].
-            dfdy (torch.Tensor): Zeros with the same shape as `x` [1].
+        返回：
+            dfdx (torch.Tensor): 与 `x` shape 相同的零值 [1]。
+            dfdy (torch.Tensor): 与 `x` shape 相同的零值 [1]。
         """
         return torch.zeros_like(x), torch.zeros_like(x)
 
     def _d2fdxy(self, x, y):
-        """Return the second-order sag derivatives, all zero for a flat plane.
+        """返回二阶矢高导数；对于平面，所有导数均为零。
 
-        Args:
-            x (torch.Tensor): Local x-coordinates [mm].
-            y (torch.Tensor): Local y-coordinates [mm].
+        参数：
+            x (torch.Tensor): 局部 x 坐标 [mm]。
+            y (torch.Tensor): 局部 y 坐标 [mm]。
 
-        Returns:
-            d2fdx2 (torch.Tensor): Zeros with the same shape as `x` [1/mm].
-            d2fdxdy (torch.Tensor): Zeros with the same shape as `x` [1/mm].
-            d2fdy2 (torch.Tensor): Zeros with the same shape as `x` [1/mm].
+        返回：
+            d2fdx2 (torch.Tensor): 与 `x` shape 相同的零值 [1/mm]。
+            d2fdxdy (torch.Tensor): 与 `x` shape 相同的零值 [1/mm]。
+            d2fdy2 (torch.Tensor): 与 `x` shape 相同的零值 [1/mm]。
         """
         return torch.zeros_like(x), torch.zeros_like(x), torch.zeros_like(x)
 
     # =========================================
-    # Optimization
+    # 优化
     # =========================================
     def get_optimizer_params(self, lrs=[1e-4], optim_mat=False):
-        """Enable gradients on the axial position `d` and return optimizer param groups.
+        """启用轴向位置 `d` 的梯度并返回优化器参数组。
 
-        Args:
-            lrs (list[float], optional): Learning rates; `lrs[0]` is applied to
-                the axial position `d`. Defaults to [1e-4].
-            optim_mat (bool, optional): If True, also append the material's
-                optimizer parameters (skipped when the material is air).
-                Defaults to False.
+        参数：
+            lrs (list[float], optional): 学习率；`lrs[0]` 用于轴向位置 `d`。
+                默认值为 [1e-4]。
+            optim_mat (bool, optional): 若为 True，还附加材料的优化器参数
+                （材料为空气时跳过）。默认值为 False。
 
-        Returns:
-            params (list[dict]): Optimizer parameter groups, each a dict with
-                "params" and "lr" keys.
+        返回：
+            params (list[dict]): 优化器参数组，每组为包含 "params" 和 "lr"
+                键的字典。
         """
         params = []
 
-        # Optimize d
+        # 优化 d
         self.d.requires_grad_(True)
         params.append({"params": [self.d], "lr": lrs[0]})
 
-        # Optimize material parameters
+        # 优化材料参数
         if optim_mat and self.mat2.get_name() != "air":
             params += self.mat2.get_optimizer_params()
 
         return params
 
     # =========================================
-    # IO
+    # 输入输出
     # =========================================
     def surf_dict(self):
-        """Serialize the plane surface to a dict for saving.
+        """将平面表面序列化为字典以便保存。
 
-        Returns:
-            surf_dict (dict): Surface parameters with keys "type", "r" (radius
-                [mm]), "(d)" (axial position [mm], rounded), "is_square", and
-                "mat2" (material name).
+        返回：
+            surf_dict (dict): 表面参数，包含 "type"、"r"（半径 [mm]）、
+                "(d)"（经舍入的轴向位置 [mm]）、"is_square" 和 "mat2"
+                （材料名称）。
         """
         surf_dict = {
             "type": "Plane",

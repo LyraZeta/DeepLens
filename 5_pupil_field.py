@@ -1,8 +1,10 @@
-"""Calculates the pupil field (wavefront) of the lens for a point object in space by coherent ray tracing.
+"""通过相干光线追迹计算空间中点物体对应的镜头光瞳光场（波前）。
 
-Note: Wavefront error is the relative error between the actual wavefront and the ideal spherical wavefront. In commercial software (e.g., Zemax), wavefront error is calculated by interpolation, which requires a low-frequency wavefront aberration. While in DeepLens, we doesnot rely on interpolation and the calculation is also accurate for high-frequency wavefront.
+注意：波前误差是实际波前与理想球面波前之间的相对误差。在商业软件（如 Zemax）
+中，波前误差通过插值计算，因此要求波前像差为低频。而 DeepLens 不依赖插值，
+对高频波前也能准确计算。
 
-Technical Paper:
+技术论文：
     Xinge Yang, Matheus Souza, Kunyi Wang, Praneeth Chakravarthula, Qiang Fu and Wolfgang Heidrich, "End-to-End Hybrid Refractive-Diffractive Lens Design with Differentiable Ray-Wave Model," Siggraph Asia 2024.
 """
 
@@ -14,7 +16,7 @@ from deeplens import GeoLens
 
 
 def calculate_wavefield(lens):
-    """Calculate the exit-pupil field (wavefront) by coherent ray tracing."""
+    """通过相干光线追迹计算出瞳光场（波前）。"""
     point = torch.tensor([0.0, 0.0, -10000.0])
     wavefront, _ = lens.pupil_field(points=point, spp=20_000_000)
     save_image(wavefront.angle(), "./wavefront_phase.png")
@@ -22,17 +24,17 @@ def calculate_wavefield(lens):
 
 
 def compare_psf(lens):
-    """Compare three different PSFs and plot center line profiles.
+    """比较三种不同的 PSF，并绘制中心线剖面。
 
-    Compares:
-        1. Geometric PSF (incoherent)
-        2. Huygens PSF
-        3. Exit-pupil propagated PSF (coherent, mathematically equivalent to Huygens PSF)
+    比较对象：
+        1. 几何 PSF（非相干）
+        2. 惠更斯 PSF
+        3. 出瞳传播 PSF（相干，在数学上等价于惠更斯 PSF）
     """
     point = torch.tensor([0.0, 0.4, -10000.0])
     ks = 64
 
-    # Calculate three different PSFs
+    # 计算三种不同的 PSF
     psf_coherent = lens.psf_coherent(point, ks=ks)
     save_image(psf_coherent, "./psf_raywave.png", normalize=True)
 
@@ -43,11 +45,11 @@ def compare_psf(lens):
     save_image(psf_huygens, "./psf_huygens.png", normalize=True)
 
     # ==========================================================
-    # Plot PSF values along the center line
+    # 绘制 PSF 沿中心线的值
     # ==========================================================
     center_y = psf_coherent.shape[-2] // 2
 
-    # Extract center line profiles (sum over channels if RGB)
+    # 提取中心线剖面（若为 RGB，则对通道求平均）
     if psf_coherent.dim() == 3:  # [C, H, W]
         coherent_center = psf_coherent[:, center_y, :].mean(dim=0).cpu().numpy()
         incoherent_center = psf_incoherent[:, center_y, :].mean(dim=0).cpu().numpy()
@@ -57,10 +59,10 @@ def compare_psf(lens):
         incoherent_center = psf_incoherent[center_y, :].cpu().numpy()
         huygens_center = psf_huygens[center_y, :].cpu().numpy()
 
-    # Create the plot
+    # 创建图形
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
-    # Linear scale plot
+    # 线性尺度图
     axes[0].plot(coherent_center, label="Ray-wave PSF", alpha=0.8)
     axes[0].plot(incoherent_center, label="Geometric PSF", alpha=0.8)
     axes[0].plot(huygens_center, label="Huygens PSF", alpha=0.8)
@@ -70,7 +72,7 @@ def compare_psf(lens):
     axes[0].legend()
     axes[0].grid(True, alpha=0.3)
 
-    # Log scale plot to better visualize peaks and diffraction orders
+    # 对数尺度图，以便更清楚地观察峰值和衍射级次
     axes[1].semilogy(coherent_center + 1e-10, label="Ray-wave PSF", alpha=0.8)
     axes[1].semilogy(incoherent_center + 1e-10, label="Geometric PSF", alpha=0.8)
     axes[1].semilogy(huygens_center + 1e-10, label="Huygens PSF", alpha=0.8)
@@ -86,17 +88,17 @@ def compare_psf(lens):
     print("Saved PSF center line comparison to ./psf_center_line_compare.png")
 
 def main():
-    # Better to use a high sensor resolution (4000x4000 is roughly acceptable, but higher is better)
+    # 最好使用较高的传感器分辨率（4000x4000 基本可接受，但越高越好）
     lens = GeoLens(
         filename="./datasets/lenses/cellphone/cellphone68deg.json",
         dtype=torch.float64,
     )
     lens.set_sensor_res(sensor_res=(8000, 8000))
 
-    # Calculate wavefront
+    # 计算波前
     calculate_wavefield(lens)
 
-    # Compare PSFs
+    # 比较 PSF
     compare_psf(lens)
 
 

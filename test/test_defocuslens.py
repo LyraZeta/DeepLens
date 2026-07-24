@@ -1,5 +1,5 @@
 """
-Tests for deeplens/defocuslens.py - Defocus lens model.
+deeplens/defocuslens.py 测试——离焦镜头模型。
 """
 
 import pytest
@@ -10,10 +10,10 @@ from deeplens.config import DEPTH
 
 
 class TestDefocusLensInit:
-    """Test DefocusLens initialization."""
+    """测试 DefocusLens 初始化。"""
 
     def test_paraxial_init(self, device_auto):
-        """Should initialize with basic parameters."""
+        """应使用基本参数完成初始化。"""
         lens = DefocusLens(
             foclen=50.0,
             fnum=1.8,
@@ -26,7 +26,7 @@ class TestDefocusLensInit:
         assert lens.fnum == 1.8
 
     def test_paraxial_aperture_radius(self, device_auto):
-        """Aperture radius calculation check."""
+        """检查光圈半径计算。"""
         foclen = 50.0
         fnum = 2.0
         
@@ -38,16 +38,16 @@ class TestDefocusLensInit:
             device=device_auto,
         )
         
-        # DefocusLens doesn't expose 'r' directly, so we just verify parameters
+        # DefocusLens 不直接公开 'r'，因此这里只验证参数
         assert lens.foclen == foclen
         assert lens.fnum == fnum
 
 
 class TestDefocusLensRefocus:
-    """Test lens refocusing."""
+    """测试镜头重新对焦。"""
 
     def test_paraxial_refocus(self, device_auto):
-        """Should change focus distance."""
+        """应改变对焦距离。"""
         lens = DefocusLens(
             foclen=50.0,
             fnum=1.8,
@@ -63,7 +63,7 @@ class TestDefocusLensRefocus:
         assert lens.foc_dist == -1000.0
 
     def test_paraxial_refocus_infinity(self, device_auto):
-        """Should handle infinity focus."""
+        """应能处理无穷远对焦。"""
         lens = DefocusLens(
             foclen=50.0,
             fnum=1.8,
@@ -78,10 +78,10 @@ class TestDefocusLensRefocus:
 
 
 class TestDefocusLensCoC:
-    """Test circle of confusion calculation."""
+    """测试弥散圆计算。"""
 
     def test_paraxial_coc_at_focus(self, device_auto):
-        """CoC should be zero at focus distance."""
+        """对焦距离处的 CoC 应为零。"""
         lens = DefocusLens(
             foclen=50.0,
             fnum=1.8,
@@ -97,7 +97,7 @@ class TestDefocusLensCoC:
         assert coc.item() == pytest.approx(0.0, abs=0.01)
 
     def test_paraxial_coc_out_of_focus(self, device_auto):
-        """CoC should increase out of focus."""
+        """CoC 应随离焦程度增大。"""
         lens = DefocusLens(
             foclen=50.0,
             fnum=1.8,
@@ -118,7 +118,7 @@ class TestDefocusLensCoC:
         assert coc_far.abs().item() > 0
 
     def test_paraxial_coc_batch(self, device_auto):
-        """Should handle batch of depths."""
+        """应能处理一批深度。"""
         lens = DefocusLens(
             foclen=50.0,
             fnum=1.8,
@@ -135,10 +135,10 @@ class TestDefocusLensCoC:
 
 
 class TestDefocusLensDoF:
-    """Test depth of field calculation."""
+    """测试景深计算。"""
 
     def test_paraxial_dof_exists(self, device_auto):
-        """Should calculate positive DoF."""
+        """应计算出正值 DoF。"""
         lens = DefocusLens(
             foclen=50.0,
             fnum=1.8,
@@ -148,15 +148,15 @@ class TestDefocusLensDoF:
         )
         
         lens.refocus(-1000.0)
-        # DoF should be positive. Note standard DoF is undefined at focus where CoC=0 in this implementation?
-        # Check DoF at slightly defocused distance.
+        # DoF 应为正值。注意：在此实现中，CoC=0 的焦点处标准 DoF 可能未定义。
+        # 检查轻微离焦距离处的 DoF。
         depth = torch.tensor([-500.0], device=device_auto)
         dof = lens.dof(depth)
         
         assert dof.item() > 0
 
     def test_paraxial_coc_fnum_dependence(self, device_auto):
-        """Larger f-number (smaller aperture) should give smaller CoC."""
+        """更大的 f-number（更小的光圈）应产生更小的 CoC。"""
         lens1 = DefocusLens(
             foclen=50.0,
             fnum=1.8,
@@ -183,10 +183,10 @@ class TestDefocusLensDoF:
 
 
 class TestDefocusLensPSF:
-    """Test PSF generation."""
+    """测试 PSF 生成。"""
 
     def test_paraxial_psf_gaussian(self, device_auto):
-        """Should generate Gaussian PSF."""
+        """应生成高斯 PSF。"""
         lens = DefocusLens(
             foclen=50.0,
             fnum=1.8,
@@ -196,17 +196,17 @@ class TestDefocusLensPSF:
         )
         
         lens.refocus(-1000.0)
-        points = torch.tensor([[-500.0]], device=device_auto)  # Out of focus
+        points = torch.tensor([[-500.0]], device=device_auto)  # 离焦
         points = torch.cat([torch.zeros(1, 2, device=device_auto), points], dim=-1)
         
         psf = lens.psf(points, ks=31, psf_type="gaussian")
         
-        # PSF is [N, ks, ks]
+        # PSF 为 [N, ks, ks]
         assert psf.shape[-2:] == (31, 31)
         assert psf.sum().item() == pytest.approx(1.0, abs=0.1)
 
     def test_paraxial_psf_pillbox(self, device_auto):
-        """Should generate pillbox PSF."""
+        """应生成均匀圆盘 PSF。"""
         lens = DefocusLens(
             foclen=50.0,
             fnum=1.8,
@@ -224,7 +224,7 @@ class TestDefocusLensPSF:
         assert psf.sum().item() == pytest.approx(1.0, abs=0.1)
 
     def test_paraxial_psf_in_focus_sharp(self, device_auto):
-        """PSF at focus should be sharp (small)."""
+        """焦点处的 PSF 应较尖锐（较小）。"""
         lens = DefocusLens(
             foclen=50.0,
             fnum=1.8,
@@ -240,11 +240,11 @@ class TestDefocusLensPSF:
         psf_focus = lens.psf(points_focus, ks=31, psf_type="gaussian")
         psf_defocus = lens.psf(points_defocus, ks=31, psf_type="gaussian")
         
-        # In-focus PSF should be more concentrated (higher peak)
+        # 焦内 PSF 应更集中（峰值更高）
         assert psf_focus.max() > psf_defocus.max()
 
     def test_paraxial_psf_rgb(self, device_auto):
-        """Should generate RGB PSF."""
+        """应生成 RGB PSF。"""
         lens = DefocusLens(
             foclen=50.0,
             fnum=1.8,
@@ -258,11 +258,11 @@ class TestDefocusLensPSF:
         
         psf_rgb = lens.psf_rgb(points, ks=31)
         
-        # Expect [N, 3, ks, ks] or [3, ks, ks]
+        # 预期为 [N, 3, ks, ks] 或 [3, ks, ks]
         assert psf_rgb.shape[-3:] == (3, 31, 31)
 
     def test_paraxial_psf_batch(self, device_auto):
-        """Should handle batch of points."""
+        """应能处理一批点。"""
         lens = DefocusLens(
             foclen=50.0,
             fnum=1.8,
@@ -280,15 +280,15 @@ class TestDefocusLensPSF:
         
         psf = lens.psf(points, ks=31, psf_type="gaussian")
         
-        # Expect [3, ks, ks]
+        # 预期为 [3, ks, ks]
         assert psf.shape[-3:] == (3, 31, 31)
 
 
 class TestDefocusLensDualPixel:
-    """Test dual-pixel PSF generation."""
+    """测试双像素 PSF 生成。"""
 
     def test_paraxial_psf_dp(self, device_auto):
-        """Should generate dual-pixel PSFs."""
+        """应生成双像素 PSF。"""
         lens = DefocusLens(
             foclen=50.0,
             fnum=1.8,
@@ -306,7 +306,7 @@ class TestDefocusLensDualPixel:
         assert psf_right.shape[-2:] == (31, 31)
 
     def test_paraxial_psf_dp_disparity(self, device_auto):
-        """Left and right PSFs should have disparity."""
+        """左右 PSF 应具有视差。"""
         lens = DefocusLens(
             foclen=50.0,
             fnum=1.8,
@@ -316,16 +316,16 @@ class TestDefocusLensDualPixel:
         )
         
         lens.refocus(-1000.0)
-        points = torch.tensor([[0.0, 0.0, -500.0]], device=device_auto)  # Out of focus
+        points = torch.tensor([[0.0, 0.0, -500.0]], device=device_auto)  # 离焦
         
         psf_left, psf_right = lens.psf_dp(points, ks=31)
         
-        # Left and right should be different
+        # 左右结果应不同
         diff = (psf_left - psf_right).abs().sum()
         assert diff.item() > 0.01
 
     def test_paraxial_psf_rgb_dp(self, device_auto):
-        """Should generate RGB dual-pixel PSFs."""
+        """应生成 RGB 双像素 PSF。"""
         lens = DefocusLens(
             foclen=50.0,
             fnum=1.8,
@@ -344,10 +344,10 @@ class TestDefocusLensDualPixel:
 
 
 class TestDefocusLensPSFMap:
-    """Test PSF map generation."""
+    """测试 PSF 图生成。"""
 
     def test_paraxial_psf_map(self, device_auto):
-        """Should generate PSF map."""
+        """应生成 PSF 图。"""
         lens = DefocusLens(
             foclen=50.0,
             fnum=1.8,
@@ -359,11 +359,11 @@ class TestDefocusLensPSFMap:
         lens.refocus(-1000.0)
         psf_map = lens.psf_map(grid=(3, 3), ks=31, depth=-500.0)
         
-        # psf_map: [grid_y, grid_x, 1, ks, ks]
+        # psf_map：[grid_y, grid_x, 1, ks, ks]
         assert psf_map.shape == (3, 3, 1, 31, 31)
 
     def test_paraxial_psf_map_dp(self, device_auto):
-        """Should generate dual-pixel PSF map."""
+        """应生成双像素 PSF 图。"""
         lens = DefocusLens(
             foclen=50.0,
             fnum=1.8,
@@ -380,10 +380,10 @@ class TestDefocusLensPSFMap:
 
 
 class TestDefocusLensRendering:
-    """Test RGBD rendering."""
+    """测试 RGBD 渲染。"""
 
     def test_paraxial_render_rgbd_dp(self, device_auto):
-        """Should render dual-pixel images from RGBD."""
+        """应从 RGBD 渲染双像素图像。"""
         lens = DefocusLens(
             foclen=50.0,
             fnum=1.8,
@@ -403,7 +403,7 @@ class TestDefocusLensRendering:
         assert img_right.shape == rgb.shape
 
     def test_render_rgbd_dp_accepts_render_options(self, device_auto):
-        """Should accept the same PSF and layer options as render_rgbd."""
+        """应接受与 render_rgbd 相同的 PSF 和图层选项。"""
         lens = DefocusLens(
             foclen=50.0,
             fnum=1.8,
@@ -429,10 +429,10 @@ class TestDefocusLensRendering:
 
 
 class TestDefocusLensRenderRGBD:
-    """Test occlusion-aware RGBD rendering."""
+    """测试考虑遮挡的 RGBD 渲染。"""
 
     def test_render_rgbd_shape(self, device_auto):
-        """Should return correct output shape."""
+        """应返回正确的输出 shape。"""
         lens = DefocusLens(
             foclen=50.0,
             fnum=1.8,
@@ -449,7 +449,7 @@ class TestDefocusLensRenderRGBD:
         assert result.shape == rgb.shape
 
     def test_render_rgbd_uniform_depth(self, device_auto):
-        """With uniform depth, result should be valid and non-zero."""
+        """深度均匀时，结果应有效且非零。"""
         lens = DefocusLens(
             foclen=50.0,
             fnum=1.8,
@@ -467,7 +467,7 @@ class TestDefocusLensRenderRGBD:
         assert result.sum() > 0
 
     def test_render_rgbd_rejects_method_argument(self, device_auto):
-        """render_rgbd should expose only defocus-specific rendering options."""
+        """render_rgbd 应仅公开离焦专用的渲染选项。"""
         lens = DefocusLens(
             foclen=50.0,
             fnum=1.8,
@@ -484,7 +484,7 @@ class TestDefocusLensRenderRGBD:
             lens.render_rgbd(rgb, depth, method="psf_patch", num_layers=8)
 
     def test_render_rgbd_depth_discontinuity(self, device_auto):
-        """Should handle depth discontinuities (occlusion scenario)."""
+        """应能处理深度不连续（遮挡场景）。"""
         lens = DefocusLens(
             foclen=50.0,
             fnum=1.8,
@@ -494,10 +494,10 @@ class TestDefocusLensRenderRGBD:
         )
         lens.refocus(-1000.0)
 
-        # Create scene with sharp depth discontinuity
+        # 创建具有明显深度不连续的场景
         rgb = torch.rand(1, 3, 64, 64, device=device_auto)
-        depth = torch.full((1, 1, 64, 64), 2000.0, device=device_auto)  # background
-        depth[:, :, 16:48, 16:48] = 500.0  # foreground object
+        depth = torch.full((1, 1, 64, 64), 2000.0, device=device_auto)  # 背景
+        depth[:, :, 16:48, 16:48] = 500.0  # 前景物体
 
         result = lens.render_rgbd(rgb, depth, num_layers=16)
 
@@ -506,7 +506,7 @@ class TestDefocusLensRenderRGBD:
         assert result.min() >= 0
 
     def test_render_rgbd_3d_depth_input(self, device_auto):
-        """Should handle [B, H, W] depth input."""
+        """应能处理 [B, H, W] 深度输入。"""
         lens = DefocusLens(
             foclen=50.0,
             fnum=1.8,

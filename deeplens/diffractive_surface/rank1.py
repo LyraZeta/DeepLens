@@ -4,13 +4,13 @@
 # Licensed under the Apache License, Version 2.0.
 # See LICENSE file in the project root for full license information.
 
-"""Rank-1 (low-rank) DOE parameterization.
+"""Rank-1（低秩）DOE 参数化。
 
-The height map is a low-rank outer product ``h = h_max * sigmoid(V @ Q.T)``
-(default rank 1). Because ``h_max`` corresponds to a 2*pi phase shift at the
-design wavelength, the design-wavelength phase is ``2*pi * sigmoid(V @ Q.T)``.
+高度图是低秩外积 ``h = h_max * sigmoid(V @ Q.T)``（默认秩为 1）。由于
+``h_max`` 对应设计波长下的 2*pi 相移，因此设计波长下的相位为
+``2*pi * sigmoid(V @ Q.T)``。
 
-Reference:
+参考文献：
     Qilin Sun, Ethan Tseng, Qiang Fu, Wolfgang Heidrich, Felix Heide,
     "Learning Rank-1 Diffractive Optics for Single-shot High Dynamic Range
     Imaging," CVPR 2020.
@@ -22,24 +22,22 @@ from .diffractive import DiffractiveSurface
 
 
 class Rank1(DiffractiveSurface):
-    """DOE whose height map is constrained to a low-rank outer product.
+    """高度图受低秩外积约束的 DOE。
 
-    The height map is the low-rank product $h = h_{max} \\cdot \\sigma(V Q^T)$,
-    where $\\sigma$ is the sigmoid and $h_{max}$ is the height producing a $2\\pi$
-    phase shift at the design wavelength. The design-wavelength raw phase is
-    therefore $2\\pi \\cdot \\sigma(V Q^T)$, in the range $(0, 2\\pi)$. With the
-    default `rank` of 1 the height map is a single outer product, which makes the
-    DOE cheap to fabricate and optimize.
+    高度图为低秩乘积 $h = h_{max} \\cdot \\sigma(V Q^T)$，其中 $\\sigma$ 为
+    sigmoid，$h_{max}$ 是在设计波长下产生 $2\\pi$ 相移的高度。因此，设计波长
+    下的原始相位为 $2\\pi \\cdot \\sigma(V Q^T)$，范围为 $(0, 2\\pi)$。
+    默认 `rank` 为 1 时，高度图是单个外积，从而降低 DOE 的制造和优化成本。
 
-    Reference:
+    参考文献：
         Qilin Sun, Ethan Tseng, Qiang Fu, Wolfgang Heidrich, Felix Heide,
         "Learning Rank-1 Diffractive Optics for Single-shot High Dynamic Range
         Imaging," CVPR 2020.
 
-    Attributes:
-        rank (int): Rank of the height map.
-        V (torch.Tensor): Left factor of the height map. [res[0], rank]
-        Q (torch.Tensor): Right factor of the height map. [res[1], rank]
+    属性：
+        rank (int): 高度图的秩。
+        V (torch.Tensor): 高度图的左因子。[res[0], rank]
+        Q (torch.Tensor): 高度图的右因子。[res[1], rank]
     """
 
     def __init__(
@@ -56,23 +54,23 @@ class Rank1(DiffractiveSurface):
         is_square=True,
         device="cpu",
     ):
-        """Initialize a rank-`rank` DOE.
+        """初始化秩为 `rank` 的 DOE。
 
-        Args:
-            d (float): Distance of the DOE surface. [mm]
-            rank (int, optional): Rank of the height map. Defaults to 1.
-            V (torch.Tensor or None, optional): Left factor, shape [res[0], rank].
-                If None, initialized to small random values. Defaults to None.
-            Q (torch.Tensor or None, optional): Right factor, shape [res[1], rank].
-                If None, initialized to small random values. Defaults to None.
-            res (tuple or int, optional): DOE resolution as (H, W); an int is
-                expanded to (res, res). [pixel] Defaults to (1000, 1000).
-            mat (str, optional): DOE material. Defaults to "fused_silica".
-            wvln0 (float, optional): Design wavelength. [um] Defaults to 0.55.
-            fab_ps (float, optional): Fabrication pixel size. [mm] Defaults to 0.001.
-            fab_step (int, optional): Number of fabrication quantization levels. Defaults to 16.
-            is_square (bool, optional): Whether the aperture is square. Defaults to True.
-            device (str, optional): Compute device. Defaults to "cpu".
+        参数：
+            d (float): DOE 表面的位置。[mm]
+            rank (int, optional): 高度图的秩。默认值为 1。
+            V (torch.Tensor or None, optional): 左因子，shape 为 [res[0], rank]。
+                若为 None，则用较小的随机值初始化。默认值为 None。
+            Q (torch.Tensor or None, optional): 右因子，shape 为 [res[1], rank]。
+                若为 None，则用较小的随机值初始化。默认值为 None。
+            res (tuple or int, optional): DOE 分辨率，格式为 (H, W)；整数会
+                扩展为 (res, res)。[pixel] 默认值为 (1000, 1000)。
+            mat (str, optional): DOE 材料。默认值为 "fused_silica"。
+            wvln0 (float, optional): 设计波长。[um] 默认值为 0.55。
+            fab_ps (float, optional): 制造像素尺寸。[mm] 默认值为 0.001。
+            fab_step (int, optional): 制造量化级数。默认值为 16。
+            is_square (bool, optional): 孔径是否为方形。默认值为 True。
+            device (str, optional): 计算设备。默认值为 "cpu"。
         """
         super().__init__(
             d=d, res=res, mat=mat, wvln0=wvln0, fab_ps=fab_ps,
@@ -85,18 +83,18 @@ class Rank1(DiffractiveSurface):
 
     @classmethod
     def init_from_dict(cls, doe_dict):
-        """Initialize a Rank1 DOE from a config dict.
+        """从配置字典初始化 Rank1 DOE。
 
-        If `doe_dict` contains a "weight_path", the V and Q factors are loaded
-        from that checkpoint; otherwise they are randomly initialized.
+        若 `doe_dict` 包含 "weight_path"，则从该检查点加载 V 和 Q 因子；
+        否则随机初始化。
 
-        Args:
-            doe_dict (dict): Surface config. Requires keys "d" and "res"; optional
-                keys "rank", "weight_path", "mat", "wvln0", "fab_ps", "fab_step",
-                "is_square".
+        参数：
+            doe_dict (dict): 表面配置。必须包含 "d" 和 "res"；可选键为
+                "rank"、"weight_path"、"mat"、"wvln0"、"fab_ps"、"fab_step"、
+                "is_square"。
 
-        Returns:
-            doe (Rank1): The constructed DOE.
+        返回：
+            doe (Rank1): 构造得到的 DOE。
         """
         V = Q = None
         weight_path = doe_dict.get("weight_path", None)
@@ -117,48 +115,48 @@ class Rank1(DiffractiveSurface):
         )
 
     def phase_func(self):
-        """Compute the raw phase map at the design wavelength.
+        """计算设计波长下的原始相位图。
 
-        Returns the unwrapped, unquantized phase $2\\pi \\cdot \\sigma(V Q^T)$,
-        where $\\sigma$ is the sigmoid.
+        返回未包裹、未量化的相位 $2\\pi \\cdot \\sigma(V Q^T)$，其中
+        $\\sigma$ 为 sigmoid。
 
-        Returns:
-            phase (torch.Tensor): Raw phase map. [H, W], range $(0, 2\\pi)$. [rad]
+        返回：
+            phase (torch.Tensor): 原始相位图。[H, W]，范围为 $(0, 2\\pi)$。[rad]
         """
         return 2 * torch.pi * torch.sigmoid(self.V @ self.Q.T)
 
     # =======================================
-    # Optimization
+    # 优化
     # =======================================
     def get_optimizer_params(self, lr=0.01):
-        """Build optimizer parameter groups for the V and Q factors.
+        """为 V 和 Q 因子构建优化器参数组。
 
-        Enables gradients on `V` and `Q` as a side effect.
+        同时启用 `V` 和 `Q` 的梯度。
 
-        Args:
-            lr (float, optional): Learning rate for the V and Q factors. Defaults to 0.01.
+        参数：
+            lr (float, optional): V 和 Q 因子的学习率。默认值为 0.01。
 
-        Returns:
-            params (list): Single-group parameter list [{"params": [V, Q], "lr": lr}].
+        返回：
+            params (list): 单组参数列表 [{"params": [V, Q], "lr": lr}]。
         """
         self.V.requires_grad = True
         self.Q.requires_grad = True
         return [{"params": [self.V, self.Q], "lr": lr}]
 
     # =======================================
-    # IO
+    # 输入输出
     # =======================================
     def surf_dict(self, weight_path):
-        """Serialize the surface to a dict and save the V, Q factors to disk.
+        """将表面序列化为字典，并把 V、Q 因子保存到磁盘。
 
-        Writes a checkpoint with keys "V" and "Q" (detached, on CPU) to
-        `weight_path`, and records `rank` and `weight_path` in the returned dict.
+        将包含键 "V" 和 "Q" 的检查点（已分离并位于 CPU 上）写入
+        `weight_path`，同时在返回的字典中记录 `rank` 和 `weight_path`。
 
-        Args:
-            weight_path (str): Path to save the V and Q factors.
+        参数：
+            weight_path (str): V 和 Q 因子的保存路径。
 
-        Returns:
-            surf_dict (dict): Surface config including "rank" and "weight_path".
+        返回：
+            surf_dict (dict): 包含 "rank" 和 "weight_path" 的表面配置。
         """
         surf_dict = super().surf_dict()
         surf_dict["rank"] = self.rank

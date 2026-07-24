@@ -4,7 +4,7 @@
 # Licensed under the Apache License, Version 2.0.
 # See LICENSE file in the project root for full license information.
 
-"""Base class for diffractive surfaces (DOE)."""
+"""衍射表面（DOE）的基类。"""
 
 import logging
 
@@ -23,31 +23,28 @@ logger = logging.getLogger(__name__)
 
 
 class DiffractiveSurface(DeepObj):
-    """Base class for diffractive optical elements (DOEs).
+    """衍射光学元件（DOE）的基类。
 
-    A diffractive surface modulates the phase of an incident wave field; its
-    optical behavior is simulated with wave optics. The phase profile is defined
-    by `phase_func` in subclasses and converted into a wrapped, quantized phase
-    map for the design wavelength. By default the DOE is designed for 0.55um,
-    i.e. it has the highest 1st-order diffraction efficiency at 0.55um.
+    衍射表面用于调制入射波场的相位，其光学行为通过波动光学模拟。相位分布
+    由子类中的 `phase_func` 定义，并转换为设计波长下经过包裹和量化的相位图。
+    默认情况下，DOE 针对 0.55um 设计，即在 0.55um 处具有最高的一阶衍射效率。
 
-    Attributes:
-        d (torch.Tensor): Axial position of the DOE plane. [mm]
-        res (tuple): DOE resolution as (H, W). [pixel]
-        ps (float): Pixel size of the phase map (design pixel size if given,
-            otherwise the fabrication pixel size). [mm]
-        w (float): Physical width of the DOE. [mm]
-        h (float): Physical height of the DOE. [mm]
-        is_square (bool): Whether the aperture is treated as square.
-        r (float): Aperture radius (half-diagonal / circumscribed-circle
-            radius). [mm]
-        mat (Material): DOE material.
-        wvln0 (float): Design wavelength. [um]
-        n0 (float): Refractive index of the material at `wvln0`.
-        fab_ps (float): Fabrication pixel size. [mm]
-        fab_step (int): Number of fabrication (quantization) levels.
-        x (torch.Tensor): x-coordinates of the grid. [H, W]. [mm]
-        y (torch.Tensor): y-coordinates of the grid. [H, W]. [mm]
+    属性：
+        d (torch.Tensor): DOE 平面的轴向位置。[mm]
+        res (tuple): DOE 分辨率，格式为 (H, W)。[pixel]
+        ps (float): 相位图的像素尺寸（若给定设计像素尺寸则使用该值，否则使用
+            制造像素尺寸）。[mm]
+        w (float): DOE 的物理宽度。[mm]
+        h (float): DOE 的物理高度。[mm]
+        is_square (bool): 是否将孔径视为方形。
+        r (float): 孔径半径（半对角线／外接圆半径）。[mm]
+        mat (Material): DOE 材料。
+        wvln0 (float): 设计波长。[um]
+        n0 (float): 材料在 `wvln0` 处的折射率。
+        fab_ps (float): 制造像素尺寸。[mm]
+        fab_step (int): 制造（量化）级数。
+        x (torch.Tensor): 网格的 x 坐标。[H, W]。[mm]
+        y (torch.Tensor): 网格的 y 坐标。[H, W]。[mm]
     """
 
     def __init__(
@@ -62,46 +59,44 @@ class DiffractiveSurface(DeepObj):
         is_square=True,
         device="cpu",
     ):
-        """Initialize a diffractive surface.
+        """初始化衍射表面。
 
-        Args:
-            d (float): Axial position of the DOE plane. [mm]
-            res (tuple or int): Resolution of the DOE as (H, W); an int is
-                expanded to (res, res). [pixel]
-            fab_ps (float, optional): Fabrication pixel size. [mm]. Defaults to 0.001.
-            fab_step (int, optional): Number of fabrication (quantization)
-                levels. Defaults to 16.
-            wvln0 (float, optional): Design wavelength. [um]. Defaults to 0.55.
-            mat (str, optional): Material name of the DOE. Defaults to "fused_silica".
-            design_ps (float or None, optional): Design pixel size; if None the
-                fabrication pixel size is used as the phase-map pixel size. [mm].
-                Defaults to None.
-            is_square (bool, optional): Whether the aperture is square. Defaults to True.
-            device (str, optional): Device to place the DOE tensors on. Defaults to "cpu".
+        参数：
+            d (float): DOE 平面的轴向位置。[mm]
+            res (tuple or int): DOE 分辨率，格式为 (H, W)；整数会扩展为
+                (res, res)。[pixel]
+            fab_ps (float, optional): 制造像素尺寸。[mm]。默认值为 0.001。
+            fab_step (int, optional): 制造（量化）级数。默认值为 16。
+            wvln0 (float, optional): 设计波长。[um]。默认值为 0.55。
+            mat (str, optional): DOE 的材料名称。默认值为 "fused_silica"。
+            design_ps (float or None, optional): 设计像素尺寸；若为 None，则使用
+                制造像素尺寸作为相位图像素尺寸。[mm]。默认值为 None。
+            is_square (bool, optional): 孔径是否为方形。默认值为 True。
+            device (str, optional): 放置 DOE 张量的设备。默认值为 "cpu"。
         """
-        # Geometry
+        # 几何参数
         self.d = torch.tensor(d) if not isinstance(d, torch.Tensor) else d
         self.res = (res, res) if isinstance(res, int) else res
         self.ps = fab_ps if design_ps is None else design_ps
         self.w = self.res[0] * self.ps
         self.h = self.res[1] * self.ps
         self.is_square = is_square
-        # Surface radius: half-diagonal (circumscribed-circle radius) so it
-        # is consistent with Phase / Surface conventions for square apertures.
+        # 表面半径取半对角线（外接圆半径），以便与方形孔径的 Phase / Surface
+        # 约定保持一致。
         self.r = float(np.sqrt(self.w**2 + self.h**2) / 2)
 
-        # Phase map
+        # 相位图
         self.mat = Material(mat)
-        self.wvln0 = wvln0  # [um], design wavelength. Sometimes the maximum working wavelength is preferred.
+        self.wvln0 = wvln0  # [um]，设计波长；有时优先采用最大工作波长。
         self.n0 = self.mat.refractive_index(
             self.wvln0
-        )  # refractive index at design wavelength
+        )  # 设计波长处的折射率
 
-        # Fabrication for DOE
-        self.fab_ps = fab_ps  # [mm], fabrication pixel size
+        # DOE 制造参数
+        self.fab_ps = fab_ps  # [mm]，制造像素尺寸
         self.fab_step = fab_step
 
-        # x, y coordinates
+        # x、y 坐标
         self.x, self.y = torch.meshgrid(
             torch.linspace(-self.w / 2, self.w / 2, self.res[1]),
             torch.linspace(self.h / 2, -self.h / 2, self.res[0]),
@@ -112,74 +107,71 @@ class DiffractiveSurface(DeepObj):
 
     @classmethod
     def init_from_dict(cls, doe_dict):
-        """Initialize a DOE from a dict.
+        """从字典初始化 DOE。
 
-        Args:
-            doe_dict (dict): Dictionary of DOE parameters.
+        参数：
+            doe_dict (dict): DOE 参数字典。
 
-        Returns:
-            doe (DiffractiveSurface): The constructed DOE instance.
+        返回：
+            doe (DiffractiveSurface): 构造得到的 DOE 实例。
 
-        Raises:
-            NotImplementedError: Must be implemented by subclasses.
+        异常：
+            NotImplementedError: 必须由子类实现。
         """
         raise NotImplementedError
 
     def phase_func(self):
-        """Compute the raw phase profile (no wrapping, no quantization) at the design wavelength.
+        """计算设计波长下的原始相位分布（不包裹、不量化）。
 
-        Returns:
-            phase (torch.Tensor): Raw, unwrapped phase profile at the design
-                wavelength. [H, W]. [rad]
+        返回：
+            phase (torch.Tensor): 设计波长下未包裹的原始相位分布。
+                [H, W]。[rad]
 
-        Raises:
-            NotImplementedError: Must be implemented by subclasses.
+        异常：
+            NotImplementedError: 必须由子类实现。
         """
         raise NotImplementedError
 
     def get_phase_map0(self):
-        """Compute the phase map at the design wavelength with wrapping and quantization.
+        """计算设计波长下经过包裹和量化的相位图。
 
-        The raw phase from `phase_func` is wrapped into $[0, 2\\pi)$ and then
-        quantized to `fab_step` levels. The wrapped phase is equivalent to a
-        height map whose maximum height corresponds to $2\\pi$ at the design
-        wavelength.
+        将 `phase_func` 给出的原始相位包裹到 $[0, 2\\pi)$，再量化为
+        `fab_step` 个级别。包裹后的相位等效于一幅高度图，其最大高度在设计
+        波长处对应 $2\\pi$。
 
-        Returns:
-            phase0 (torch.Tensor): Wrapped, quantized phase map at the design
-                wavelength. [H, W], range $[0, 2\\pi)$. [rad]
+        返回：
+            phase0 (torch.Tensor): 设计波长下经过包裹和量化的相位图。
+                [H, W]，范围为 $[0, 2\\pi)$。[rad]
         """
-        # Raw phase map at design wavelength
+        # 设计波长下的原始相位图
         phase0 = self.phase_func()
 
-        # Phase wrapping and quantization
+        # 相位包裹与量化
         phase0 = torch.remainder(phase0, 2 * torch.pi)
         phase0 = diff_quantize(phase0, levels=self.fab_step)
         return phase0
 
     def get_phase_map(self, wvln):
-        """Compute the phase map at the given wavelength.
+        """计算给定波长下的相位图。
 
-        The phase map is first computed at the design wavelength, then scaled to
-        the requested wavelength accounting for the wavelength ratio and the
-        material dispersion $(n - 1) / (n_0 - 1)$, and finally resampled
-        (nearest) to the DOE resolution if needed.
+        首先计算设计波长下的相位图，再结合波长比和材料色散
+        $(n - 1) / (n_0 - 1)$ 将其缩放到目标波长；如有需要，最后以最近邻
+        方式重采样到 DOE 分辨率。
 
-        Args:
-            wvln (float): Wavelength. [um]
+        参数：
+            wvln (float): 波长。[um]
 
-        Returns:
-            phase_map (torch.Tensor): Phase map at the given wavelength.
-                [H, W]. [rad]
+        返回：
+            phase_map (torch.Tensor): 给定波长下的相位图。[H, W]。[rad]
         """
-        # Phase map at design wavelength
+        # 设计波长下的相位图
         phase_map0 = self.get_phase_map0()
 
-        # Phase map at given wavelength (implicitly converted to height map)
+        # 给定波长下的相位图（隐式转换为高度图）
         n = self.mat.refractive_index(wvln)
         phase_map = phase_map0 * (self.wvln0 / wvln) * (n - 1) / (self.n0 - 1)
 
-        # Interpolate to the desired resolution (skip if already matching)
+        # 插值到目标分辨率（若已匹配则跳过）
         if phase_map.shape[-2:] != (self.res[0], self.res[1]):
             phase_map = (
                 F.interpolate(
@@ -192,18 +184,17 @@ class DiffractiveSurface(DeepObj):
         return phase_map
 
     def _warn_if_undersampled(self, phase, f0, wvln):
-        """Warn once if a pointwise quadratic phase aliases on the current grid.
+        """若逐点二次相位在当前网格上发生混叠，则仅警告一次。
 
-        A lens phase applied as a pointwise multiply is band-limited only while
-        the phase step between adjacent pixels stays below pi; beyond that it
-        aliases and PSFs degrade into ghost-lattice artifacts. The check runs on
-        the raw (unwrapped) phase -- the wrapped [0, 2pi] phase used in
-        ``forward`` cannot reveal aliasing. Warning only; numerics are unchanged.
+        以逐点乘法施加的透镜相位，只有在相邻像素间的相位步长小于 pi 时才满足
+        带限条件；超过该值便会发生混叠，并使 PSF 退化为鬼影晶格伪影。该检查
+        针对原始（未包裹）相位执行，因为 ``forward`` 使用的已包裹 [0, 2pi]
+        相位无法揭示混叠。此处只发出警告，不改变数值计算。
 
-        Args:
-            phase (torch.Tensor): Raw, unwrapped phase. [..., H, W]. [rad]
-            f0 (float or torch.Tensor): Focal length. [mm]
-            wvln (float): Wavelength of this phase map. [um]
+        参数：
+            phase (torch.Tensor): 未包裹的原始相位。[..., H, W]。[rad]
+            f0 (float or torch.Tensor): 焦距。[mm]
+            wvln (float): 此相位图对应的波长。[um]
         """
         if getattr(self, "_undersample_warned", False):
             return
@@ -233,31 +224,30 @@ class DiffractiveSurface(DeepObj):
         )
 
     def forward(self, wave):
-        """Propagate the wave field to the DOE plane and apply phase modulation.
+        """将波场传播到 DOE 平面并施加相位调制。
 
-        The input wave field may have a different pixel size and physical extent
-        than the DOE; the phase map is resampled (nearest) to match the wave
-        pixel size, then center-cropped or zero-padded to match the wave
-        resolution before being applied as $u \\cdot e^{i\\phi}$.
+        输入波场的像素尺寸和物理范围可能与 DOE 不同；先以最近邻方式重采样
+        相位图以匹配波场像素尺寸，再通过中心裁剪或零填充匹配波场分辨率，
+        最后按 $u \\cdot e^{i\\phi}$ 施加相位。
 
-        Args:
-            wave (ComplexWave): Input complex wave field, with field `u` of
-                shape [B, 1, H, W].
+        参数：
+            wave (ComplexWave): 输入复波场，其中场 `u` 的 shape 为
+                [B, 1, H, W]。
 
-        Returns:
-            wave (ComplexWave): Output complex wave field after propagation and
-                phase modulation, field `u` of shape [B, 1, H, W].
+        返回：
+            wave (ComplexWave): 传播和相位调制后的输出复波场，其中场 `u`
+                的 shape 为 [B, 1, H, W]。
 
-        Reference:
-            [1] https://github.com/vsitzmann/deepoptics function phaseshifts_from_height_map
+        参考资料：
+            [1] https://github.com/vsitzmann/deepoptics 中的 phaseshifts_from_height_map 函数
         """
-        # Propagate to DOE
+        # 传播到 DOE
         wave.prop_to(self.d)
 
-        # Compute phase map at the wave field wavelength, shape of [H, W]
+        # 计算波场波长下的相位图，shape 为 [H, W]
         phase_map = self.get_phase_map(wave.wvln)
 
-        # Consider the different pixel size between the wave field and the DOE
+        # 处理波场与 DOE 之间的像素尺寸差异
         if self.ps != wave.ps:
             scale = self.ps / wave.ps
             phase_map = (
@@ -270,7 +260,7 @@ class DiffractiveSurface(DeepObj):
                 .squeeze(0)
             )
 
-        # Check if the field and phase map resolution (physical size) are the same
+        # 检查场与相位图的分辨率（物理尺寸）是否一致
         wave_h, wave_w = wave.u.shape[-2:]
         phase_h, phase_w = phase_map.shape[-2:]
         if phase_h > wave_h or phase_w > wave_w:
@@ -295,51 +285,49 @@ class DiffractiveSurface(DeepObj):
         return wave
 
     def __call__(self, wave):
-        """Apply the DOE to a wave field (alias for `forward`).
+        """将 DOE 应用于波场（`forward` 的别名）。
 
-        Args:
-            wave (ComplexWave): Input complex wave field.
+        参数：
+            wave (ComplexWave): 输入复波场。
 
-        Returns:
-            wave (ComplexWave): Output complex wave field.
+        返回：
+            wave (ComplexWave): 输出复波场。
         """
         return self.forward(wave)
 
     # =======================================
-    # Fabrication-related functions
+    # 制造相关函数
     # =======================================
     def quantize_phase_map(self, bits=16):
-        """Quantize the design-wavelength phase map to a given number of levels.
+        """将设计波长下的相位图量化到给定级数。
 
-        Args:
-            bits (int, optional): Number of quantization levels. Defaults to 16.
+        参数：
+            bits (int, optional): 量化级数。默认值为 16。
 
-        Returns:
-            pmap_q (torch.Tensor): Quantized phase map. [H, W], range
-                $[0, 2\\pi)$. [rad]
+        返回：
+            pmap_q (torch.Tensor): 量化后的相位图。[H, W]，范围为
+                $[0, 2\\pi)$。[rad]
         """
         pmap = self.get_phase_map0()
         pmap_q = torch.round(pmap / (2 * torch.pi / bits)) * (2 * torch.pi / bits)
         return pmap_q
 
     def export_fab_phase_map(self, bits=16, save_path=None):
-        """Generate a fabrication-resolution quantized phase map and save a checkpoint.
+        """生成制造分辨率的量化相位图并保存检查点。
 
-        The phase map is upsampled from the design pixel size to the fabrication
-        pixel size (bilinear) and quantized to `bits` levels. The DOE checkpoint
-        is saved to `save_path`; the DOE object itself is left unchanged.
+        通过双线性插值，将相位图从设计像素尺寸上采样到制造像素尺寸，并量化为
+        `bits` 个级别。DOE 检查点保存至 `save_path`，DOE 对象本身保持不变。
 
-        Args:
-            bits (int, optional): Number of quantization levels. Defaults to 16.
-            save_path (str or None, optional): Checkpoint save path; if None a
-                name encoding the fabrication resolution, pixel size, and bit
-                depth is generated. Defaults to None.
+        参数：
+            bits (int, optional): 量化级数。默认值为 16。
+            save_path (str or None, optional): 检查点保存路径；若为 None，则生成
+                包含制造分辨率、像素尺寸和位深信息的名称。默认值为 None。
 
-        Returns:
-            pmap_q (torch.Tensor): Fabrication-resolution quantized phase map.
-                [H_fab, W_fab], range $[0, 2\\pi)$. [rad]
+        返回：
+            pmap_q (torch.Tensor): 制造分辨率下的量化相位图。
+                [H_fab, W_fab]，范围为 $[0, 2\\pi)$。[rad]
         """
-        # Fab resolution quantized pmap
+        # 制造分辨率下的量化相位图
         pmap = self.get_phase_map0()
         fab_res = int(self.ps / self.fab_ps * self.res[0])
         pmap = (
@@ -354,7 +342,7 @@ class DiffractiveSurface(DeepObj):
         )
         pmap_q = torch.round(pmap / (2 * torch.pi / bits)) * (2 * torch.pi / bits)
 
-        # Save phase map
+        # 保存相位图
         if save_path is None:
             save_path = f"./doe_fab_{fab_res}x{fab_res}_{int(self.fab_ps * 1000)}um_{bits}bit.pth"
         self.save_ckpt(save_path=save_path)
@@ -362,43 +350,42 @@ class DiffractiveSurface(DeepObj):
         return pmap_q
 
     # =======================================
-    # Optimization
+    # 优化
     # =======================================
     def activate_grad(self, activate=True):
-        """Enable or disable gradients on the phase-map parameters.
+        """启用或禁用相位图参数的梯度。
 
-        Args:
-            activate (bool, optional): Whether to require gradients. Defaults to True.
+        参数：
+            activate (bool, optional): 是否需要梯度。默认值为 True。
 
-        Raises:
-            NotImplementedError: Must be implemented by subclasses.
+        异常：
+            NotImplementedError: 必须由子类实现。
         """
         raise NotImplementedError
 
     def get_optimizer_params(self, lr=None):
-        """Build optimizer parameter groups for the phase-map parameters.
+        """为相位图参数构建优化器参数组。
 
-        Args:
-            lr (float or None, optional): Learning rate. Defaults to None.
+        参数：
+            lr (float or None, optional): 学习率。默认值为 None。
 
-        Returns:
-            params (list): List of parameter group dicts for an optimizer.
+        返回：
+            params (list): 优化器参数组字典的列表。
 
-        Raises:
-            NotImplementedError: Must be implemented by subclasses.
+        异常：
+            NotImplementedError: 必须由子类实现。
         """
         raise NotImplementedError
 
     def get_optimizer(self, lr=None):
-        """Create an Adam optimizer for the DOE phase-map parameters.
+        """为 DOE 相位图参数创建 Adam 优化器。
 
-        Args:
-            lr (float or None, optional): Learning rate passed to
-                `get_optimizer_params`. Defaults to None.
+        参数：
+            lr (float or None, optional): 传递给 `get_optimizer_params` 的
+                学习率。默认值为 None。
 
-        Returns:
-            optimizer (torch.optim.Adam): Optimizer over the DOE phase-map
-                parameters.
+        返回：
+            optimizer (torch.optim.Adam): 用于 DOE 相位图参数的优化器。
         """
         params = self.get_optimizer_params(lr)
         optimizer = torch.optim.Adam(params)
@@ -406,19 +393,18 @@ class DiffractiveSurface(DeepObj):
         return optimizer
 
     def loss_quantization(self, bits=16):
-        """Compute the mean phase quantization error of the DOE.
+        """计算 DOE 的平均相位量化误差。
 
-        Returns the mean absolute difference between the continuous phase map
-        and its quantization to `bits` levels, used as a quantization-aware
-        regularization loss.
+        返回连续相位图与其 `bits` 级量化结果之间的平均绝对差，用作量化感知
+        正则化损失。
 
-        Args:
-            bits (int, optional): Number of quantization levels. Defaults to 16.
+        参数：
+            bits (int, optional): 量化级数。默认值为 16。
 
-        Returns:
-            loss (torch.Tensor): Scalar mean absolute quantization error. [rad]
+        返回：
+            loss (torch.Tensor): 标量平均绝对量化误差。[rad]
 
-        Reference:
+        参考文献：
             Quantization-aware Deep Optics for Diffractive Snapshot Hyperspectral Imaging.
         """
         pmap = self.get_phase_map0()
@@ -428,17 +414,16 @@ class DiffractiveSurface(DeepObj):
         return loss
 
     # =======================================
-    # Visualization
+    # 可视化
     # =======================================
     def draw_phase_map(self, bits=None, save_name="./DOE_phase_map.png"):
-        """Save the design-wavelength phase map as a normalized image.
+        """将设计波长下的相位图保存为归一化图像。
 
-        Args:
-            bits (int or None, optional): Number of quantization levels; if
-                given the phase map is quantized first, otherwise the
-                continuous map is used. Defaults to None.
-            save_name (str, optional): Path to save the image. Defaults to
-                "./DOE_phase_map.png".
+        参数：
+            bits (int or None, optional): 量化级数；若给定，则先量化相位图，
+                否则使用连续相位图。默认值为 None。
+            save_name (str, optional): 图像保存路径。默认值为
+                "./DOE_phase_map.png"。
         """
         if bits is not None:
             pmap = self.quantize_phase_map(bits)
@@ -447,14 +432,13 @@ class DiffractiveSurface(DeepObj):
         save_image(pmap, save_name, normalize=True)
 
     def draw_phase_map3d(self, bits=None, save_name="./DOE_phase_map3d.png"):
-        """Save a 3D scatter plot of the design-wavelength phase map.
+        """保存设计波长相位图的三维散点图。
 
-        Args:
-            bits (int or None, optional): Number of quantization levels; if
-                given the phase map is quantized first, otherwise the
-                continuous map is used. Defaults to None.
-            save_name (str, optional): Path to save the image. Defaults to
-                "./DOE_phase_map3d.png".
+        参数：
+            bits (int or None, optional): 量化级数；若给定，则先量化相位图，
+                否则使用连续相位图。默认值为 None。
+            save_name (str, optional): 图像保存路径。默认值为
+                "./DOE_phase_map3d.png"。
         """
         if bits is not None:
             pmap = self.quantize_phase_map(bits)
@@ -483,11 +467,11 @@ class DiffractiveSurface(DeepObj):
         plt.close(fig)
 
     def draw_phase_map_fab(self, save_name="./DOE_phase_map.png"):
-        """Save side-by-side images of the continuous and 16-level quantized phase maps.
+        """并排保存连续相位图和 16 级量化相位图。
 
-        Args:
-            save_name (str, optional): Path to save the figure. Defaults to
-                "./DOE_phase_map.png".
+        参数：
+            save_name (str, optional): 图像保存路径。默认值为
+                "./DOE_phase_map.png"。
         """
         pmap = self.get_phase_map0()
         step = 2 * torch.pi / 16
@@ -508,11 +492,11 @@ class DiffractiveSurface(DeepObj):
         plt.close(fig)
 
     def draw_cross_section(self, save_name="./DOE_cross_section.png"):
-        """Save a plot of the phase map along its main diagonal.
+        """保存相位图沿主对角线的曲线图。
 
-        Args:
-            save_name (str, optional): Path to save the figure. Defaults to
-                "./DOE_cross_section.png".
+        参数：
+            save_name (str, optional): 图像保存路径。默认值为
+                "./DOE_cross_section.png"。
         """
         pmap = self.get_phase_map0()
         pmap = torch.diag(pmap).cpu().numpy()
@@ -527,16 +511,15 @@ class DiffractiveSurface(DeepObj):
         plt.close(fig)
 
     def draw_widget(self, ax, color="orange", linestyle="-"):
-        """Draw a 2D Fresnel-style cross-section of the DOE in a layout plot.
+        """在布局图中绘制 DOE 的二维菲涅耳式截面。
 
-        Plots the cross-section along the x-axis at y=0. For a square aperture
-        the half-extent is the half-side (`w/2`); for a circular aperture it is
-        the full radius `r` (= half-diagonal).
+        绘制 y=0 处沿 x 轴的截面。对于方形孔径，半范围为半边长（`w/2`）；
+        对于圆形孔径，半范围为完整半径 `r`（即半对角线）。
 
-        Args:
-            ax (matplotlib.axes.Axes): Axes to draw on.
-            color (str, optional): Line color. Defaults to "orange".
-            linestyle (str, optional): Line style. Defaults to "-".
+        参数：
+            ax (matplotlib.axes.Axes): 用于绘图的坐标轴。
+            color (str, optional): 线条颜色。默认值为 "orange"。
+            linestyle (str, optional): 线型。默认值为 "-"。
         """
         d = self.d.item()
         max_offset = d / 100
@@ -548,15 +531,14 @@ class DiffractiveSurface(DeepObj):
         ax.plot(d + sag, x, color=color, linestyle=linestyle, linewidth=0.75)
 
     # =======================================
-    # Utils
+    # 工具函数
     # =======================================
     def surf_dict(self):
-        """Serialize the DOE surface parameters into a dict.
+        """将 DOE 表面参数序列化为字典。
 
-        Returns:
-            surf_dict (dict): Surface parameters (type, size, position,
-                design wavelength, resolution, fabrication pixel size, and
-                aperture shape flag) suitable for saving or reconstruction.
+        返回：
+            surf_dict (dict): 适合保存或重建的表面参数，包括类型、尺寸、位置、
+                设计波长、分辨率、制造像素尺寸和孔径形状标志。
         """
         surf_dict = {
             "type": self.__class__.__name__,

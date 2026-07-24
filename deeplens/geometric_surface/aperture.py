@@ -1,4 +1,4 @@
-"""Aperture surface."""
+"""孔径表面。"""
 
 import numpy as np
 
@@ -6,17 +6,16 @@ from .plane import Plane
 
 
 class Aperture(Plane):
-    """Aperture stop surface.
+    """孔径光阑表面。
 
-    A flat circular (or square) opening that blocks rays falling outside its
-    clear aperture. Inherits the planar intersection logic from `Plane` and
-    always sits in air (no refraction).
+    平坦的圆形（或方形）开口，用于阻挡落在通光孔径之外的光线。继承 `Plane`
+    的平面求交逻辑，并且始终位于空气中（不发生折射）。
 
-    Attributes:
-        r (float): Aperture radius (clear half-diameter) in [mm].
-        d (torch.Tensor): Axial position along the optical axis in [mm].
-        is_square (bool): If True, the aperture is square instead of circular.
-        tolerancing (bool): Whether tolerancing perturbations are enabled.
+    属性：
+        r (float): 孔径半径（通光半直径），单位为 [mm]。
+        d (torch.Tensor): 沿光轴的轴向位置，单位为 [mm]。
+        is_square (bool): 若为 True，则孔径为方形而非圆形。
+        tolerancing (bool): 是否启用公差扰动。
     """
 
     def __init__(
@@ -28,15 +27,17 @@ class Aperture(Plane):
         is_square=False,
         device="cpu",
     ):
-        """Initialize an aperture surface.
+        """初始化孔径表面。
 
-        Args:
-            r (float): Aperture radius (clear half-diameter) in [mm].
-            d (float): Axial position along the optical axis in [mm].
-            pos_xy (list, optional): Lateral (x, y) offset of the surface in [mm]. Defaults to [0.0, 0.0].
-            vec_local (list, optional): Local surface normal (z-axis) direction. Defaults to [0.0, 0.0, 1.0].
-            is_square (bool, optional): If True, use a square aperture. Defaults to False.
-            device (str, optional): Torch device for surface tensors. Defaults to "cpu".
+        参数：
+            r (float): 孔径半径（通光半直径），单位为 [mm]。
+            d (float): 沿光轴的轴向位置，单位为 [mm]。
+            pos_xy (list, optional): 表面的横向 (x, y) 偏移，单位为 [mm]。
+                默认值为 [0.0, 0.0]。
+            vec_local (list, optional): 局部表面法线（z 轴）方向。
+                默认值为 [0.0, 0.0, 1.0]。
+            is_square (bool, optional): 若为 True，则使用方形孔径。默认值为 False。
+            device (str, optional): 表面张量使用的 Torch 设备。默认值为 "cpu"。
         """
         Plane.__init__(
             self,
@@ -53,14 +54,14 @@ class Aperture(Plane):
 
     @classmethod
     def init_from_dict(cls, surf_dict):
-        """Construct an Aperture from a surface dictionary.
+        """从表面字典构造 Aperture。
 
-        Args:
-            surf_dict (dict): Surface parameters. Requires "r" and "d"; optional
-                keys "is_square", "pos_xy", "vec_local", and "device".
+        参数：
+            surf_dict (dict): 表面参数。必须包含 "r" 和 "d"；可选键为
+                "is_square"、"pos_xy"、"vec_local"、"device"。
 
-        Returns:
-            aperture (Aperture): The constructed aperture surface.
+        返回：
+            aperture (Aperture): 构造得到的孔径表面。
         """
         return cls(
             r=surf_dict["r"],
@@ -72,21 +73,19 @@ class Aperture(Plane):
         )
 
     def ray_reaction(self, ray, n1=1.0, n2=1.0, refraction=False):
-        """Trace a ray through the aperture.
+        """追迹光线通过孔径。
 
-        Transforms the ray into local coordinates, intersects it with the
-        aperture plane (rays outside the clear aperture are marked invalid),
-        then transforms back to global coordinates. The aperture does not
-        refract, so `n1`, `n2`, and `refraction` are ignored.
+        将光线变换到局部坐标系，与孔径平面求交（通光孔径外的光线标记为无效），
+        再变换回全局坐标系。孔径不发生折射，因此忽略 `n1`、`n2` 和 `refraction`。
 
-        Args:
-            ray (Ray): Input ray batch in global coordinates.
-            n1 (float, optional): Refractive index before the surface (unused). Defaults to 1.0.
-            n2 (float, optional): Refractive index after the surface (unused). Defaults to 1.0.
-            refraction (bool, optional): Ignored for an aperture. Defaults to False.
+        参数：
+            ray (Ray): 全局坐标系中的输入光线批次。
+            n1 (float, optional): 表面前的折射率（未使用）。默认值为 1.0。
+            n2 (float, optional): 表面后的折射率（未使用）。默认值为 1.0。
+            refraction (bool, optional): 对孔径忽略。默认值为 False。
 
-        Returns:
-            ray (Ray): Ray after intersection, in global coordinates, with `is_valid` updated.
+        返回：
+            ray (Ray): 求交后的全局坐标光线，并已更新 `is_valid`。
         """
         ray = self.to_local_coord(ray)
         ray = self.intersect(ray)
@@ -94,28 +93,28 @@ class Aperture(Plane):
         return ray
 
     # =======================================
-    # Visualization
+    # 可视化
     # =======================================
     def draw_widget(self, ax, color="orange", linestyle="solid"):
-        """Draw the aperture as wedge marks on a 2D cross-section plot.
+        """在二维截面图中将孔径绘制为楔形标记。
 
-        Args:
-            ax (matplotlib.axes.Axes): Axes to draw on (z-x cross-section).
-            color (str, optional): Line color. Defaults to "orange".
-            linestyle (str, optional): Matplotlib line style. Defaults to "solid".
+        参数：
+            ax (matplotlib.axes.Axes): 用于绘制的坐标轴（z-x 截面）。
+            color (str, optional): 线条颜色。默认值为 "orange"。
+            linestyle (str, optional): Matplotlib 线型。默认值为 "solid"。
         """
         d = self.d.item()
         aper_wedge_l = 0.05 * self.r  # [mm]
         aper_wedge_h = 0.15 * self.r  # [mm]
 
-        # Parallel edges
+        # 平行边
         z = np.linspace(d - aper_wedge_l, d + aper_wedge_l, 3)
         x = -self.r * np.ones(3)
         ax.plot(z, x, color=color, linestyle=linestyle, linewidth=0.8)
         x = self.r * np.ones(3)
         ax.plot(z, x, color=color, linestyle=linestyle, linewidth=0.8)
 
-        # Vertical edges
+        # 垂直边
         z = d * np.ones(3)
         x = np.linspace(self.r, self.r + aper_wedge_h, 3)
         ax.plot(z, x, color=color, linestyle=linestyle, linewidth=0.8)
@@ -123,38 +122,39 @@ class Aperture(Plane):
         ax.plot(z, x, color=color, linestyle=linestyle, linewidth=0.8)
 
     def draw_widget3D(self, ax, color="black"):
-        """Draw the aperture as an edge circle in a 3D plot.
+        """在三维图中将孔径绘制为边缘圆。
 
-        Args:
-            ax (mpl_toolkits.mplot3d.axes3d.Axes3D): 3D axes to draw on.
-            color (str, optional): Line color. Defaults to "black".
+        参数：
+            ax (mpl_toolkits.mplot3d.axes3d.Axes3D): 用于绘制的三维坐标轴。
+            color (str, optional): 线条颜色。默认值为 "black"。
 
-        Returns:
-            line (list): The Line3D objects returned by `ax.plot`.
+        返回：
+            line (list): `ax.plot` 返回的 Line3D 对象。
         """
-        # Draw the edge circle
+        # 绘制边缘圆
         theta = np.linspace(0, 2 * np.pi, 100)
         edge_x = self.r * np.cos(theta)
         edge_y = self.r * np.sin(theta)
-        edge_z = np.full_like(edge_x, self.d.item())  # Constant z at aperture position
+        edge_z = np.full_like(edge_x, self.d.item())  # 孔径位置处的 z 为常数
 
-        # Plot the edge circle
+        # 绘制边缘圆
         line = ax.plot(edge_z, edge_x, edge_y, color=color, linewidth=1.5)
 
         return line
 
     def create_mesh(self, n_rings=32, n_arms=128, color=[0.0, 0.0, 0.0]):
-        """Create a triangulated surface mesh for the aperture.
+        """为孔径创建三角剖分表面网格。
 
-        Builds vertices, faces, and rim, then stores them on the surface.
+        构建顶点、面和边缘，并将它们存储在表面对象上。
 
-        Args:
-            n_rings (int, optional): Number of concentric rings for sampling. Defaults to 32.
-            n_arms (int, optional): Number of angular divisions. Defaults to 128.
-            color (list, optional): RGB color of the mesh. Defaults to [0.0, 0.0, 0.0].
+        参数：
+            n_rings (int, optional): 用于采样的同心环数量。默认值为 32。
+            n_arms (int, optional): 角向分区数量。默认值为 128。
+            color (list, optional): 网格的 RGB 颜色。默认值为 [0.0, 0.0, 0.0]。
 
-        Returns:
-            self (Aperture): The aperture with `vertices`, `faces`, `rim`, and `mesh_color` set (for chaining).
+        返回：
+            self (Aperture): 已设置 `vertices`、`faces`、`rim` 和 `mesh_color`
+                的孔径对象（用于链式调用）。
         """
         self.vertices = self._create_vertices(n_rings, n_arms)
         self.faces = self._create_faces(n_rings, n_arms)
@@ -163,25 +163,26 @@ class Aperture(Plane):
         return self
 
     def _create_vertices(self, n_rings, n_arms):
-        """Generate mesh vertices for the aperture annulus.
+        """为孔径环带生成网格顶点。
 
-        Builds two coplanar rings at the aperture position: an inner ring at
-        radius `r` and an outer ring at radius `1.1 * r` [mm].
+        在孔径位置构建两个共面环：半径为 `r` 的内环，以及半径为
+        `1.1 * r` [mm] 的外环。
 
-        Args:
-            n_rings (int): Number of rings (only the inner and outer ring are used).
-            n_arms (int): Number of angular divisions per ring.
+        参数：
+            n_rings (int): 环数（仅使用内环和外环）。
+            n_arms (int): 每个环的角向分区数。
 
-        Returns:
-            vertices (np.ndarray): Float32 array of shape (n_rings * n_arms + 1, 3) of (x, y, z) coordinates in [mm].
+        返回：
+            vertices (np.ndarray): shape 为 (n_rings * n_arms + 1, 3) 的
+                Float32 数组，存储单位为 [mm] 的 (x, y, z) 坐标。
         """
         n_vertices = n_rings * n_arms + 1
         vertices = np.zeros((n_vertices, 3), dtype=np.float32)
-        aperture_z = self.d.item()  # All vertices at aperture position
+        aperture_z = self.d.item()  # 所有顶点均位于孔径位置
         inner_radius = self.r
         outer_radius = 1.1 * self.r
 
-        # Generate inner ring vertices (first n_arms vertices)
+        # 生成内环顶点（前 n_arms 个顶点）
         for j_arm in range(n_arms):
             theta = 2 * np.pi * j_arm / n_arms
             x = inner_radius * np.cos(theta)
@@ -190,7 +191,7 @@ class Aperture(Plane):
 
             vertices[j_arm] = [x, y, z]
 
-        # Generate outer ring vertices (second n_arms vertices)
+        # 生成外环顶点（第二组 n_arms 个顶点）
         for j_arm in range(n_arms):
             theta = 2 * np.pi * j_arm / n_arms
             x = outer_radius * np.cos(theta)
@@ -202,29 +203,30 @@ class Aperture(Plane):
         return vertices
 
     def _create_faces(self, n_rings, n_arms):
-        """Generate triangular faces connecting the inner and outer rings.
+        """生成连接内环和外环的三角面。
 
-        Args:
-            n_rings (int): Number of rings (used to size the face array).
-            n_arms (int): Number of angular divisions per ring.
+        参数：
+            n_rings (int): 环数（用于确定面数组的大小）。
+            n_arms (int): 每个环的角向分区数。
 
-        Returns:
-            faces (np.ndarray): Uint32 array of shape (n_arms * (2 * n_rings - 1), 3) of vertex indices.
+        返回：
+            faces (np.ndarray): shape 为 (n_arms * (2 * n_rings - 1), 3)
+                的 Uint32 顶点索引数组。
         """
         n_faces = n_arms * (2 * n_rings - 1)
         faces = np.zeros((n_faces, 3), dtype=np.uint32)
 
-        # Connect inner ring (indices 0 to n_arms-1) to outer ring (indices n_arms to 2*n_arms-1)
+        # 将内环（索引 0 到 n_arms-1）连接到外环（索引 n_arms 到 2*n_arms-1）
         for j_arm in range(n_arms):
-            # Inner ring vertices
+            # 内环顶点
             inner_a = j_arm
             inner_b = (j_arm + 1) % n_arms
 
-            # Outer ring vertices (offset by n_arms)
+            # 外环顶点（偏移 n_arms）
             outer_a = n_arms + j_arm
             outer_b = n_arms + (j_arm + 1) % n_arms
 
-            # Create two triangles per quad (normal direction +z)
+            # 每个四边形创建两个三角形（法线方向为 +z）
             face_idx = j_arm * 2
             faces[face_idx] = [inner_a, outer_a, inner_b]
             faces[face_idx + 1] = [inner_b, outer_a, outer_b]
@@ -232,34 +234,34 @@ class Aperture(Plane):
         return faces
 
     def _create_rim(self, n_rings, n_arms):
-        """Create the rim (outer edge) curve for the aperture.
+        """为孔径创建边缘（外缘）曲线。
 
-        Args:
-            n_rings (int): Number of rings (unused; the outer ring is selected directly).
-            n_arms (int): Number of angular divisions per ring.
+        参数：
+            n_rings (int): 环数（未使用，直接选择外环）。
+            n_arms (int): 每个环的角向分区数。
 
-        Returns:
-            rim (RimCurve): Closed-loop rim curve built from the outer ring vertices.
+        返回：
+            rim (RimCurve): 由外环顶点构建的闭合边缘曲线。
         """
-        # Import RimCurve from base module
+        # 从基础模块导入 RimCurve
         from .base import RimCurve
 
-        # Get outer ring vertices (second half of vertices array)
-        start_idx = n_arms  # Start of outer ring
+        # 获取外环顶点（顶点数组的后半部分）
+        start_idx = n_arms  # 外环起始位置
         rim_vertices = self.vertices[start_idx : start_idx + n_arms]
         return RimCurve(rim_vertices, is_loop=True)
 
     # =========================================
-    # Optimization
+    # 优化
     # =========================================
     def get_optimizer_params(self, lrs=[1e-4]):
-        """Enable gradients on the axial position and build optimizer param groups.
+        """启用轴向位置的梯度并构建优化器参数组。
 
-        Args:
-            lrs (list, optional): Learning rates; `lrs[0]` is applied to `d`. Defaults to [1e-4].
+        参数：
+            lrs (list, optional): 学习率；`lrs[0]` 用于 `d`。默认值为 [1e-4]。
 
-        Returns:
-            params (list): List with one optimizer param group dict for `d`.
+        返回：
+            params (list): 包含一个 `d` 优化器参数组字典的列表。
         """
         self.d.requires_grad_(True)
 
@@ -269,14 +271,14 @@ class Aperture(Plane):
         return params
 
     # =======================================
-    # IO
+    # 输入输出
     # =======================================
     def surf_dict(self):
-        """Serialize the aperture parameters to a dictionary.
+        """将孔径参数序列化为字典。
 
-        Returns:
-            surf_dict (dict): Surface parameters with keys "type", "r", "(d)",
-                "mat2", and "is_square". Radius and position are in [mm].
+        返回：
+            surf_dict (dict): 包含 "type"、"r"、"(d)"、"mat2" 和
+                "is_square" 的表面参数。半径和位置单位为 [mm]。
         """
         surf_dict = {
             "type": "Aperture",
@@ -288,14 +290,14 @@ class Aperture(Plane):
         return surf_dict
 
     def zmx_str(self, surf_idx, d_next):
-        """Format the aperture as a Zemax (.zmx) STOP surface block.
+        """将孔径格式化为 Zemax（.zmx）STOP 表面块。
 
-        Args:
-            surf_idx (int): Surface index in the Zemax file.
-            d_next (torch.Tensor): Distance to the next surface in [mm].
+        参数：
+            surf_idx (int): Zemax 文件中的表面索引。
+            d_next (torch.Tensor): 到下一表面的距离，单位为 [mm]。
 
-        Returns:
-            zmx_str (str): Zemax surface definition string for this aperture.
+        返回：
+            zmx_str (str): 此孔径的 Zemax 表面定义字符串。
         """
         zmx_str = f"""SURF {surf_idx}
     STOP

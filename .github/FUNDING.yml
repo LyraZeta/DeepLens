@@ -1,15 +1,15 @@
-# These are supported funding model platforms
+# 以下为支持的资助平台
 
-github: [singer-yang] # Replace with up to 4 GitHub Sponsors-enabled usernames e.g., [user1, user2]
-patreon: # Replace with a single Patreon username
-open_collective: # Replace with a single Open Collective username
-ko_fi: # Replace with a single Ko-fi username
-tidelift: # Replace with a single Tidelift platform-name/package-name e.g., npm/babel
-community_bridge: # Replace with a single Community Bridge project-name e.g., cloud-foundry
-liberapay: # Replace with a single Liberapay username
-issuehunt: # Replace with a single IssueHunt username
-lfx_crowdfunding: # Replace with a single LFX Crowdfunding project-name e.g., cloud-foundry
-polar: # Replace with a single Polar username
-buy_me_a_coffee: # Replace with a single Buy Me a Coffee username
-thanks_dev: # Replace with a single thanks.dev username
-custom: # Replace with up to 4 custom sponsorship URLs e.g., ['link1', 'link2']
+github: [singer-yang] # 最多填写 4 个已启用 GitHub Sponsors 的用户名，例如 [user1, user2]
+patreon: # 填写一个 Patreon 用户名
+open_collective: # 填写一个 Open Collective 用户名
+ko_fi: # 填写一个 Ko-fi 用户名
+tidelift: # 填写一个 Tidelift 平台名/包名，例如 npm/babel
+community_bridge: # 填写一个 Community Bridge 项目名，例如 cloud-foundry
+liberapay: # 填写一个 Liberapay 用户名
+issuehunt: # 填写一个 IssueHunt 用户名
+lfx_crowdfunding: # 填写一个 LFX Crowdfunding 项目名，例如 cloud-foundry
+polar: # 填写一个 Polar 用户名
+buy_me_a_coffee: # 填写一个 Buy Me a Coffee 用户名
+thanks_dev: # 填写一个 thanks.dev 用户名
+custom: # 最多填写 4 个自定义赞助 URL，例如 ['link1', 'link2']

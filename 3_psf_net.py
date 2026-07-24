@@ -1,6 +1,6 @@
-"""Represent the spatiallly varying PSF of a lens with a neural network. Surrogate model can accelerate the calculation of PSF compared to ray tracing.
+"""使用神经网络表示镜头的空间变化 PSF。与光线追迹相比，代理模型可加速 PSF 计算。
 
-Technical Paper:
+技术论文：
     Xinge Yang, Qiang Fu, Mohammed Elhoseiny and Wolfgang Heidrich, "Aberration-Aware Depth-from-Focus" IEEE-TPAMI 2023.
 """
 
@@ -15,9 +15,9 @@ os.makedirs(result_dir, exist_ok=True)
 set_logger(result_dir)
 
 if __name__ == "__main__":
-    # Init PSFNetLens
-    # Input (B, 3): (fov, depth, foc_dist)
-    # Output (B, 3, ks, ks): RGB PSF on y-axis at (fov, depth, foc_dist)
+    # 初始化 PSFNetLens
+    # 输入 (B, 3)：(fov, depth, foc_dist)
+    # 输出 (B, 3, ks, ks)：(fov, depth, foc_dist) 处 y 轴上的 RGB PSF
     psfnet_lens = PSFNetLens(
         in_chan=3,
         psf_chan=3,
@@ -29,10 +29,10 @@ if __name__ == "__main__":
     psfnet_lens.lens.analysis(save_name=f"{result_dir}/lens")
     psfnet_lens.lens.write_lens_json(f"{result_dir}/lens.json")
 
-    # Download the pretrained model from release page: https://github.com/singer-yang/DeepLens/releases/
+    # 从发布页面下载预训练模型：https://github.com/singer-yang/DeepLens/releases/
     psfnet_lens.load_net("./ckpts/psfnet/PSFNet_ef50mm_f1.8_ps10um.pth")
 
-    # Draw example PSF map
+    # 绘制 PSF 图示例
     psfnet_lens.refocus(-1200)
     psfnet_lens.draw_psf_map(
         save_name="./psf_map_net.png",
@@ -49,7 +49,7 @@ if __name__ == "__main__":
         log_scale=False,
     )
 
-    # Training
+    # 训练
     psfnet_lens.train_psfnet(
         iters=10000,
         evaluate_every=100,

@@ -1,4 +1,4 @@
-"""Phase surface implementations for diffractive optics."""
+"""用于衍射光学的相位面实现。"""
 
 from .phase import Phase
 from .fresnel import FresnelPhase

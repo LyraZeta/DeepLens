@@ -4,22 +4,20 @@
 # Licensed under the Apache License, Version 2.0.
 # See LICENSE file in the project root for full license information.
 
-"""Conformance tests for the unified ``Lens`` API.
+"""统一 ``Lens`` API 的一致性测试。
 
-Every lens type (``GeoLens``, ``HybridLens``, ``DiffractiveLens``,
-``DefocusLens``, ``PSFNetLens``) must expose the *same* public PSF/render API
-so a user can call ``psf()`` / ``psf_rgb()`` / ``render()`` uniformly without
-knowing the concrete lens type.
+每种镜头类型（``GeoLens``、``HybridLens``、``DiffractiveLens``、
+``DefocusLens``、``PSFNetLens``）都必须公开*相同*的 PSF/渲染 API，使用户无需了解
+具体镜头类型即可统一调用 ``psf()`` / ``psf_rgb()`` / ``render()``。
 
-The canonical contract (defined once on ``Lens``):
+规范接口契约（在 ``Lens`` 上统一定义）：
 
-    psf(points, wvln=None, ks=PSF_KS, **kwargs)   # wvln 2nd, ks 3rd
+    psf(points, wvln=None, ks=PSF_KS, **kwargs)   # wvln 位于第 2 位，ks 位于第 3 位
     psf_rgb(points, ks=PSF_KS, **kwargs)
-    render(img_obj, depth=None, method=None, **kwargs)   # uniform default
+    render(img_obj, depth=None, method=None, **kwargs)   # 统一默认值
 
-Regime-specific knobs (``model``, ``spp``, ``recenter``, ``psf_type``,
-``upsample_factor`` ...) must live in ``**kwargs``, never in the public
-signature.
+不同工作模式专用的选项（``model``、``spp``、``recenter``、``psf_type``、
+``upsample_factor``……）必须放在 ``**kwargs`` 中，不能出现在公共签名里。
 """
 
 import inspect
@@ -44,7 +42,7 @@ _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def _public_params(func):
-    """Ordered list of parameters excluding ``self``."""
+    """不含 ``self`` 的有序参数列表。"""
     return [p for n, p in inspect.signature(func).parameters.items() if n != "self"]
 
 
@@ -56,11 +54,11 @@ def _has_var_keyword(func):
 
 
 # =============================================================================
-# Signature conformance (fast, class-level — no lens construction needed)
+# 签名一致性（快速、类级别——无需构造镜头）
 # =============================================================================
 @pytest.mark.parametrize("cls", LENS_CLASSES, ids=lambda c: c.__name__)
 def test_psf_signature_is_canonical(cls):
-    """psf() must be psf(points, wvln=None, ks=PSF_KS, **kwargs)."""
+    """psf() 必须为 psf(points, wvln=None, ks=PSF_KS, **kwargs)。"""
     sig = inspect.signature(cls.psf)
     names = [p.name for p in _public_params(cls.psf)]
     assert names[:3] == ["points", "wvln", "ks"], (
@@ -77,7 +75,7 @@ def test_psf_signature_is_canonical(cls):
 
 @pytest.mark.parametrize("cls", LENS_CLASSES, ids=lambda c: c.__name__)
 def test_psf_is_implemented_per_type(cls):
-    """Each concrete lens must provide its own psf(), not inherit the base stub."""
+    """每个具体镜头都必须自行提供 psf()，而不能继承基类 stub。"""
     assert cls.psf is not Lens.psf, (
         f"{cls.__name__} does not implement psf(); it inherits Lens.psf (NotImplementedError)"
     )
@@ -85,7 +83,7 @@ def test_psf_is_implemented_per_type(cls):
 
 @pytest.mark.parametrize("cls", LENS_CLASSES, ids=lambda c: c.__name__)
 def test_psf_has_no_mutable_default(cls):
-    """No mutable default arguments (e.g. points=[...]) on psf()."""
+    """psf() 不得使用可变默认参数（如 points=[...]）。"""
     for p in inspect.signature(cls.psf).parameters.values():
         assert not isinstance(p.default, (list, dict, set)), (
             f"{cls.__name__}.psf has a mutable default for {p.name!r}: {p.default!r}"
@@ -94,7 +92,7 @@ def test_psf_has_no_mutable_default(cls):
 
 @pytest.mark.parametrize("cls", LENS_CLASSES, ids=lambda c: c.__name__)
 def test_psf_rgb_signature_is_canonical(cls):
-    """psf_rgb() must accept **kwargs and default ks=PSF_KS (same contract)."""
+    """psf_rgb() 必须接受 **kwargs，并将 ks 默认为 PSF_KS（相同契约）。"""
     sig = inspect.signature(cls.psf_rgb)
     assert sig.parameters["ks"].default == PSF_KS, (
         f"{cls.__name__}.psf_rgb ks default must be PSF_KS, got {sig.parameters['ks'].default!r}"
@@ -103,7 +101,7 @@ def test_psf_rgb_signature_is_canonical(cls):
 
 
 def test_render_default_method_is_uniform():
-    """render()'s default 'method' must not diverge across lens types."""
+    """各镜头类型的 render() 默认 'method' 不得不同。"""
     defaults = {
         cls.__name__: inspect.signature(cls.render).parameters["method"].default
         for cls in LENS_CLASSES
@@ -114,7 +112,7 @@ def test_render_default_method_is_uniform():
 
 
 # =============================================================================
-# Behavioral conformance (cheap lens types actually compute a PSF)
+# 行为一致性（使用计算成本较低的镜头类型实际计算 PSF）
 # =============================================================================
 @pytest.fixture(scope="module")
 def defocus_lens():
@@ -132,34 +130,34 @@ def psfnet_lens():
 
 
 def test_defocus_psf_positional_wvln_then_ks(defocus_lens):
-    """psf(points, 0.55, 32) -> wvln is 2nd positional, ks is 3rd -> [32, 32]."""
+    """psf(points, 0.55, 32) -> wvln 是第 2 个位置参数，ks 是第 3 个 -> [32, 32]。"""
     pts = torch.tensor([0.0, 0.0, -1000.0])
     psf = defocus_lens.psf(pts, 0.55, 32)
     assert psf.shape == (32, 32)
 
 
 def test_geolens_psf_positional_wvln_then_ks(sample_singlet_lens):
-    """GeoLens psf must honor the (points, wvln, ks) positional order too."""
+    """GeoLens psf 也必须遵循 (points, wvln, ks) 的位置顺序。"""
     pts = torch.tensor([0.0, 0.0, -10000.0])
     psf = sample_singlet_lens.psf(pts, 0.55, 32, spp=256)
     assert psf.shape == (32, 32)
 
 
 def test_diffraclens_default_ks_is_psf_ks(sample_diffraclens):
-    """With ks omitted, DiffractiveLens must return a PSF_KS x PSF_KS kernel."""
+    """省略 ks 时，DiffractiveLens 必须返回 PSF_KS x PSF_KS 核。"""
     psf = sample_diffraclens.psf(points=[0.0, 0.0, float("-inf")], upsample_factor=1)
     assert psf.shape == (PSF_KS, PSF_KS)
 
 
 def test_psfnetlens_psf_returns_monochromatic(psfnet_lens):
-    """PSFNetLens.psf() must exist and return a monochromatic [N, ks, ks] PSF."""
+    """PSFNetLens.psf() 必须存在并返回单色 [N, ks, ks] PSF。"""
     pts = torch.tensor([[0.0, 0.0, -1000.0], [0.3, 0.0, -1000.0]])
     psf = psfnet_lens.psf(pts, ks=32)
     assert psf.shape == (2, 32, 32)
 
 
 def test_psfnetlens_psf_single_point(psfnet_lens):
-    """A single [3] point must collapse the batch dim -> [ks, ks]."""
+    """单个 [3] 点必须折叠 batch 维度 -> [ks, ks]。"""
     pts = torch.tensor([0.0, 0.0, -1000.0])
     psf = psfnet_lens.psf(pts, ks=32)
     assert psf.shape == (32, 32)

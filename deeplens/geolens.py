@@ -4,9 +4,9 @@
 # Licensed under the Apache License, Version 2.0.
 # See LICENSE file in the project root for full license information.
 
-"""Geometric lens model. Differentiable ray tracing is used to simulate light propagation through a geometric lens. Accuracy is aligned with Zemax.
+"""几何镜头模型。使用可微光线追迹模拟光在几何镜头中的传播，精度与 Zemax 对齐。
 
-Technical Paper:
+技术论文:
     Xinge Yang, Qiang Fu, and Wolfgang Heidrich, "Curriculum learning for ab initio deep learned refractive optics," Nature Communications 2024.
 """
 
@@ -51,38 +51,35 @@ class GeoLens(
     GeoLensVis3D,
     Lens,
 ):
-    """Differentiable geometric lens using vectorised ray tracing.
+    """使用向量化光线追迹的可微几何镜头。
 
-    The primary lens model in DeepLens. Supports multi-element refractive
-    (and partially reflective) systems loaded from JSON, Zemax `.zmx`, or
-    Code V `.seq` files. Accuracy is aligned with Zemax OpticStudio.
+    这是 DeepLens 中的主要镜头模型。支持从 JSON、Zemax `.zmx` 或 Code V
+    `.seq` 文件加载多元件折射（以及部分反射）系统，精度与 Zemax OpticStudio 对齐。
 
-    Uses a mixin architecture: seven specialised mixin classes are composed
-    at class-definition time to keep each concern isolated: `GeoLensPSF`
-    (PSF computation), `GeoLensEval` (spot/MTF/distortion/vignetting
-    evaluation), `GeoLensOptim` (losses and gradient-based optimisation),
-    `GeoLensSurfOps` (surface geometry operations), `GeoLensVis` (2-D
-    layout/ray visualisation), `GeoLensIO` (JSON/Zemax read-write), and
-    `GeoLensVis3D` (3-D mesh visualisation).
+    使用 mixin 架构：在类定义时组合七个专用 mixin 类，使各项职责相互隔离：
+    `GeoLensPSF`（PSF 计算）、`GeoLensEval`（光斑/MTF/畸变/渐晕评估）、
+    `GeoLensOptim`（损失和基于梯度的优化）、`GeoLensSurfOps`（表面几何操作）、
+    `GeoLensVis`（二维布局/光线可视化）、`GeoLensIO`（JSON/Zemax 读写）和
+    `GeoLensVis3D`（三维网格可视化）。
 
-    Attributes:
-        surfaces (list[Surface]): Ordered list of optical surfaces.
-        materials (list[Material]): Optical materials between surfaces.
-        d_sensor (torch.Tensor): Distance from origin to the sensor plane [mm].
-        foclen (float): Effective focal length [mm].
-        fnum (float): F-number.
-        rfov (float): Real half-diagonal field of view [radians].
-        sensor_size (tuple): Physical sensor size (W, H) [mm].
-        sensor_res (tuple): Sensor resolution (W, H) [pixels].
-        pixel_size (float): Pixel pitch [mm].
+    属性:
+        surfaces (list[Surface]): 按顺序排列的光学表面列表。
+        materials (list[Material]): 表面之间的光学材料。
+        d_sensor (torch.Tensor): 从原点到传感器平面的距离 [mm]。
+        foclen (float): 有效焦距 [mm]。
+        fnum (float): F-number。
+        rfov (float): 实际半对角视场 [radians]。
+        sensor_size (tuple): 传感器物理尺寸 (W, H) [mm]。
+        sensor_res (tuple): 传感器分辨率 (W, H) [pixels]。
+        pixel_size (float): 像素间距 [mm]。
 
-    Reference:
+    参考:
         Xinge Yang et al., "Curriculum learning for ab initio deep learned
         refractive optics," Nature Communications 2024.
     """
 
-    # GeoLens defaults to ray-tracing rendering (it can trace rays end-to-end),
-    # overriding the base `Lens` default of ``"psf_patch"``.
+    # GeoLens 默认使用光线追迹渲染（可端到端追迹光线），覆盖基类 `Lens` 的
+    # 默认值 ``"psf_patch"``。
     _default_render_method = "ray_tracing"
 
     def __init__(
@@ -94,25 +91,22 @@ class GeoLens(
         wvln_rgb=WAVE_RGB,
         obj_depth=DEPTH,
     ):
-        """Initialize a refractive lens.
+        """初始化折射镜头。
 
-        There are two ways to initialize a GeoLens:
-            1. Read a lens from .json/.zmx/.seq file
-            2. Initialize a lens with no lens file, then manually add surfaces and materials
+        GeoLens 有两种初始化方式：
+            1. 从 .json/.zmx/.seq 文件读取镜头
+            2. 不使用镜头文件进行初始化，随后手动添加表面和材料
 
-        Args:
-            filename (str, optional): Path to lens file (.json, .zmx, or .seq). Defaults to None.
-            device (torch.device, optional): Device for tensor computations. Defaults to None.
-            dtype (torch.dtype, optional): Data type for computations. Defaults to torch.float32.
-            primary_wvln (float, optional): Primary design wavelength [µm].
-                Used as fallback when a method is called without an explicit
-                ``wvln``.  Defaults to ``DEFAULT_WAVE``.
-            wvln_rgb (sequence of float, optional): Three wavelengths used
-                for RGB computations, ordered ``[R, G, B]`` in µm.  Defaults
-                to ``WAVE_RGB``.
-            obj_depth (float, optional): Default object depth [mm], used
-                when a method is called without an explicit ``depth``.
-                Defaults to ``DEPTH``.
+        参数:
+            filename (str, optional): 镜头文件（.json、.zmx 或 .seq）路径。默认为 None。
+            device (torch.device, optional): 张量计算设备。默认为 None。
+            dtype (torch.dtype, optional): 计算数据类型。默认为 torch.float32。
+            primary_wvln (float, optional): 主要设计波长 [µm]。调用方法时未显式
+                提供 ``wvln``，则使用此值。默认为 ``DEFAULT_WAVE``。
+            wvln_rgb (sequence of float, optional): RGB 计算所用的三个波长，按
+                ``[R, G, B]`` 排列，单位为 µm。默认为 ``WAVE_RGB``。
+            obj_depth (float, optional): 默认物体深度 [mm]。调用方法时未显式
+                提供 ``depth``，则使用此值。默认为 ``DEPTH``。
         """
         super().__init__(
             device=device,
@@ -122,32 +116,32 @@ class GeoLens(
             obj_depth=obj_depth,
         )
 
-        # Load lens file
+        # 加载镜头文件
         if filename is not None:
             self.read_lens(filename)
         else:
             self.surfaces = []
             self.materials = []
-            # Set default sensor size and resolution
+            # 设置默认传感器尺寸和分辨率
             self.sensor_size = (8.0, 8.0)
             self.sensor_res = (2000, 2000)
             self.to(self.device)
 
     def read_lens(self, filename):
-        """Read a GeoLens from a file.
+        """从文件读取 GeoLens。
 
-        Supported file formats:
-            - .json: DeepLens native JSON format
-            - .zmx: Zemax lens file format
-            - .seq: CODE V sequence file format
+        支持的文件格式:
+            - .json：DeepLens 原生 JSON 格式
+            - .zmx：Zemax 镜头文件格式
+            - .seq：CODE V 序列文件格式
 
-        Args:
-            filename (str): Path to the lens file.
+        参数:
+            filename (str): 镜头文件路径。
 
-        Note:
-            Sensor size and resolution will usually be overwritten by values from the file.
+        说明:
+            传感器尺寸和分辨率通常会被文件中的值覆盖。
         """
-        # Load lens file
+        # 加载镜头文件
         if filename[-4:] == ".txt":
             raise ValueError("File format .txt has been deprecated.")
         elif filename[-5:] == ".json":
@@ -159,7 +153,7 @@ class GeoLens(
         else:
             raise ValueError(f"File format {filename[-4:]} not supported.")
 
-        # Complete sensor size and resolution if not set from lens file
+        # 若镜头文件未设置传感器尺寸和分辨率，则补全它们
         if not hasattr(self, "sensor_size"):
             self.sensor_size = (8.0, 8.0)
             print(
@@ -175,23 +169,23 @@ class GeoLens(
             )
             self.set_sensor_res(self.sensor_res)
 
-        # After loading lens, compute foclen, fov and fnum
+        # 加载镜头后计算 foclen、fov 和 fnum
         self.to(self.device)
         self.astype(self.dtype)
         self.post_computation()
 
     def post_computation(self):
-        """Compute derived optical properties after loading or modifying lens.
+        """加载或修改镜头后计算派生光学属性。
 
-        Calculates and caches:
-            - Effective focal length (EFL)
-            - Entrance and exit pupil positions and radii
-            - Field of view (FoV) in horizontal, vertical, and diagonal directions
+        计算并缓存:
+            - 有效焦距（EFL）
+            - 入瞳和出瞳的位置及半径
+            - 水平、垂直和对角方向的视场（FoV）
             - F-number
-            - Lens design constraints (edge/center thickness bounds, etc.)
+            - 镜头设计约束（边缘/中心厚度边界等）
 
-        Note:
-            This method should be called after any changes to the lens geometry.
+        说明:
+            修改镜头几何结构后应调用此方法。
         """
         self.calc_foclen()
         self.calc_pupil()
@@ -199,19 +193,19 @@ class GeoLens(
         self.init_constraints()
 
     def __call__(self, ray):
-        """Trace rays through the lens system (callable shorthand for `trace`).
+        """追迹光线通过镜头系统（`trace` 的可调用简写）。
 
-        Args:
-            ray (Ray): Ray object to trace.
+        参数:
+            ray (Ray): 要追迹的光线对象。
 
-        Returns:
-            ray_out (Ray): Ray after propagation through the surfaces.
-            ray_o_record (list or None): Recorded ray positions, or None.
+        返回:
+            ray_out (Ray): 通过各表面传播后的光线。
+            ray_o_record (list or None): 记录的光线位置，或 None。
         """
         return self.trace(ray)
 
     # ====================================================================================
-    # Ray sampling
+    # 光线采样
     # ====================================================================================
     @torch.no_grad()
     def sample_grid_rays(
@@ -224,58 +218,56 @@ class GeoLens(
         sample_more_off_axis=False,
         scale_pupil=1.0,
     ):
-        """Sample a grid of rays spanning the field of view from object space.
+        """从物方采样覆盖视场的光线网格。
 
-        If `depth` is infinite, samples collimated rays at evenly-spaced field
-        angles; if `depth` is finite, samples diverging point-source rays from a
-        grid of object points. Used for PSF maps, RMS error maps, and spot
-        diagrams.
+        若 `depth` 为无穷大，则在等间隔视场角处采样准直光线；若 `depth` 有限，
+        则从物点网格采样发散点光源光线。用于 PSF 图、RMS 误差图和点列图。
 
-        Args:
-            depth (float, optional): Object distance in mm. Use `float("inf")`
-                for collimated light. Defaults to `float("inf")`.
-            num_grid (int or tuple, optional): Number of grid points as
-                (num_x, num_y), or a single int for both. Defaults to (11, 11).
-            num_rays (int, optional): Number of rays per grid point. Defaults to SPP_PSF.
-            wvln (float, optional): Wavelength in µm. When None (default),
-                falls back to `self.primary_wvln`.
-            uniform_fov (bool, optional): If True, sample uniform FoV angles;
-                otherwise sample a uniform object grid. Defaults to True.
-            sample_more_off_axis (bool, optional): If True, concentrate grid
-                samples toward off-axis fields. Defaults to False.
-            scale_pupil (float, optional): Scale factor for pupil radius. Defaults to 1.0.
+        参数:
+            depth (float, optional): 物距 [mm]。准直光使用 `float("inf")`。
+                默认为 `float("inf")`。
+            num_grid (int or tuple, optional): 网格点数，可为 (num_x, num_y)，
+                或同时用于两维的单个 int。默认为 (11, 11)。
+            num_rays (int, optional): 每个网格点的光线数。默认为 SPP_PSF。
+            wvln (float, optional): 波长 [µm]。为 None（默认）时使用
+                `self.primary_wvln`。
+            uniform_fov (bool, optional): 为 True 时均匀采样 FoV 角；否则采样均匀
+                物体网格。默认为 True。
+            sample_more_off_axis (bool, optional): 为 True 时将更多网格样本集中于
+                离轴视场。默认为 False。
+            scale_pupil (float, optional): 瞳孔半径缩放因子。默认为 1.0。
 
-        Returns:
-            rays (Ray): Sampled rays with shape [num_grid[1], num_grid[0], num_rays, 3].
+        返回:
+            rays (Ray): 采样光线，shape [num_grid[1], num_grid[0], num_rays, 3]。
         """
         wvln = self.primary_wvln if wvln is None else wvln
 
-        # Normalize num_grid to a tuple if it's an int
+        # 若 num_grid 为 int，则将其规范化为元组
         if isinstance(num_grid, int):
             num_grid = (num_grid, num_grid)
 
-        # Calculate field angles for grid source. Top-left field has positive fov_x and negative fov_y
+        # 计算网格光源的视场角。左上视场的 fov_x 为正、fov_y 为负
         x_list = [x for x in np.linspace(1, -1, num_grid[0])]
         y_list = [y for y in np.linspace(-1, 1, num_grid[1])]
         if sample_more_off_axis:
             x_list = [np.sign(x) * np.abs(x) ** 0.5 for x in x_list]
             y_list = [np.sign(y) * np.abs(y) ** 0.5 for y in y_list]
 
-        # Calculate FoV_x and FoV_y
+        # 计算 FoV_x 和 FoV_y
         if uniform_fov:
-            # Sample uniform FoV angles
+            # 均匀采样 FoV 角
             fov_x_list = [x * self.vfov / 2 for x in x_list]
             fov_y_list = [y * self.hfov / 2 for y in y_list]
             fov_x_list = [float(np.rad2deg(fov_x)) for fov_x in fov_x_list]
             fov_y_list = [float(np.rad2deg(fov_y)) for fov_y in fov_y_list]
         else:
-            # Sample uniform object grid
+            # 采样均匀物体网格
             fov_x_list = [np.arctan(x * np.tan(self.vfov / 2)) for x in x_list]
             fov_y_list = [np.arctan(y * np.tan(self.hfov / 2)) for y in y_list]
             fov_x_list = [float(np.rad2deg(fov_x)) for fov_x in fov_x_list]
             fov_y_list = [float(np.rad2deg(fov_y)) for fov_y in fov_y_list]
 
-        # Sample rays (collimated or point source via unified API)
+        # 采样光线（通过统一 API 采样准直光或点光源）
         rays = self.sample_from_fov(
             fov_x=fov_x_list,
             fov_y=fov_y_list,
@@ -295,23 +287,20 @@ class GeoLens(
         wvln=None,
         direction="y",
     ):
-        """Sample radial rays at evenly-spaced field angles along a chosen direction.
+        """沿选定方向，在等间隔视场角处采样径向光线。
 
-        Args:
-            num_field (int): Number of field angles from on-axis to full-field.
-                Defaults to 5.
-            depth (float): Object distance in mm. Use ``float('inf')`` for
-                collimated light. Defaults to ``float('inf')``.
-            num_rays (int): Rays per field position. Defaults to ``SPP_PSF``.
-            wvln (float): Wavelength in µm. When ``None`` (default), falls
-                back to ``self.primary_wvln``.
-            direction (str): Sampling direction —
-                ``"y"`` (meridional, default),
-                ``"x"`` (sagittal),
-                ``"diagonal"`` (45°, x = y).
+        参数:
+            num_field (int): 从轴上到全视场的视场角数量。默认为 5。
+            depth (float): 物距 [mm]。准直光使用 ``float('inf')``。
+                默认为 ``float('inf')``。
+            num_rays (int): 每个视场位置的光线数。默认为 ``SPP_PSF``。
+            wvln (float): 波长 [µm]。为 ``None``（默认）时使用
+                ``self.primary_wvln``。
+            direction (str): 采样方向——``"y"``（子午方向，默认）、
+                ``"x"``（弧矢方向）、``"diagonal"``（45°，x = y）。
 
-        Returns:
-            ray (Ray): Ray object with shape ``[num_field, num_rays, 3]``.
+        返回:
+            ray (Ray): shape 为 ``[num_field, num_rays, 3]`` 的光线对象。
         """
         wvln = self.primary_wvln if wvln is None else wvln
         device = self.device
@@ -327,7 +316,7 @@ class GeoLens(
                 fov_x=fov_list, fov_y=0.0, depth=depth, num_rays=num_rays, wvln=wvln
             )
         elif direction == "diagonal":
-            # sample_from_fov creates a meshgrid; for pairwise diagonal, loop
+        # sample_from_fov 会创建 meshgrid；成对的对角采样需循环处理
             rays = [
                 self.sample_from_fov(
                     fov_x=f.item(), fov_y=f.item(), depth=depth, num_rays=num_rays, wvln=wvln
@@ -349,50 +338,48 @@ class GeoLens(
         wvln=None,
         scale_pupil=1.0,
     ):
-        """Sample rays from point sources in object space (absolute physical coordinates).
+        """从物方点光源（绝对物理坐标）采样光线。
 
-        Rays originate at the given object points and fan out toward the
-        entrance pupil. Used for PSF and chief-ray calculation.
+        光线从给定物点发出，并向入瞳呈扇形扩散。用于 PSF 和主光线计算。
 
-        Args:
-            points (list or torch.Tensor): Object-space ray origins [mm] with
-                shape [3], [N, 3], or [Nx, Ny, 3]. Defaults to [[0.0, 0.0, -10000.0]].
-            num_rays (int): Number of rays per point. Defaults to SPP_PSF.
-            wvln (float): Wavelength in µm. When None (default), falls back to
-                `self.primary_wvln`.
-            scale_pupil (float): Scale factor for pupil radius. Defaults to 1.0.
+        参数:
+            points (list or torch.Tensor): 物方光线原点 [mm]，shape [3]、[N, 3]
+                或 [Nx, Ny, 3]。默认为 [[0.0, 0.0, -10000.0]]。
+            num_rays (int): 每个点的光线数。默认为 SPP_PSF。
+            wvln (float): 波长 [µm]。为 None（默认）时使用 `self.primary_wvln`。
+            scale_pupil (float): 瞳孔半径缩放因子。默认为 1.0。
 
-        Returns:
-            rays (Ray): Sampled rays with shape [*points.shape[:-1], num_rays, 3].
+        返回:
+            rays (Ray): 采样光线，shape [*points.shape[:-1], num_rays, 3]。
         """
         wvln = self.primary_wvln if wvln is None else wvln
 
-        # Ray origin is given
+        # 光线原点已给定
         if not torch.is_tensor(points):
             ray_o = torch.tensor(points, device=self.device)
         else:
             ray_o = points.to(self.device)
 
-        # Sample points on the pupil
+        # 在瞳孔上采样点
         pupilz, pupilr = self.get_entrance_pupil()
         pupilr *= scale_pupil
         ray_o2 = self.sample_circle(
             r=pupilr, z=pupilz, shape=(*ray_o.shape[:-1], num_rays)
         )
 
-        # Compute ray directions
+        # 计算光线方向
         if len(ray_o.shape) == 1:
-            # Input point shape is [3]
+            # 输入点 shape 为 [3]
             ray_o = ray_o.unsqueeze(0).repeat(num_rays, 1)  # shape [num_rays, 3]
             ray_d = ray_o2 - ray_o
 
         elif len(ray_o.shape) == 2:
-            # Input point shape is [N, 3]
+            # 输入点 shape 为 [N, 3]
             ray_o = ray_o.unsqueeze(1).repeat(1, num_rays, 1)  # shape [N, num_rays, 3]
             ray_d = ray_o2 - ray_o
 
         elif len(ray_o.shape) == 3:
-            # Input point shape is [Nx, Ny, 3]
+            # 输入点 shape 为 [Nx, Ny, 3]
             ray_o = ray_o.unsqueeze(2).repeat(
                 1, 1, num_rays, 1
             )  # shape [Nx, Ny, num_rays, 3]
@@ -401,7 +388,7 @@ class GeoLens(
         else:
             raise Exception("The shape of input object positions is not supported.")
 
-        # Calculate rays
+        # 计算光线
         rays = Ray(ray_o, ray_d, wvln, device=self.device)
         return rays
 
@@ -416,35 +403,33 @@ class GeoLens(
         entrance_pupil=True,
         scale_pupil=1.0,
     ):
-        """Sample rays from object space at given field angles.
+        """在给定视场角处从物方采样光线。
 
-        For infinite depth, generates collimated parallel rays: origins are
-        distributed on the entrance pupil and all rays in a field share the
-        same direction determined by the FOV angle.
+        对无穷远深度，生成准直平行光线：原点分布于入瞳上，同一视场中的所有光线
+        共用由 FOV 角决定的方向。
 
-        For finite depth, generates diverging point-source rays: the point
-        source position is determined by FOV angle and depth, and rays fan
-        out toward the entrance pupil.
+        对有限深度，生成发散点光源光线：点光源位置由 FOV 角和深度决定，光线向
+        入瞳呈扇形扩散。
 
-        Args:
-            fov_x (float or list): Field angle(s) in the xz plane (degrees).
-            fov_y (float or list): Field angle(s) in the yz plane (degrees).
-            depth (float): Object distance in mm. ``float('inf')`` for
-                collimated rays, finite for point-source rays.
-            num_rays (int): Number of rays per field point.
-            wvln (float): Wavelength in µm. When ``None`` (default), falls
-                back to ``self.primary_wvln``.
-            entrance_pupil (bool): If True, sample on entrance pupil;
-                otherwise on surface 0. Default: True.
-            scale_pupil (float): Scale factor for pupil radius.
+        参数:
+            fov_x (float or list): xz 平面内的视场角（degrees）。
+            fov_y (float or list): yz 平面内的视场角（degrees）。
+            depth (float): 物距 [mm]。准直光线使用 ``float('inf')``，点光源光线
+                使用有限值。
+            num_rays (int): 每个视场点的光线数。
+            wvln (float): 波长 [µm]。为 ``None``（默认）时使用
+                ``self.primary_wvln``。
+            entrance_pupil (bool): 为 True 时在入瞳上采样，否则在表面 0 上采样。
+                默认为 True。
+            scale_pupil (float): 瞳孔半径缩放因子。
 
-        Returns:
-            rays (Ray): Rays with shape ``[..., num_rays, 3]``, where leading dims
-                are squeezed when the corresponding fov input is scalar.
+        返回:
+            rays (Ray): shape 为 ``[..., num_rays, 3]`` 的光线；当对应 fov 输入
+                为标量时压缩其前导维度。
         """
         wvln = self.primary_wvln if wvln is None else wvln
 
-        # Track which inputs were scalar for output shape
+        # 记录哪些输入为标量，以确定输出 shape
         x_scalar = isinstance(fov_x, (float, int))
         y_scalar = isinstance(fov_y, (float, int))
         if x_scalar:
@@ -456,7 +441,7 @@ class GeoLens(
         fov_y_rad = torch.tensor([fy * torch.pi / 180 for fy in fov_y], device=self.device)
         fov_x_grid, fov_y_grid = torch.meshgrid(fov_x_rad, fov_y_rad, indexing="xy")
 
-        # Pupil position and radius
+        # 瞳孔位置和半径
         if entrance_pupil:
             pupilz, pupilr = self.get_entrance_pupil()
         else:
@@ -464,7 +449,7 @@ class GeoLens(
         pupilr *= scale_pupil
 
         if depth == float("inf"):
-            # Collimated rays: origins on pupil, uniform direction per field
+            # 准直光线：原点位于瞳孔上，每个视场具有统一方向
             ray_o = self.sample_circle(
                 r=pupilr, z=pupilz, shape=[len(fov_y), len(fov_x), num_rays]
             )
@@ -484,7 +469,7 @@ class GeoLens(
             rays.prop_to(-1.0)
 
         else:
-            # Point-source rays: origin at object point, fan toward pupil
+            # 点光源光线：从物点发出，向瞳孔呈扇形扩散
             x = torch.tan(fov_x_grid) * depth
             y = torch.tan(fov_y_grid) * depth
             z = torch.full_like(x, depth)
@@ -503,24 +488,24 @@ class GeoLens(
 
     @torch.no_grad()
     def sample_sensor(self, spp=64, wvln=None, sub_pixel=False):
-        """Sample rays from sensor pixels (backward rays). Used for ray-tracing based rendering.
+        """从传感器像素采样光线（反向光线），用于基于光线追迹的渲染。
 
-        Args:
-            spp (int, optional): sample per pixel. Defaults to 64.
-            wvln (float, optional): ray wvln in µm. When ``None`` (default),
-                falls back to ``self.primary_wvln``.
-            sub_pixel (bool, optional): whether to sample multiple points inside the pixel. Defaults to False.
+        参数:
+            spp (int, optional): 每像素采样数。默认为 64。
+            wvln (float, optional): 光线波长 [µm]。为 ``None``（默认）时使用
+                ``self.primary_wvln``。
+            sub_pixel (bool, optional): 是否在像素内部采样多个点。默认为 False。
 
-        Returns:
-            ray (Ray): Ray object. Shape [H, W, spp, 3]
+        返回:
+            ray (Ray): 光线对象，shape [H, W, spp, 3]。
         """
         wvln = self.primary_wvln if wvln is None else wvln
         w, h = self.sensor_size
         W, H = self.sensor_res
         device = self.device
 
-        # Sample points on sensor plane
-        # Use top-left point as reference in rendering, so here we should sample bottom-right point
+        # 在传感器平面上采样点
+        # 渲染时使用左上点作为参考，因此此处应采样右下点
         x1, y1 = torch.meshgrid(
             torch.linspace(-w / 2, w / 2, W + 1, device=device,)[1:],
             torch.linspace(h / 2, -h / 2, H + 1, device=device,)[1:],
@@ -528,16 +513,16 @@ class GeoLens(
         )
         z1 = torch.full_like(x1, self.d_sensor.item())
 
-        # Sample second points on the pupil
-        # sensor_res is (W, H) but meshgrid with indexing="xy" gives (H, W) arrays
+        # 在瞳孔上采样第二组点
+        # sensor_res 为 (W, H)，但 indexing="xy" 的 meshgrid 会生成 (H, W) 数组
         pupilz, pupilr = self.get_exit_pupil()
         ray_o2 = self.sample_circle(r=pupilr, z=pupilz, shape=(H, W, spp))
 
-        # Form rays
+        # 构造光线
         ray_o = torch.stack((x1, y1, z1), 2)
         ray_o = ray_o.unsqueeze(2).repeat(1, 1, spp, 1)  # [H, W, spp, 3]
 
-        # Sub-pixel sampling for more realistic rendering
+        # 子像素采样，以获得更真实的渲染
         if sub_pixel:
             delta_ox = (
                 torch.rand(ray_o.shape[:-1], device=device)
@@ -551,60 +536,58 @@ class GeoLens(
             delta_o = torch.stack((delta_ox, delta_oy, delta_oz), -1)
             ray_o = ray_o + delta_o
 
-        # Form rays
+        # 构造光线
         ray_d = ray_o2 - ray_o  # shape [H, W, spp, 3]
         ray = Ray(ray_o, ray_d, wvln, device=device)
         return ray
 
     def sample_circle(self, r, z, shape=[16, 16, 512]):
-        """Sample points uniformly inside a circle on a constant-z plane.
+        """在恒定 z 平面的圆内均匀采样点。
 
-        Args:
-            r (float): Radius of the circle [mm].
-            z (float): Z-coordinate shared by all sampled points [mm].
-            shape (list): Shape of the point grid (excluding the trailing
-                coordinate dimension). Defaults to [16, 16, 512].
+        参数:
+            r (float): 圆半径 [mm]。
+            z (float): 所有采样点共用的 z 坐标 [mm]。
+            shape (list): 点网格 shape（不含末尾坐标维度）。默认为 [16, 16, 512]。
 
-        Returns:
-            points (torch.Tensor): Sampled points with shape [*shape, 3].
+        返回:
+            points (torch.Tensor): 采样点，shape [*shape, 3]。
         """
         device = self.device
 
-        # Generate random angles and radii
+        # 生成随机角度和半径
         theta = torch.rand(*shape, device=device) * 2 * torch.pi
         r2 = torch.rand(*shape, device=device) * r**2
         radius = torch.sqrt(r2)
 
-        # Stack to form 3D points
+        # 堆叠成三维点
         x = radius * torch.cos(theta)
         y = radius * torch.sin(theta)
         z_tensor = torch.full_like(x, z)
         points = torch.stack((x, y, z_tensor), dim=-1)
 
-        # Manually sample chief ray
+        # 手动采样主光线
         # points[..., 0, :2] = 0.0
 
         return points
 
     # ====================================================================================
-    # Ray tracing
+    # 光线追迹
     # ====================================================================================
     def trace(self, ray, surf_range=None, record=False):
-        """Trace rays through the lens.
+        """追迹光线通过镜头。
 
-        Forward or backward tracing is selected automatically from the sign of
-        the ray z-direction.
+        根据光线 z 方向的符号自动选择正向或反向追迹。
 
-        Args:
-            ray (Ray): Ray object to trace.
-            surf_range (range, optional): Range of surface indices to trace
-                through. When None (default), traces through all surfaces.
-            record (bool): If True, record ray positions at each surface. Defaults to False.
+        参数:
+            ray (Ray): 要追迹的光线对象。
+            surf_range (range, optional): 要通过的表面索引范围。为 None（默认）时
+                追迹全部表面。
+            record (bool): 为 True 时记录每个表面处的光线位置。默认为 False。
 
-        Returns:
-            ray_out (Ray): Ray after propagation through the surfaces.
-            ray_o_record (list or None): Recorded ray positions at each surface,
-                or None when record is False.
+        返回:
+            ray_out (Ray): 通过各表面传播后的光线。
+            ray_o_record (list or None): 每个表面处记录的光线位置；record 为 False
+                时返回 None。
         """
         if surf_range is None:
             surf_range = range(0, len(self.surfaces))
@@ -617,43 +600,42 @@ class GeoLens(
         return ray_out, ray_o_rec
 
     def trace2obj(self, ray):
-        """Trace rays through the lens toward object space.
+        """追迹光线通过镜头并朝向物方。
 
-        Convenience wrapper around `trace` that discards the position record.
-        Typically called with sensor-side (backward-propagating) rays.
+        `trace` 的便捷封装，会丢弃位置记录。通常使用传感器侧（反向传播）光线调用。
 
-        Args:
-            ray (Ray): Ray object to trace.
+        参数:
+            ray (Ray): 要追迹的光线对象。
 
-        Returns:
-            ray (Ray): Ray after propagation through the lens.
+        返回:
+            ray (Ray): 通过镜头传播后的光线。
         """
         ray, _ = self.trace(ray)
         return ray
 
     def trace2sensor(self, ray, record=False):
-        """Forward trace rays through the lens and propagate them to the sensor plane.
+        """正向追迹光线通过镜头并传播到传感器平面。
 
-        Args:
-            ray (Ray): Ray object to trace.
-            record (bool): If True, record ray positions at each surface. Defaults to False.
+        参数:
+            ray (Ray): 要追迹的光线对象。
+            record (bool): 为 True 时记录每个表面处的光线位置。默认为 False。
 
-        Returns:
-            ray (Ray): Ray propagated to the sensor plane. When record is True,
-                returns a tuple (ray, ray_o_record) where ray_o_record is the list
-                of recorded ray positions at each surface (invalid points set to NaN).
+        返回:
+            ray (Ray): 传播到传感器平面的光线。当 record 为 True 时返回元组
+                (ray, ray_o_record)，其中 ray_o_record 是各表面处记录的光线位置
+                列表（无效点设为 NaN）。
         """
-        # Manually propagate ray to a shallow depth to avoid numerical instability
+        # 手动将光线传播到较浅深度，以避免数值不稳定
         if ray.o[..., 2].min() < -100.0:
             ray = ray.prop_to(-10.0)
 
-        # Trace rays
+        # 追迹光线
         ray, ray_o_record = self.trace(ray, record=record)
         ray = ray.prop_to(self.d_sensor)
 
         if record:
             ray_o = ray.o.clone().detach()
-            # Set to NaN to be skipped in 2d layout visualization
+            # 设为 NaN，使其在二维布局可视化中被跳过
             ray_o[ray.is_valid == 0] = float("nan")
             ray_o_record.append(ray_o)
             return ray, ray_o_record
@@ -661,13 +643,13 @@ class GeoLens(
             return ray
 
     def trace2exit_pupil(self, ray):
-        """Forward trace rays through the lens to exit pupil plane.
+        """正向追迹光线通过镜头到达出瞳平面。
 
-        Args:
-            ray (Ray): Ray object to trace.
+        参数:
+            ray (Ray): 要追迹的光线对象。
 
-        Returns:
-            ray (Ray): Ray object propagated to the exit pupil plane.
+        返回:
+            ray (Ray): 传播到出瞳平面的光线对象。
         """
         ray = self.trace2sensor(ray)
         pupil_z, _ = self.get_exit_pupil()
@@ -675,17 +657,17 @@ class GeoLens(
         return ray
 
     def forward_tracing(self, ray, surf_range, record):
-        """Forward traces rays through each surface in the specified range from object side to image side.
+        """从物方到像方正向追迹光线通过指定范围内的每个表面。
 
-        Args:
-            ray (Ray): Ray object to trace.
-            surf_range (range): Range of surface indices to trace through.
-            record (bool): If True, record ray positions at each surface.
+        参数:
+            ray (Ray): 要追迹的光线对象。
+            surf_range (range): 要通过的表面索引范围。
+            record (bool): 为 True 时记录每个表面处的光线位置。
 
-        Returns:
-            ray_out (Ray): Ray after propagation through all surfaces.
-            ray_o_record (list or None): Ray positions at each surface, or None
-                if record is False.
+        返回:
+            ray_out (Ray): 通过所有表面传播后的光线。
+            ray_o_record (list or None): 各表面处的光线位置；record 为 False 时
+                返回 None。
         """
         if record:
             ray_o_record = []
@@ -708,17 +690,17 @@ class GeoLens(
         return ray, ray_o_record
 
     def backward_tracing(self, ray, surf_range, record):
-        """Backward traces rays through each surface in reverse order from image side to object side.
+        """从像方到物方，按逆序反向追迹光线通过每个表面。
 
-        Args:
-            ray (Ray): Ray object to trace.
-            surf_range (range): Range of surface indices to trace through.
-            record (bool): If True, record ray positions at each surface.
+        参数:
+            ray (Ray): 要追迹的光线对象。
+            surf_range (range): 要通过的表面索引范围。
+            record (bool): 为 True 时记录每个表面处的光线位置。
 
-        Returns:
-            ray_out (Ray): Ray after backward propagation through all surfaces.
-            ray_o_record (list or None): Ray positions at each surface, or None
-                if record is False.
+        返回:
+            ray_out (Ray): 反向通过所有表面传播后的光线。
+            ray_o_record (list or None): 各表面处的光线位置；record 为 False 时
+                返回 None。
         """
         if record:
             ray_o_record = []
@@ -743,42 +725,42 @@ class GeoLens(
         return ray, ray_o_record
 
     # ====================================================================================
-    # Image simulation
+    # 图像仿真
     # ====================================================================================
     def render(self, img_obj, depth=None, method=None, **kwargs):
-        """Differentiable image simulation.
+        """可微图像仿真。
 
-        Image simulation methods:
-            [1] PSF map block convolution.
-            [2] PSF patch convolution.
-            [3] Ray tracing rendering.
+        图像仿真方法：
+            [1] PSF 图分块卷积。
+            [2] PSF 图块卷积。
+            [3] 光线追迹渲染。
 
-        Args:
-            img_obj (torch.Tensor): Input image object in raw space. Shape [N, C, H, W].
-            depth (float, optional): Object depth [mm]. When None (default),
-                falls back to `self.obj_depth`.
-            method (str, optional): Image simulation method. One of 'psf_map', 'psf_patch',
-                or 'ray_tracing'. When None (default), falls back to
-                `self._default_render_method` ('ray_tracing' for `GeoLens`).
-            **kwargs: Additional arguments for different methods:
-                - psf_grid (tuple): Grid size for PSF map method. Defaults to (10, 10).
-                - psf_ks (int): Kernel size for PSF methods. Defaults to PSF_KS.
-                - psf_spp (int): Rays per PSF for PSF map method. Defaults to SPP_PSF.
-                - warp_grid (int): Inverse-distortion grid resolution for PSF map method. Defaults to 128.
-                - patch_center (tuple): Center position for PSF patch method. Defaults to (0.0, 0.0).
-                - spp (int): Samples per pixel for ray tracing. Defaults to SPP_RENDER.
+        参数:
+            img_obj (torch.Tensor): raw 空间中的输入图像对象，shape [N, C, H, W]。
+            depth (float, optional): 物体深度 [mm]。为 None（默认）时使用
+                `self.obj_depth`。
+            method (str, optional): 图像仿真方法，可为 'psf_map'、'psf_patch' 或
+                'ray_tracing'。为 None（默认）时使用 `self._default_render_method`
+                （`GeoLens` 为 'ray_tracing'）。
+            **kwargs: 各方法的附加参数：
+                - psf_grid (tuple)：PSF 图方法的网格尺寸。默认为 (10, 10)。
+                - psf_ks (int)：PSF 方法的核尺寸。默认为 PSF_KS。
+                - psf_spp (int)：PSF 图方法中每个 PSF 的光线数。默认为 SPP_PSF。
+                - warp_grid (int)：PSF 图方法的逆畸变网格分辨率。默认为 128。
+                - patch_center (tuple)：PSF 图块方法的中心位置。默认为 (0.0, 0.0)。
+                - spp (int)：光线追迹的每像素采样数。默认为 SPP_RENDER。
 
-        Returns:
-            img_render (torch.Tensor): Rendered image tensor. Shape of [N, C, H, W].
+        返回:
+            img_render (torch.Tensor): 渲染图像张量，shape [N, C, H, W]。
         """
         method = self._default_render_method if method is None else method
         depth = self.obj_depth if depth is None else depth
         B, C, Himg, Wimg = img_obj.shape
         Wsensor, Hsensor = self.sensor_res
 
-        # Image simulation
+        # 图像仿真
         if method == "psf_map":
-            # PSF rendering - uses PSF map to render image
+            # PSF 渲染——使用 PSF 图渲染图像
             assert Wimg == Wsensor and Himg == Hsensor, (
                 f"Sensor resolution {Wsensor}x{Hsensor} must match input image {Wimg}x{Himg}."
             )
@@ -796,7 +778,7 @@ class GeoLens(
             )
 
         elif method == "psf_patch":
-            # PSF patch rendering - uses a single PSF to render a patch of the image
+            # PSF 图块渲染——使用单个 PSF 渲染图像图块
             patch_center = kwargs.get("patch_center", (0.0, 0.0))
             psf_ks = kwargs.get("psf_ks", PSF_KS)
             img_render = self.render_psf_patch(
@@ -804,7 +786,7 @@ class GeoLens(
             )
 
         elif method == "ray_tracing":
-            # Ray tracing rendering
+            # 光线追迹渲染
             assert Wimg == Wsensor and Himg == Hsensor, (
                 f"Sensor resolution {Wsensor}x{Hsensor} must match input image {Wimg}x{Himg}."
             )
@@ -817,17 +799,17 @@ class GeoLens(
         return img_render
 
     def render_raytracing(self, img, depth=None, spp=SPP_RENDER, vignetting=False):
-        """Render an RGB image using ray-tracing rendering.
+        """使用光线追迹渲染 RGB 图像。
 
-        Args:
-            img (torch.Tensor): RGB image tensor. Shape [N, 3, H, W].
-            depth (float, optional): Object depth [mm]. When None (default),
-                falls back to `self.obj_depth`.
-            spp (int, optional): Samples per pixel. Defaults to SPP_RENDER.
-            vignetting (bool, optional): Whether to model the vignetting effect. Defaults to False.
+        参数:
+            img (torch.Tensor): RGB 图像张量，shape [N, 3, H, W]。
+            depth (float, optional): 物体深度 [mm]。为 None（默认）时使用
+                `self.obj_depth`。
+            spp (int, optional): 每像素采样数。默认为 SPP_RENDER。
+            vignetting (bool, optional): 是否建模渐晕效应。默认为 False。
 
-        Returns:
-            img_render (torch.Tensor): Rendered RGB image tensor. Shape [N, 3, H, W].
+        返回:
+            img_render (torch.Tensor): 渲染后的 RGB 图像张量，shape [N, 3, H, W]。
         """
         depth = self.obj_depth if depth is None else depth
         img_render = torch.zeros_like(img)
@@ -842,18 +824,19 @@ class GeoLens(
         return img_render
 
     def render_raytracing_mono(self, img, wvln, depth=None, spp=64, vignetting=False):
-        """Render a monochrome image at a single wavelength using ray-tracing rendering.
+        """使用光线追迹渲染单一波长的单色图像。
 
-        Args:
-            img (torch.Tensor): Monochrome image tensor. Shape [N, 1, H, W] or [N, H, W].
-            wvln (float): Wavelength in µm.
-            depth (float, optional): Object depth [mm]. When None (default),
-                falls back to `self.obj_depth`.
-            spp (int, optional): Samples per pixel. Defaults to 64.
-            vignetting (bool, optional): Whether to model the vignetting effect. Defaults to False.
+        参数:
+            img (torch.Tensor): 单色图像张量，shape [N, 1, H, W] 或 [N, H, W]。
+            wvln (float): 波长 [µm]。
+            depth (float, optional): 物体深度 [mm]。为 None（默认）时使用
+                `self.obj_depth`。
+            spp (int, optional): 每像素采样数。默认为 64。
+            vignetting (bool, optional): 是否建模渐晕效应。默认为 False。
 
-        Returns:
-            img_mono (torch.Tensor): Rendered monochrome image tensor. Shape [N, 1, H, W] or [N, H, W].
+        返回:
+            img_mono (torch.Tensor): 渲染后的单色图像张量，shape [N, 1, H, W]
+                或 [N, H, W]。
         """
         depth = self.obj_depth if depth is None else depth
         img = torch.flip(img, [-2, -1])
@@ -866,21 +849,20 @@ class GeoLens(
         return img_mono
 
     def render_compute_image(self, img, depth, scale, ray, vignetting=False):
-        """Compute ray-image-plane intersections and integrate them into a rendered image.
+        """计算光线与像平面的交点，并将其积分为渲染图像。
 
-        Propagates the traced rays to the object plane, intersects them with the
-        scaled object image, and accumulates radiance following the rendering
-        equation. Back-propagation gradient flow: image -> w_i -> u -> p -> ray -> surface.
+        将已追迹光线传播到物平面，使其与缩放后的物体图像相交，并依据渲染方程
+        累积辐亮度。反向传播梯度流：image -> w_i -> u -> p -> ray -> surface。
 
-        Args:
-            img (torch.Tensor): Object image tensor. Shape [N, C, H, W] or [N, H, W].
-            depth (float): Object depth [mm].
-            scale (float): Object-to-image scale factor.
-            ray (Ray): Traced sensor rays. Shape [H, W, spp, 3].
-            vignetting (bool): Whether to model the vignetting effect. Defaults to False.
+        参数:
+            img (torch.Tensor): 物体图像张量，shape [N, C, H, W] 或 [N, H, W]。
+            depth (float): 物体深度 [mm]。
+            scale (float): 物像缩放因子。
+            ray (Ray): 已追迹的传感器光线，shape [H, W, spp, 3]。
+            vignetting (bool): 是否建模渐晕效应。默认为 False。
 
-        Returns:
-            image (torch.Tensor): Rendered image tensor. Shape [N, C, H, W] or [N, H, W].
+        返回:
+            image (torch.Tensor): 渲染图像张量，shape [N, C, H, W] 或 [N, H, W]。
         """
         assert torch.is_tensor(img), "Input image should be Tensor."
 
@@ -894,7 +876,7 @@ class GeoLens(
         else:
             raise ValueError("Input image should be [N, C, H, W] or [N, H, W] tensor.")
 
-        # Scale object image physical size to get 1:1 pixel-pixel alignment with sensor image
+        # 缩放物体图像的物理尺寸，使其与传感器图像实现 1:1 像素对齐
         ray = ray.prop_to(depth)
         p = ray.o[..., :2]
         pixel_size = scale * self.pixel_size
@@ -916,16 +898,16 @@ class GeoLens(
         return image
 
     def warp(self, img, depth=None, num_grid=128):
-        """Apply lens distortion to an image using inverse distortion mapping.
+        """使用逆畸变映射为图像施加镜头畸变。
 
-        Args:
-            img (torch.Tensor): Undistorted image tensor, shape [B, C, H, W].
-            depth (float, optional): Object depth [mm]. When None (default),
-                falls back to `self.obj_depth`.
-            num_grid (int or tuple): Resolution of the inverse distortion grid.
+        参数:
+            img (torch.Tensor): 无畸变图像张量，shape [B, C, H, W]。
+            depth (float, optional): 物体深度 [mm]。为 None（默认）时使用
+                `self.obj_depth`。
+            num_grid (int or tuple): 逆畸变网格的分辨率。
 
-        Returns:
-            img_warped (torch.Tensor): Distorted image tensor, shape ``[B, C, H, W]``.
+        返回:
+            img_warped (torch.Tensor): 畸变图像张量，shape ``[B, C, H, W]``。
         """
         depth = self.obj_depth if depth is None else depth
         inv_distortion_map = self.calc_inv_distortion_map(
@@ -942,24 +924,24 @@ class GeoLens(
         return img_warped
 
     def unwarp(self, img, depth=None, num_grid=128, crop=True, flip=True):
-        """Unwarp (remove distortion from) a rendered image using the distortion map.
+        """使用畸变图对渲染图像进行去变形（移除畸变）。
 
-        Args:
-            img (torch.Tensor): Rendered image tensor. Shape [N, C, H, W].
-            depth (float, optional): Object depth [mm]. When None (default),
-                falls back to `self.obj_depth`.
-            num_grid (int, optional): Resolution of the distortion grid. Defaults to 128.
-            crop (bool, optional): Whether to crop the image. Defaults to True.
-            flip (bool, optional): Whether to flip the distortion map. Defaults to True.
+        参数:
+            img (torch.Tensor): 渲染图像张量，shape [N, C, H, W]。
+            depth (float, optional): 物体深度 [mm]。为 None（默认）时使用
+                `self.obj_depth`。
+            num_grid (int, optional): 畸变网格分辨率。默认为 128。
+            crop (bool, optional): 是否裁剪图像。默认为 True。
+            flip (bool, optional): 是否翻转畸变图。默认为 True。
 
-        Returns:
-            img_unwarpped (torch.Tensor): Unwarped image tensor. Shape [N, C, H, W].
+        返回:
+            img_unwarpped (torch.Tensor): 去变形后的图像张量，shape [N, C, H, W]。
         """
         depth = self.obj_depth if depth is None else depth
-        # Calculate distortion map, shape (num_grid, num_grid, 2)
+        # 计算畸变图，shape (num_grid, num_grid, 2)
         distortion_map = self.calc_distortion_map(depth=depth, num_grid=num_grid)
 
-        # Interpolate distortion map to image resolution
+        # 将畸变图插值到图像分辨率
         distortion_map = distortion_map.permute(2, 0, 1).unsqueeze(1)
         # distortion_map = torch.flip(distortion_map, [-2]) if flip else distortion_map
         distortion_map = F.interpolate(
@@ -969,47 +951,45 @@ class GeoLens(
             img.shape[0], 1, 1, 1
         )  # shape (B, Himg, Wimg, 2)
 
-        # Unwarp using grid_sample function
+        # 使用 grid_sample 函数去变形
         img_unwarpped = F.grid_sample(
             img, distortion_map, align_corners=True
         )  # shape (B, C, Himg, Wimg)
         return img_unwarpped
 
     # ====================================================================================
-    # Geometrical optics calculation
+    # 几何光学计算
     # ====================================================================================
 
     @torch.no_grad()
     def calc_foclen(self, paraxial_fov=0.01):
-        """Compute effective focal length (EFL).
+        """计算有效焦距（EFL）。
 
-        Two-step approach:
-        1. Trace on-axis parallel rays to find the paraxial focal point z.
-           This is necessary because the sensor may not be at the focal plane
-           (e.g. finite-conjugate designs or defocused systems).
-        2. Trace off-axis rays at a small angle to the focal point, measure
-           image height, and compute EFL = imgh / tan(angle).
+        分两步进行：
+        1. 追迹轴上平行光线以找到近轴焦点 z。之所以需要此步骤，是因为传感器
+           可能不在焦平面上（例如有限共轭设计或离焦系统）。
+        2. 追迹以小角度射向焦点的离轴光线，测量像高，并计算
+           EFL = imgh / tan(angle)。
 
-        Args:
-            paraxial_fov (float, optional): Paraxial field of view in radians
-                for the off-axis ray trace. Defaults to 0.01.
+        参数:
+            paraxial_fov (float, optional): 离轴光线追迹使用的近轴视场 [radians]。
+                默认为 0.01。
 
-        Returns:
-            eff_foclen (float): Effective focal length [mm].
+        返回:
+            eff_foclen (float): 有效焦距 [mm]。
 
-        Note:
-            Also caches `self.efl` (effective focal length [mm]), `self.foclen`
-            (alias of `self.efl`), and `self.bfl` (back focal length, the
-            distance from the last surface to the sensor [mm]).
+        说明:
+            同时缓存 `self.efl`（有效焦距 [mm]）、`self.foclen`（`self.efl` 的别名）
+            和 `self.bfl`（后焦距，即从最后一个表面到传感器的距离 [mm]）。
 
-        Reference:
+        参考:
             [1] https://wp.optics.arizona.edu/optomech/wp-content/uploads/sites/53/2016/10/Tutorial_MorelSophie.pdf
             [2] https://rafcamera.com/info/imaging-theory/back-focal-length
         """
-        # Trace a paraxial chief ray, shape [1, 1, num_rays, 3]
+        # 追迹近轴主光线，shape [1, 1, num_rays, 3]
         paraxial_fov_deg = float(np.rad2deg(paraxial_fov))
 
-        # 1. Trace on-axis parallel rays to find paraxial focus z (equivalent to infinite focus)
+        # 1. 追迹轴上平行光线，找到近轴焦点 z（等价于无穷远对焦）
         ray_axis = self.sample_from_fov(
             fov_x=0.0, fov_y=0.0, entrance_pupil=False, scale_pupil=0.2
         )
@@ -1022,22 +1002,22 @@ class GeoLens(
         focus_z = ray_axis.o[valid_axis, 2] + t * ray_axis.d[valid_axis, 2]
         focus_z = focus_z[~torch.isnan(focus_z) & (focus_z > 0)]
         if focus_z.numel() == 0:
-            # Fail loudly instead of writing NaN (mean of empty) into self.foclen,
-            # which would silently poison calc_fov/calc_scale/set_fnum downstream.
+            # 明确报错，避免将 NaN（空集均值）写入 self.foclen，否则会悄然影响
+            # 下游的 calc_fov/calc_scale/set_fnum。
             raise ValueError(
                 "calc_foclen: no axial rays converged to a positive focus; the "
                 "lens may be degenerate or heavily vignetted."
             )
         paraxial_focus_z = float(torch.mean(focus_z))
 
-        # 2. Trace off-axis paraxial ray to paraxial focus, measure image height
+        # 2. 将离轴近轴光线追迹到近轴焦点，并测量像高
         ray = self.sample_from_fov(
             fov_x=0.0, fov_y=paraxial_fov_deg, entrance_pupil=False, scale_pupil=0.2
         )
         ray, _ = self.trace(ray)
         ray = ray.prop_to(paraxial_focus_z)
 
-        # Compute the effective focal length
+        # 计算有效焦距
         valid_sum = ray.is_valid.sum()
         if valid_sum.item() == 0:
             raise ValueError(
@@ -1049,22 +1029,22 @@ class GeoLens(
         self.efl = eff_foclen
         self.foclen = eff_foclen
 
-        # Compute the back focal length
+        # 计算后焦距
         self.bfl = self.d_sensor.item() - self.surfaces[-1].d.item()
 
         return eff_foclen
 
     @torch.no_grad()
     def calc_numerical_aperture(self, n=1.0):
-        """Compute numerical aperture (NA).
+        """计算数值孔径（NA）。
 
-        Args:
-            n (float, optional): Refractive index. Defaults to 1.0.
+        参数:
+            n (float, optional): 折射率。默认为 1.0。
 
-        Returns:
-            NA (float): Numerical aperture.
+        返回:
+            NA (float): 数值孔径。
 
-        Reference:
+        参考:
             [1] https://en.wikipedia.org/wiki/Numerical_aperture
         """
         return n * math.sin(math.atan(1 / 2 / self.fnum))
@@ -1072,34 +1052,34 @@ class GeoLens(
 
     @torch.no_grad()
     def calc_focal_plane(self, wvln=None):
-        """Compute the focus distance in the object space. Ray starts from sensor center and traces to the object space.
+        """计算物方对焦距离。光线从传感器中心出发并追迹到物方。
 
-        Args:
-            wvln (float, optional): Wavelength in µm. When ``None`` (default),
-                falls back to ``self.primary_wvln``.
+        参数:
+            wvln (float, optional): 波长 [µm]。为 ``None``（默认）时使用
+                ``self.primary_wvln``。
 
-        Returns:
-            focal_plane (float): Object-space focus distance [mm] (negative z, in front of the lens).
+        返回:
+            focal_plane (float): 物方对焦距离 [mm]（负 z，位于镜头前方）。
         """
         wvln = self.primary_wvln if wvln is None else wvln
         device = self.device
 
-        # Sample point source rays from sensor center
+        # 从传感器中心采样点光源光线
         o1 = torch.zeros(SPP_CALC, 3, device=device)
         o1[:, 2] = self.d_sensor
 
-        # Sample the first surface as pupil
+        # 将第一表面作为瞳孔进行采样
         # o2 = self.sample_circle(self.surfaces[0].r, z=0.0, shape=[SPP_CALC])
-        # o2 *= 0.5  # Shrink sample region to improve accuracy
+        # o2 *= 0.5  # 缩小采样区域以提高精度
         pupilz, pupilr = self.get_exit_pupil()
         o2 = self.sample_circle(pupilr, pupilz, shape=[SPP_CALC])
         d = o2 - o1
         ray = Ray(o1, d, wvln, device=device)
 
-        # Trace rays to object space
+        # 将光线追迹到物方
         ray = self.trace2obj(ray)
 
-        # Optical axis intersection
+        # 光轴交点
         t = (ray.d[..., 0] * ray.o[..., 0] + ray.d[..., 1] * ray.o[..., 1]) / (
             ray.d[..., 0] ** 2 + ray.d[..., 1] ** 2
         )
@@ -1117,21 +1097,21 @@ class GeoLens(
 
     @torch.no_grad()
     def calc_sensor_plane(self, depth=float("inf")):
-        """Calculate in-focus sensor plane.
+        """计算合焦传感器平面。
 
-        Args:
-            depth (float, optional): Depth of the object plane. Defaults to float("inf").
+        参数:
+            depth (float, optional): 物平面深度。默认为 float("inf")。
 
-        Returns:
-            d_sensor (torch.Tensor): In-focus sensor z-position [mm] in image space (scalar tensor).
+        返回:
+            d_sensor (torch.Tensor): 像方合焦传感器 z 位置 [mm]（标量张量）。
         """
-        # Sample and trace rays, shape [SPP_CALC, 3]
+        # 采样并追迹光线，shape [SPP_CALC, 3]
         ray = self.sample_from_fov(
             fov_x=0.0, fov_y=0.0, depth=depth, num_rays=SPP_CALC
         )
         ray = self.trace2sensor(ray)
 
-        # Calculate in-focus sensor position
+        # 计算合焦传感器位置
         t = (ray.d[:, 0] * ray.o[:, 0] + ray.d[:, 1] * ray.o[:, 1]) / (
             ray.d[:, 0] ** 2 + ray.d[:, 1] ** 2
         )
@@ -1143,41 +1123,35 @@ class GeoLens(
 
     @torch.no_grad()
     def calc_fov(self):
-        """Compute field of view (FoV) of the lens in radians.
+        """计算镜头视场（FoV），单位为 radians。
 
-        Calculates FoV using two methods:
-            1. **Perspective projection** — from focal length and sensor size
-               (effective FoV, ignoring distortion).
-            2. **Forward ray tracing** — sweeps FOV angles from object side,
-               traces to sensor, and finds the angle whose centroid image height
-               matches the sensor half-diagonal. This avoids the failure of the
-               old backward-tracing approach on wide-angle lenses where pupil
-               aberration at full field leaves zero valid rays.
+        使用两种方法计算 FoV：
+            1. **透视投影**——根据焦距和传感器尺寸计算（忽略畸变的有效 FoV）。
+            2. **正向光线追迹**——从物方扫描 FOV 角，追迹到传感器，并寻找质心像高
+               与传感器半对角线匹配的角度。这避免了旧反向追迹方法在广角镜头上
+               因全视场瞳孔像差导致有效光线为零的问题。
 
-        Note:
-            Caches the following attributes (all FoV values in radians):
-            `self.vfov` (vertical FoV), `self.hfov` (horizontal FoV),
-            `self.dfov` (diagonal FoV), `self.rfov_eff` (effective paraxial
-            half-diagonal FoV, ignoring distortion), `self.rfov` (real
-            half-diagonal FoV from ray tracing, accounts for distortion),
-            `self.real_dfov` (real diagonal FoV from ray tracing), and
-            `self.eqfl` (35 mm equivalent focal length [mm]).
+        说明:
+            缓存以下属性（所有 FoV 值均以 radians 表示）：`self.vfov`（垂直 FoV）、
+            `self.hfov`（水平 FoV）、`self.dfov`（对角 FoV）、`self.rfov_eff`
+            （忽略畸变的有效近轴半对角 FoV）、`self.rfov`（光线追迹得到并考虑畸变
+            的实际半对角 FoV）、`self.real_dfov`（光线追迹得到的实际对角 FoV）
+            以及 `self.eqfl`（35 mm 等效焦距 [mm]）。
 
-        Reference:
+        参考:
             [1] https://en.wikipedia.org/wiki/Angle_of_view_(photography)
         """
         if not hasattr(self, "foclen"):
             return
 
-        # 1. Perspective projection (effective FoV)
+        # 1. 透视投影（有效 FoV）
         self.vfov = 2 * math.atan(self.sensor_size[0] / 2 / self.foclen)
         self.hfov = 2 * math.atan(self.sensor_size[1] / 2 / self.foclen)
         self.dfov = 2 * math.atan(self.r_sensor / self.foclen)
-        self.rfov_eff = self.dfov / 2  # effective (paraxial) half-diagonal FoV
+        self.rfov_eff = self.dfov / 2  # 有效（近轴）半对角 FoV
 
-        # 2. Forward ray tracing to calculate real FoV (distortion-affected)
-        # Sweep FOV angles from object side, trace to sensor, and find which
-        # angle produces an image height matching r_sensor.
+        # 2. 通过正向光线追迹计算实际 FoV（受畸变影响）
+        # 从物方扫描 FOV 角，追迹到传感器，并找到产生与 r_sensor 匹配像高的角度。
         num_fov = 64
         fov_lo = float(np.rad2deg(self.rfov_eff)) * 0.5
         fov_hi = min(float(np.rad2deg(self.rfov_eff)) * 1.8, 89.0)
@@ -1188,13 +1162,13 @@ class GeoLens(
         )
         ray = self.trace2sensor(ray)
 
-        # Centroid image height per FOV angle, shape [num_fov]
+        # 每个 FOV 角的质心像高，shape [num_fov]
         valid = ray.is_valid > 0  # [num_fov, num_rays]
         masked_y = ray.o[..., 1] * valid
         n_valid = valid.sum(dim=-1).clamp(min=1)
         imgh = (masked_y.sum(dim=-1) / n_valid).abs()
 
-        # Find the FOV angle whose image height is closest to r_sensor
+        # 找到像高最接近 r_sensor 的 FOV 角
         has_valid = valid.sum(dim=-1) > 10
         if has_valid.any():
             imgh[~has_valid] = float("inf")
@@ -1207,42 +1181,41 @@ class GeoLens(
             self.rfov = self.rfov_eff
             self.real_dfov = self.dfov
 
-        # 3. Compute 35mm equivalent focal length. 35mm sensor: 36mm * 24mm
+        # 3. 计算 35mm 等效焦距。35mm 传感器：36mm * 24mm
         self.eqfl = 21.63 / math.tan(self.rfov_eff)
 
     @torch.no_grad()
     def calc_scale(self, depth):
-        """Calculate the scale factor (object height / image height).
+        """计算缩放因子（物高/像高）。
 
-        Uses the pinhole camera model to compute magnification.
+        使用针孔相机模型计算放大倍率。
 
-        Args:
-            depth (float): Object distance from the lens (negative z direction).
+        参数:
+            depth (float): 物体到镜头的距离（负 z 方向）。
 
-        Returns:
-            scale (float): Scale factor relating object height to image height.
+        返回:
+            scale (float): 关联物高与像高的缩放因子。
         """
         return -depth / self.foclen
 
     @torch.no_grad()
     def calc_pupil(self):
-        """Compute entrance and exit pupil positions and radii.
+        """计算入瞳和出瞳的位置及半径。
 
-        The entrance and exit pupils must be recalculated whenever:
-            - First-order parameters change (e.g., field of view, object height, image height),
-            - Lens geometry or materials change (e.g., surface curvatures, refractive indices, thicknesses),
-            - Or generally, any time the lens configuration is modified.
+        以下情况必须重新计算入瞳和出瞳：
+            - 一阶参数变化（例如视场、物高、像高）；
+            - 镜头几何结构或材料变化（例如表面曲率、折射率、厚度）；
+            - 通常而言，每当镜头配置发生修改时。
 
-        Note:
-            Caches `self.aper_idx` (aperture surface index),
-            `self.exit_pupilz`/`self.exit_pupilr` (real exit pupil position and
-            radius [mm]), `self.entr_pupilz`/`self.entr_pupilr` (real entrance
-            pupil position and radius [mm]),
-            `self.exit_pupilz_parax`/`self.exit_pupilr_parax` and
-            `self.entr_pupilz_parax`/`self.entr_pupilr_parax` (paraxial pupils),
-            and `self.fnum` (F-number from focal length and entrance pupil).
+        说明:
+            缓存 `self.aper_idx`（孔径表面索引）、`self.exit_pupilz`/
+            `self.exit_pupilr`（实际出瞳位置和半径 [mm]）、`self.entr_pupilz`/
+            `self.entr_pupilr`（实际入瞳位置和半径 [mm]）、
+            `self.exit_pupilz_parax`/`self.exit_pupilr_parax` 与
+            `self.entr_pupilz_parax`/`self.entr_pupilr_parax`（近轴瞳孔），
+            以及 `self.fnum`（根据焦距和入瞳计算的 F-number）。
         """
-        # Find aperture
+        # 查找孔径
         self.aper_idx = None
         for i in range(len(self.surfaces)):
             if getattr(self.surfaces[i], "is_aperture", False):
@@ -1259,7 +1232,7 @@ class GeoLens(
             self.aper_idx = np.argmin([s.r for s in self.surfaces])
             print("No aperture found, use the smallest surface as aperture.")
 
-        # Compute entrance and exit pupil
+        # 计算入瞳和出瞳
         self.exit_pupilz, self.exit_pupilr = self.calc_exit_pupil(paraxial=False)
         self.entr_pupilz, self.entr_pupilr = self.calc_entrance_pupil(paraxial=False)
         self.exit_pupilz_parax, self.exit_pupilr_parax = self.calc_exit_pupil(
@@ -1269,19 +1242,19 @@ class GeoLens(
             paraxial=True
         )
 
-        # Compute F-number
+        # 计算 F-number
         self.fnum = self.foclen / (2 * self.entr_pupilr)
 
     def get_entrance_pupil(self, paraxial=False):
-        """Get entrance pupil location and radius.
+        """获取入瞳位置和半径。
 
-        Args:
-            paraxial (bool, optional): If True, return paraxial approximation values.
-                If False, return real ray-traced values. Defaults to False.
+        参数:
+            paraxial (bool, optional): 为 True 时返回近轴近似值；为 False 时返回
+                实际光线追迹值。默认为 False。
 
-        Returns:
-            pupilz (float): Entrance pupil z-position [mm].
-            pupilr (float): Entrance pupil radius [mm].
+        返回:
+            pupilz (float): 入瞳 z 位置 [mm]。
+            pupilr (float): 入瞳半径 [mm]。
         """
         if paraxial:
             return self.entr_pupilz_parax, self.entr_pupilr_parax
@@ -1289,15 +1262,15 @@ class GeoLens(
             return self.entr_pupilz, self.entr_pupilr
 
     def get_exit_pupil(self, paraxial=False):
-        """Get exit pupil location and radius.
+        """获取出瞳位置和半径。
 
-        Args:
-            paraxial (bool, optional): If True, return paraxial approximation values.
-                If False, return real ray-traced values. Defaults to False.
+        参数:
+            paraxial (bool, optional): 为 True 时返回近轴近似值；为 False 时返回
+                实际光线追迹值。默认为 False。
 
-        Returns:
-            pupilz (float): Exit pupil z-position [mm].
-            pupilr (float): Exit pupil radius [mm].
+        返回:
+            pupilz (float): 出瞳 z 位置 [mm]。
+            pupilr (float): 出瞳半径 [mm]。
         """
         if paraxial:
             return self.exit_pupilz_parax, self.exit_pupilr_parax
@@ -1306,36 +1279,34 @@ class GeoLens(
 
     @torch.no_grad()
     def calc_exit_pupil(self, paraxial=False):
-        """Calculate exit pupil location and radius.
+        """计算出瞳位置和半径。
 
-        Paraxial mode:
-            Rays are emitted from near the center of the aperture stop and are close to the optical axis.
-            This mode estimates the exit pupil position and radius under ideal (first-order) optical assumptions.
-            It is fast and stable.
+        近轴模式：
+            光线从孔径光阑中心附近发出，并靠近光轴。此模式在理想（一阶）光学
+            假设下估计出瞳位置和半径，快速且稳定。
 
-        Non-paraxial mode:
-            Rays are emitted from the edge of the aperture stop in large quantities.
-            The exit pupil position and radius are determined based on the intersection points of these rays.
-            This mode is slower and affected by aperture-related aberrations.
+        非近轴模式：
+            从孔径光阑边缘大量发射光线，并根据这些光线的交点确定出瞳位置和半径。
+            此模式更慢，并受孔径相关像差影响。
 
-        Use paraxial mode unless precise ray aiming is required.
+        除非需要精确的光线瞄准，否则请使用近轴模式。
 
-        Args:
-            paraxial (bool): center (True) or edge (False).
+        参数:
+            paraxial (bool): 中心（True）或边缘（False）。
 
-        Returns:
-            avg_pupilz (float): z coordinate of exit pupil.
-            avg_pupilr (float): radius of exit pupil.
+        返回:
+            avg_pupilz (float): 出瞳 z 坐标。
+            avg_pupilr (float): 出瞳半径。
 
-        Reference:
-            [1] Exit pupil: how many rays can come from sensor to object space.
+        参考:
+            [1] 出瞳：可从传感器进入物方的光线范围。
             [2] https://en.wikipedia.org/wiki/Exit_pupil
         """
         if self.aper_idx is None or hasattr(self, "aper_idx") is False:
             print("No aperture, use the last surface as exit pupil.")
             return self.surfaces[-1].d.item(), self.surfaces[-1].r
 
-        # Sample rays from aperture (edge or center)
+        # 从孔径（边缘或中心）采样光线
         aper_idx = self.aper_idx
         aper_z = self.surfaces[aper_idx].d.item()
         aper_r = self.surfaces[aper_idx].r
@@ -1344,7 +1315,7 @@ class GeoLens(
             ray_o = torch.tensor([[DELTA_PARAXIAL, 0, aper_z]], device=self.device).repeat(32, 1)
             phi_rad = torch.linspace(-0.01, 0.01, 32, device=self.device)
         else:
-            ray_o = torch.tensor([[aper_r, 0, aper_z]], device=self.device).repeat(128, 1)  # pupil ray-fan size
+            ray_o = torch.tensor([[aper_r, 0, aper_z]], device=self.device).repeat(128, 1)  # 瞳孔光线扇尺寸
             rfov = float(np.arctan(self.r_sensor / self.foclen))
             phi_rad = torch.linspace(-rfov / 2, rfov / 2, 128, device=self.device)
 
@@ -1353,11 +1324,11 @@ class GeoLens(
         )
         ray = Ray(ray_o, d, wvln=self.primary_wvln, device=self.device)
 
-        # Ray tracing from aperture edge to last surface
+        # 从孔径边缘追迹光线到最后一个表面
         surf_range = range(self.aper_idx + 1, len(self.surfaces))
         ray, _ = self.trace(ray, surf_range=surf_range)
 
-        # Compute intersection points, solving the equation: o1+d1*t1 = o2+d2*t2
+        # 计算交点，求解方程：o1+d1*t1 = o2+d2*t2
         ray_o = torch.stack(
             [ray.o[ray.is_valid != 0][:, 0], ray.o[ray.is_valid != 0][:, 2]], dim=-1
         )
@@ -1366,7 +1337,7 @@ class GeoLens(
         )
         intersection_points = self.compute_intersection_points_2d(ray_o, ray_d)
 
-        # Handle the case where no intersection points are found or small pupil
+        # 处理未找到交点或瞳孔过小的情况
         if len(intersection_points) == 0:
             print("No intersection points found, use the last surface as exit pupil.")
             avg_pupilr = self.surfaces[-1].r
@@ -1389,35 +1360,36 @@ class GeoLens(
 
     @torch.no_grad()
     def calc_entrance_pupil(self, paraxial=False):
-        """Calculate entrance pupil of the lens.
+        """计算镜头的入瞳。
 
-        The entrance pupil is the optical image of the physical aperture stop, as seen through the optical elements in front of the stop. We sample backward rays from the aperture stop and trace them to the first surface, then find the intersection points of the reverse extension of the rays. The average of the intersection points defines the entrance pupil position and radius.
+        入瞳是从光阑前方光学元件观察到的物理孔径光阑的光学像。我们从孔径光阑
+        采样反向光线，将其追迹到第一表面，再求这些光线反向延长线的交点。交点
+        的平均值定义入瞳位置和半径。
 
-        Args:
-            paraxial (bool): Ray sampling mode.  If ``True``, rays are emitted
-                near the centre of the aperture stop (fast, paraxially stable).
-                If ``False``, rays are emitted from the stop edge in larger
-                quantities (slower, accounts for aperture aberrations).
-                Defaults to ``False``.
+        参数:
+            paraxial (bool): 光线采样模式。为 ``True`` 时，光线从孔径光阑中心
+                附近发出（快速且近轴稳定）；为 ``False`` 时，从光阑边缘发射更多
+                光线（较慢，但会考虑孔径像差）。默认为 ``False``。
 
-        Returns:
-            avg_pupilz (float): Entrance pupil z-position [mm].
-            avg_pupilr (float): Entrance pupil radius [mm].
+        返回:
+            avg_pupilz (float): 入瞳 z 位置 [mm]。
+            avg_pupilr (float): 入瞳半径 [mm]。
 
-        Note:
-            [1] Use paraxial mode unless precise ray aiming is required.
-            [2] This function only works for object at a far distance. For microscopes, this function usually returns a negative entrance pupil.
+        说明:
+            [1] 除非需要精确的光线瞄准，否则请使用近轴模式。
+            [2] 此函数仅适用于远距离物体。对显微镜而言，本函数通常返回负的入瞳位置。
 
-        Reference:
-            [1] Entrance pupil: how many rays can come from object space to sensor.
-            [2] https://en.wikipedia.org/wiki/Entrance_pupil: "In an optical system, the entrance pupil is the optical image of the physical aperture stop, as 'seen' through the optical elements in front of the stop."
+        参考:
+            [1] 入瞳：可从物方进入传感器的光线范围。
+            [2] https://en.wikipedia.org/wiki/Entrance_pupil：“在光学系统中，入瞳是
+                从光阑前方的光学元件‘观察’到的物理孔径光阑的光学像。”
             [3] Zemax LLC, *OpticStudio User Manual*, Version 19.4, Document No. 2311, 2019.
         """
         if self.aper_idx is None or not hasattr(self, "aper_idx"):
             print("No aperture stop, use the first surface as entrance pupil.")
             return self.surfaces[0].d.item(), self.surfaces[0].r
 
-        # Sample rays from edge of aperture stop
+        # 从孔径光阑边缘采样光线
         aper_idx = self.aper_idx
         aper_surf = self.surfaces[aper_idx]
         aper_z = aper_surf.d.item()
@@ -1430,7 +1402,7 @@ class GeoLens(
             ray_o = torch.tensor([[DELTA_PARAXIAL, 0, aper_z]], device=self.device).repeat(32, 1)
             phi = torch.linspace(-0.01, 0.01, 32, device=self.device)
         else:
-            ray_o = torch.tensor([[aper_r, 0, aper_z]], device=self.device).repeat(128, 1)  # pupil ray-fan size
+            ray_o = torch.tensor([[aper_r, 0, aper_z]], device=self.device).repeat(128, 1)  # 瞳孔光线扇尺寸
             rfov = float(np.arctan(self.r_sensor / self.foclen))
             phi = torch.linspace(-rfov / 2, rfov / 2, 128, device=self.device)
 
@@ -1439,11 +1411,11 @@ class GeoLens(
         )
         ray = Ray(ray_o, d, wvln=self.primary_wvln, device=self.device)
 
-        # Ray tracing from aperture edge to first surface
+        # 从孔径边缘追迹光线到第一表面
         surf_range = range(0, self.aper_idx)
         ray, _ = self.trace(ray, surf_range=surf_range)
 
-        # Compute intersection points, solving the equation: o1+d1*t1 = o2+d2*t2
+        # 计算交点，求解方程：o1+d1*t1 = o2+d2*t2
         ray_o = torch.stack(
             [ray.o[ray.is_valid > 0][:, 0], ray.o[ray.is_valid > 0][:, 2]], dim=-1
         )
@@ -1452,7 +1424,7 @@ class GeoLens(
         )
         intersection_points = self.compute_intersection_points_2d(ray_o, ray_d)
 
-        # Handle the case where no intersection points are found or small entrance pupil
+        # 处理未找到交点或入瞳过小的情况
         if len(intersection_points) == 0:
             print(
                 "No intersection points found, use the first surface as entrance pupil."
@@ -1477,83 +1449,84 @@ class GeoLens(
 
     @staticmethod
     def compute_intersection_points_2d(origins, directions):
-        """Compute the intersection points of 2D lines.
+        """计算二维直线的交点。
 
-        Args:
-            origins (torch.Tensor): Origins of the lines. Shape: [N, 2]
-            directions (torch.Tensor): Directions of the lines. Shape: [N, 2]
+        参数:
+            origins (torch.Tensor): 直线原点，shape [N, 2]。
+            directions (torch.Tensor): 直线方向，shape [N, 2]。
 
-        Returns:
-            points (torch.Tensor): Intersection points. Shape: [N*(N-1)/2, 2]
+        返回:
+            points (torch.Tensor): 交点，shape [N*(N-1)/2, 2]。
         """
         N = origins.shape[0]
 
-        # Create pairwise combinations of indices
+        # 创建索引的两两组合
         idx = torch.arange(N)
         idx_i, idx_j = torch.combinations(idx, r=2).unbind(1)
 
-        Oi = origins[idx_i]  # Shape: [N*(N-1)/2, 2]
-        Oj = origins[idx_j]  # Shape: [N*(N-1)/2, 2]
-        Di = directions[idx_i]  # Shape: [N*(N-1)/2, 2]
-        Dj = directions[idx_j]  # Shape: [N*(N-1)/2, 2]
+        Oi = origins[idx_i]  # shape [N*(N-1)/2, 2]
+        Oj = origins[idx_j]  # shape [N*(N-1)/2, 2]
+        Di = directions[idx_i]  # shape [N*(N-1)/2, 2]
+        Dj = directions[idx_j]  # shape [N*(N-1)/2, 2]
 
-        # Vector from Oi to Oj
-        b = Oj - Oi  # Shape: [N*(N-1)/2, 2]
+        # 从 Oi 到 Oj 的向量
+        b = Oj - Oi  # shape [N*(N-1)/2, 2]
 
-        # Coefficients matrix A
-        A = torch.stack([Di, -Dj], dim=-1)  # Shape: [N*(N-1)/2, 2, 2]
+        # 系数矩阵 A
+        A = torch.stack([Di, -Dj], dim=-1)  # shape [N*(N-1)/2, 2, 2]
 
-        # Solve the linear system Ax = b
-        # Using least squares to handle the case of no exact solution
+        # 求解线性方程组 Ax = b
+        # 使用最小二乘处理无精确解的情况
         if A.device.type == "mps":
-            # Perform lstsq on CPU for MPS devices and move result back
+            # 对 MPS 设备在 CPU 上执行 lstsq，再将结果移回
             x, _ = torch.linalg.lstsq(A.cpu(), b.unsqueeze(-1).cpu())[:2]
             x = x.to(A.device)
         else:
             x, _ = torch.linalg.lstsq(A, b.unsqueeze(-1))[:2]
-        x = x.squeeze(-1)  # Shape: [N*(N-1)/2, 2]
+        x = x.squeeze(-1)  # shape [N*(N-1)/2, 2]
         s = x[:, 0]
         t = x[:, 1]
 
-        # Calculate the intersection points using either rays
-        P_i = Oi + s.unsqueeze(-1) * Di  # Shape: [N*(N-1)/2, 2]
-        P_j = Oj + t.unsqueeze(-1) * Dj  # Shape: [N*(N-1)/2, 2]
+        # 分别使用两条光线计算交点
+        P_i = Oi + s.unsqueeze(-1) * Di  # shape [N*(N-1)/2, 2]
+        P_j = Oj + t.unsqueeze(-1) * Dj  # shape [N*(N-1)/2, 2]
 
-        # Take the average to mitigate numerical precision issues
+        # 取平均以减轻数值精度问题
         P = (P_i + P_j) / 2
 
         return P
 
     # ====================================================================================
-    # Lens operation
+    # 镜头操作
     # ====================================================================================
     @torch.no_grad()
     def refocus(self, foc_dist=float("inf")):
-        """Refocus the lens to a depth distance by changing sensor position.
+        """通过改变传感器位置，将镜头重新对焦到指定深度。
 
-        Args:
-            foc_dist (float, optional): Object focus distance [mm].
-                Use ``float('inf')`` for infinity focus. Defaults to ``float('inf')``.
+        参数:
+            foc_dist (float, optional): 物体对焦距离 [mm]。无穷远对焦使用
+                ``float('inf')``。默认为 ``float('inf')``。
 
-        Note:
-            In DSLR, phase detection autofocus (PDAF) is a popular and efficient method. But here we simplify the problem by calculating the in-focus position of green light.
+        说明:
+            在 DSLR 中，相位检测自动对焦（PDAF）是一种常用且高效的方法；此处通过
+            计算绿光的合焦位置来简化该问题。
         """
-        # Calculate in-focus sensor position
+        # 计算合焦传感器位置
         d_sensor_new = self.calc_sensor_plane(depth=foc_dist)
 
-        # Update sensor position
+        # 更新传感器位置
         assert d_sensor_new > 0, "Obtained negative sensor position."
         self.d_sensor = d_sensor_new
 
-        # FoV will be slightly changed
+        # FoV 会略有变化
         self.post_computation()
 
     @torch.no_grad()
     def set_fnum(self, fnum):
-        """Set F-number and aperture radius using binary search.
+        """使用二分搜索设置 F-number 和孔径半径。
 
-        Args:
-            fnum (float): target F-number.
+        参数:
+            fnum (float): 目标 F-number。
         """
         target_pupil_r = self.foclen / fnum / 2
         aper_r = self.surfaces[self.aper_idx].r
@@ -1579,16 +1552,14 @@ class GeoLens(
 
     @torch.no_grad()
     def set_target_fov_fnum(self, rfov, fnum):
-        """Set FoV, image height, and F-number as design targets.
+        """将 FoV、像高和 F-number 设置为设计目标。
 
-        Only use this method to assign design targets (it overwrites the
-        cached first-order quantities directly rather than measuring them).
+        此方法仅用于分配设计目标（它会直接覆盖缓存的一阶量，而不是测量它们）。
 
-        Args:
-            rfov (float): Half-diagonal FoV. Interpreted as radians; if the
-                value is greater than $\\pi$ it is treated as degrees and
-                converted to radians.
-            fnum (float): Target F-number.
+        参数:
+            rfov (float): 半对角 FoV。按 radians 解释；若值大于 $\\pi$，则视为
+                degrees 并转换为 radians。
+            fnum (float): 目标 F-number。
         """
         if rfov > math.pi:
             self.rfov_eff = rfov / 180.0 * math.pi
@@ -1603,18 +1574,18 @@ class GeoLens(
         aper_r = self.foclen / fnum / 2
         self.surfaces[self.aper_idx].update_r(float(aper_r))
 
-        # Update pupil after setting aperture radius
+        # 设置孔径半径后更新瞳孔
         self.calc_pupil()
 
     @torch.no_grad()
     def set_fov(self, rfov):
-        """Set half-diagonal field of view as a design target.
+        """将半对角视场设置为设计目标。
 
-        Unlike ``calc_fov()`` which derives FoV from focal length and sensor
-        size, this method directly assigns the target FoV for lens optimisation.
+        ``calc_fov()`` 会根据焦距和传感器尺寸推导 FoV，而此方法直接为镜头优化
+        指定目标 FoV。
 
-        Args:
-            rfov (float): Half-diagonal FoV in radians.
+        参数:
+            rfov (float): 半对角 FoV [radians]。
         """
         self.rfov_eff = rfov
         self.rfov = rfov
