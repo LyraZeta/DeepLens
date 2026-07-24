@@ -1,5 +1,5 @@
 """
-deeplens/optics/wave.py 测试——波动光学与传播。
+`deeplens/light/wave.py` 测试——波动光学与传播。
 """
 
 import pytest

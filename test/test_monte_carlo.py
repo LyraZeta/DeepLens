@@ -1,5 +1,5 @@
 """
-deeplens/optics/imgsim/monte_carlo.py 测试——Monte Carlo 光线积分。
+`deeplens/imgsim/monte_carlo.py` 测试——蒙特卡洛光线积分。
 """
 
 import pytest

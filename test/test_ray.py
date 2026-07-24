@@ -1,5 +1,5 @@
 """
-deeplens/optics/ray.py 测试——Ray 类操作。
+`deeplens/light/ray.py` 测试——`Ray` 类操作。
 """
 
 import pytest

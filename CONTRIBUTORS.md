@@ -1,23 +1,24 @@
-# Contributors to DeepLens
+# DeepLens 贡献者
 
-This project exists thanks to the work of the following people:
+本项目的存在离不开以下人员的贡献：
 
-## Lead Developer & Maintainer
-- Xinge Yang (xinge.yang@kaust.edu.sa) — Project lead, main architecture, and ongoing development
+## 首席开发者与维护者
 
-## Contributors
+- Xinge Yang (xinge.yang@kaust.edu.sa) — 项目负责人、主要架构设计及持续开发
 
-- LinYark - maintainance and development
-- surrender2002 - feature for lens design
-- Sheldonmao - bugfix
-- QizhouW - bugfix
-- Contributors not list on the GitHub contributors graph, or without a GitHub account:
-    - Congli Wang — Original dO engine
-    - Ray Engineer - bugfix
-    - yourwanghao - bugfix
-    - MezoBlast - feature for 3d visualization
-    - jikewct - feature for triton acceleration
+## 贡献者
+
+- LinYark - 维护与开发
+- surrender2002 - 镜头设计功能
+- Sheldonmao - 错误修复
+- QizhouW - 错误修复
+- 未列入 GitHub 贡献者图表或没有 GitHub 账号的贡献者：
+    - Congli Wang — 原始 dO 引擎
+    - Ray Engineer - 错误修复
+    - yourwanghao - 错误修复
+    - MezoBlast - 3D 可视化功能
+    - jikewct - Triton 加速功能
 
 ---
 
-**If you have contributed to this project and are not listed here, please open a pull request or contact the maintainer!** 
+**如果您为本项目作出过贡献但未列于此，请创建拉取请求或联系维护者！**

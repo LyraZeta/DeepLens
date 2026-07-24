@@ -1,32 +1,33 @@
 ---
-name: Bug report
-about: Create a report to help us improve
+name: 错误报告
+about: 提交报告以帮助我们改进
 title: ''
 labels: ''
 assignees: singer-yang
 
 ---
 
-**Describe the bug**
-A clear and concise description of what the bug is.
+**描述错误**
+请清晰简洁地描述该错误。
 
-**To Reproduce**
-Steps to reproduce the behavior:
-1. Go to '...'
-2. Click on '....'
-3. Scroll down to '....'
-4. See error
+**复现步骤**
+复现该行为的步骤：
+1. 前往“……”
+2. 点击“……”
+3. 向下滚动至“……”
+4. 查看错误
 
-**Expected behavior**
-A clear and concise description of what you expected to happen.
+**预期行为**
+请清晰简洁地描述您期望发生的情况。
 
-**Screenshots**
-If applicable, add screenshots to help explain your problem.
+**屏幕截图**
+如果适用，请添加屏幕截图以帮助说明问题。
 
-**Environment:**
- - OS: [e.g. Windowns, Linux]
- - GPU: [e.g. RTX 5090]
- - PyTorch Version [e.g. 3.12]
+**环境：**
+ - OS：[例如 Windows、Linux]
+ - GPU：[例如 RTX 5090]
+ - Python 版本：[例如 3.12]
+ - PyTorch 版本：[例如 2.7.1]
 
-**Additional context**
-Add any other context about the problem here.
+**其他信息**
+请在此补充与该问题有关的其他信息。

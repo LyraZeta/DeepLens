@@ -1,4 +1,4 @@
-"""deeplens/optics/geolens_pkg/io.py 测试——GeoLensIO mixin。
+"""`deeplens/geolens_pkg/io.py` 测试——`GeoLensIO` 混入类。
 
 测试 JSON、Zemax (.zmx) 和 Code V (.seq) 格式的镜头文件 I/O。
 """

@@ -1,26 +1,28 @@
-# GeoLens Package
+# GeoLens 包
 
-The `geolens_pkg` is a sub-package of DeepLens (under `optics/`) that provides a comprehensive suite of tools for the classical evaluation, optimization, and analysis of geometric lens systems (`GeoLens`). The functionalities are designed to be accurate and are aligned with industry-standard optical design software like Zemax.
+`geolens_pkg` 是 DeepLens 的子包（位于 `deeplens/geolens_pkg/`），为几何镜头系统（`GeoLens`）的经典评估、优化与分析提供一整套工具。这些功能注重准确性，并与 Zemax 等行业标准光学设计软件保持一致。
 
-## Key Features
+## 主要功能
 
-This package offers a wide range of optical performance evaluation capabilities:
+本包提供广泛的光学性能评估功能：
 
--   **Spot Diagram Analysis:** Generate and visualize spot diagrams at various field angles to assess aberrations.
--   **RMS Spot Error:** Calculate RMS spot size maps across different wavelengths and field points.
--   **Distortion Analysis:** Compute and plot distortion maps and curves to quantify image deformation.
--   **Modulation Transfer Function (MTF):** Evaluate the spatial frequency response of the lens system to determine its resolution and contrast performance.
--   **Vignetting Analysis:** Calculate and visualize the reduction in image brightness at the periphery of the field.
--   **3D Visualization:** Render 3D views of the lens system for better understanding of its physical layout.
--   **Optimization:** Utilities for optimizing lens designs based on various performance metrics.
+-   **光斑图分析：** 生成并可视化不同视场角下的光斑图，以评估像差。
+-   **RMS 光斑误差：** 计算不同波长和视场点下的 RMS 光斑尺寸图。
+-   **畸变分析：** 计算并绘制畸变图和畸变曲线，以量化图像形变。
+-   **调制传递函数（MTF）：** 评估镜头系统的空间频率响应，以确定其分辨率和对比度性能。
+-   **渐晕分析：** 计算并可视化视场边缘的图像亮度衰减。
+-   **3D 可视化：** 渲染镜头系统的 3D 视图，以便更好地理解其物理布局。
+-   **优化：** 根据多种性能指标优化镜头设计的工具。
 
-## Modules
+## 模块
 
-The package is organized into the following modules:
+本包由以下模块组成：
 
--   `eval.py`: The core module for classical optical performance evaluation. It includes functions for analyzing spot diagrams, distortion, MTF, and more.
--   `optim.py`: Contains tools and functions for optimizing `GeoLens` systems.
--   `vis.py`: Provides utilities for plotting and visualizing the results of various optical analyses.
--   `vis3d.py`: Includes functionalities for creating and displaying 3D renderings of lens systems.
--   `io.py`: A set of helper functions for input/output operations, such as loading and saving lens data.
--   `utils.py`: Contains various utility functions used across the package.
+-   `eval.py`：经典光学性能评估的核心模块，包含光斑图、畸变、MTF 等分析函数。
+-   `optim.py`：包含用于优化 `GeoLens` 系统的工具和函数。
+-   `optim_init.py`：提供镜头与表面的初始化工具，用于创建镜头设计起点。
+-   `optim_ops.py`：提供优化期间使用的表面裁剪与镜头形状校正操作。
+-   `psf_compute.py`：提供几何、出瞳传播和惠更斯等 PSF 计算方法。
+-   `vis.py`：提供绘制和可视化各种光学分析结果的工具。
+-   `vis3d.py`：包含创建并显示镜头系统 3D 渲染图的功能。
+-   `io.py`：用于输入/输出操作的一组辅助函数，例如加载和保存镜头数据。

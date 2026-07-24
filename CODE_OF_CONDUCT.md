@@ -1,40 +1,40 @@
-# DeepLens Community Code of Conduct
+# DeepLens 社区行为准则
 
-## Introduction
+## 简介
 
-- Diversity and inclusion make our community strong. We encourage participation from the most varied and diverse backgrounds possible and want to be very clear about where we stand.
-- Our goal is to maintain a safe, helpful and friendly community for everyone, regardless of experience, gender identity and expression, sexual orientation, disability, personal appearance, body size, race, ethnicity, age, religion, nationality, or other defining characteristic.
-- This code and related procedures apply to unacceptable behavior occurring in all community venues, including our GitHub repository, Slack/WeChat groups, and other forums. This also includes behavior outside the scope of community activities — online and in-person— as well as in all one-on-one communications, and anywhere such behavior has the potential to adversely affect the safety and well-being of community members.
+- 多元与包容使我们的社区更加强大。我们鼓励来自尽可能广泛且多元背景的人士参与，并希望明确表明我们的立场。
+- 我们的目标是为所有人维护一个安全、互助且友好的社区，无论其经验、性别认同与表达、性取向、残障情况、外貌、体型、种族、族裔、年龄、宗教、国籍或其他身份特征如何。
+- 本准则及相关程序适用于所有社区场所中发生的不当行为，包括我们的 GitHub 仓库、Slack/WeChat 群组及其他论坛。这也包括社区活动范围之外的线上和线下行为、所有一对一交流，以及任何可能对社区成员的安全与福祉产生不利影响的场合。
 
-## Expected Behavior
+## 期望行为
 
-### Be Respectful and Collaborative
+### 保持尊重与协作
 
-DeepLens brings together people from various backgrounds, including optics, physics, computer science, and engineering. We expect members to be respectful of differing viewpoints and experiences. Communicate politely and constructively. Please help us build a respectful, blame-free, and inclusive community.
+DeepLens 汇聚了来自光学、物理学、计算机科学和工程学等不同背景的人士。我们希望成员尊重不同的观点和经历，以礼貌且建设性的方式交流。请帮助我们共同建设一个相互尊重、不相互指责且包容的社区。
 
-### Be Considerate
+### 体谅他人
 
-Many DeepLens contributors are researchers, students, or professionals with other primary commitments. Please be considerate of others who may have different schedules and priorities. When submitting contributions like pull requests, aim for clarity and conciseness to facilitate efficient review.
+许多 DeepLens 贡献者是研究人员、学生，或另有主要工作安排的专业人士。请体谅他人可能有不同的日程和优先事项。提交拉取请求等贡献时，应力求清晰简洁，以便高效审查。
 
-### Be Pragmatic and Focused
+### 务实且专注
 
-Our goal is to solve practical problems in optical design and computational imaging. Simple, readable, and maintainable solutions are highly valued. We encourage a focus on quality over quantity. Behaving professionally and paying attention to detail helps build trust and a strong reputation within the community.
+我们的目标是解决光学设计和计算成像中的实际问题。我们高度重视简单、易读且易维护的解决方案，并鼓励质量优先于数量。专业的行为和对细节的关注有助于在社区中建立信任和良好声誉。
 
-## Unacceptable Behavior
+## 不可接受的行为
 
-- Conduct or speech which might be considered sexist, racist, homophobic, transphobic, ableist or otherwise discriminatory or offensive in nature.
-- Do not use unwelcome, suggestive, derogatory or inappropriate nicknames or terms.
-- Do not show disrespect towards others. (Jokes, innuendo, dismissive attitudes.)
-- Intimidation or harassment (online or in-person).
-- Disrespect towards differences of opinion.
-- Inappropriate attention or contact. Be aware of how your actions affect others. If it makes someone uncomfortable, stop.
-- Not understanding the differences between constructive criticism and disparagement.
-- Sustained disruptions of discussions.
-- Violence, threats of violence or violent language.
+- 可能被视为性别歧视、种族歧视、恐同、恐跨、健全主义，或其他具有歧视性、冒犯性的行为或言论。
+- 使用不受欢迎、带有暗示、贬损性或不恰当的称呼或用语。
+- 对他人表现出不尊重，例如开冒犯性玩笑、含沙射影或采取轻蔑态度。
+- 恐吓或骚扰，无论线上还是线下。
+- 不尊重意见分歧。
+- 不恰当的关注或接触。请留意自己的行为如何影响他人；如果使他人感到不适，应立即停止。
+- 无法区分建设性批评与贬低诋毁。
+- 持续干扰讨论。
+- 暴力、暴力威胁或暴力言论。
 
-## Enforcement
+## 执行
 
-- Understand that speech and actions have consequences, and unacceptable behavior will not be tolerated.
-- If you are the subject of, or witness to any violations of this Code of Conduct, please contact us by emailing Xinge Yang at xinge.yang@kaust.edu.sa.
-- If violations occur, project maintainers will take any action they deem appropriate for the infraction, up to and including a temporary or permanent ban from the community.
-- Portions derived from [Taichi community Code of Conduct](https://github.com/taichi-dev/taichi/blob/master/CODE_OF_CONDUCT.md) and [Slack Developer Community Code of Conduct](https://api.slack.com/community/code-of-conduct) under a [Apache 2.0](https://www.apache.org/licenses/LICENSE-2.0.txt) license.
+- 请理解言论和行为会产生相应后果，社区不会容忍不可接受的行为。
+- 如果您遭遇或目睹任何违反本行为准则的情况，请发送电子邮件至 xinge.yang@kaust.edu.sa 联系 Xinge Yang。
+- 如果发生违规行为，项目维护者将针对违规情节采取其认为适当的措施，包括暂时或永久禁止违规者参与社区。
+- 部分内容基于采用 [Apache 2.0](https://www.apache.org/licenses/LICENSE-2.0.txt) 许可证的 [Taichi 社区行为准则](https://github.com/taichi-dev/taichi/blob/master/CODE_OF_CONDUCT.md)和 [Slack 开发者社区行为准则](https://api.slack.com/community/code-of-conduct)编写。

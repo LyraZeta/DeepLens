@@ -1,28 +1,32 @@
-# Diffractive Surface
+# 衍射面
 
-This folder contains definitions for various diffractive surfaces, also known as Diffractive Optical Elements (DOEs). These elements operate on the principle of wave optics, modulating the phase of an incident light wave to achieve a desired optical effect.
+本文件夹包含各种衍射面的定义，这些衍射面也称为衍射光学元件（Diffractive Optical Elements，DOEs）。此类元件基于波动光学原理工作，通过调制入射光波的相位来实现所需的光学效果。
 
-Common manufacturing methods for diffractive surfaces include:
-- **Photolithography**: Standard semiconductor processing technique for creating binary or multi-level surface relief profiles.
-    - **Etching**: A subtractive process where material is removed from the substrate to create the diffractive pattern. This often involves multiple steps to create multi-level structures.
-    - **Grayscale**: A technique that uses a mask with varying optical density to create a continuous or multi-level profile in a single exposure and etching step.
-- **Electron Beam Lithography (EBL)**: Used for high-resolution patterning, especially for creating master molds.
-- **Nanoimprint Lithography (NIL)**: A cost-effective replication method suitable for mass production.
-- **Single Point Diamond Turning (SPDT)**: Capable of creating diffractive structures on curved substrates (though simulation support is pending).
+衍射面的常见制造方法包括：
+- **光刻**：用于制作二元或多级表面浮雕轮廓的标准半导体加工技术。
+    - **蚀刻**：从衬底去除材料以形成衍射图案的减材工艺，通常需要多个步骤才能构成多级结构。
+    - **灰度光刻**：使用光密度渐变的掩模，通过一次曝光和蚀刻形成连续或多级轮廓的技术。
+- **电子束光刻（EBL）**：用于高分辨率图形化，尤其适合制作母模。
+- **纳米压印光刻（NIL）**：适合批量生产且经济高效的复制方法。
+- **单点金刚石车削（SPDT）**：能够在曲面衬底上制作衍射结构（仿真支持尚待实现）。
 
-The core of this module is the `DiffractiveSurface` class in `diffractive.py`, which defines the common interface for all DOEs. It handles the propagation of a wavefront to the surface and applies the phase modulation.
+本模块的核心是 `diffractive.py` 中的 `DiffractiveSurface` 类，它定义了所有 DOE 的通用接口，负责将波前传播到表面并施加相位调制。
 
-**Note:** The current wave propagation simulation method only supports **planar** diffractive surfaces. Curved diffractive surfaces are not yet supported in this module.
+**注意：** 当前的波传播仿真方法仅支持**平面**衍射面，本模块尚不支持曲面衍射面。
 
-## Available Surfaces
+## 可用表面
 
-The following surfaces are available, all inheriting from the `DiffractiveSurface` base class:
+当前提供以下表面，它们均继承自 `DiffractiveSurface` 基类：
 
--   `DiffractiveSurface`: The base class for all DOEs.
-    -   `Binary2`: A diffractive surface with a binary phase profile (e.g., 0 and pi).
-    -   `Fresnel`: A diffractive lens that simulates the behavior of a Fresnel zone plate.
-    -   `Pixel2D`: A generic, pixelated 2D diffractive surface where the phase of each pixel can be optimized.
-    -   `ThinLens`: A diffractive implementation of a thin lens, focusing light based on a quadratic phase profile.
-    -   `Zernike`: A surface whose phase profile is described by a combination of Zernike polynomials, which are useful for representing classical optical aberrations.
+-   `DiffractiveSurface`：所有 DOE 的基类。
+    -   `Binary2`：使用偶次径向多项式定义相位的 Zemax Binary 2 风格衍射面。
+    -   `DiffractedRotation`：用于快照高光谱成像、其各向异性 PSF 随波长旋转的衍射面。
+    -   `Fresnel`：用于模拟菲涅耳波带片行为的衍射镜头。
+    -   `Grating`：通过线性相位梯度产生多个衍射级次的光栅。
+    -   `Pixel2D`：通用的像素化 2D 衍射面，其中每个像素的相位均可优化。
+    -   `Rank1`：使用低秩外积约束高度图的衍射面。
+    -   `RotationallySymmetric`：由一维径向相位分布定义的旋转对称衍射面。
+    -   `ThinLens`：薄透镜的衍射实现，基于二次相位轮廓聚焦光线。
+    -   `Zernike`：相位轮廓由多个 Zernike 多项式组合描述的表面，适合表示经典光学像差。
 
-Each of these classes implements the `_phase_map0` method, which defines the specific phase profile of the element at a design wavelength.
+大多数具体子类通过 `phase_func()` 定义元件在设计波长下的原始相位分布；基类的 `get_phase_map0()` 会对其进行包裹和量化。`ThinLens` 则直接覆盖 `get_phase_map()`，为不同波长生成共享同一焦距的理想薄透镜相位。

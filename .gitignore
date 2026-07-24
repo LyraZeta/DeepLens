@@ -26,11 +26,11 @@ lenses/pancake/
 datasets/BSDS300/
 *.out
 
-# Docs moved to separate repo
+# 文档已迁移到独立仓库
 docs/
 site/
 
-# add my own files
+# 本地自用文件
 test/test_outputs
 visualization/
 research/

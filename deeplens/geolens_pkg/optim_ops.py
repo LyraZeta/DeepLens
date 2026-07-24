@@ -100,7 +100,7 @@ class GeoLensSurfOps:
             proposed_r[i] = min(base + r_expand, float(self.surfaces[i].max_height()))
 
         # ------------------------------------------------------------------
-        # 3b. 矢高限制：边缘矢高不得超过 sag_factor * proposed radius。
+        # 3b. 矢高限制：边缘矢高不得超过 sag_factor * 候选半径。
         # 在 [r_min, proposed_r] 内网格搜索满足约束的最大 r。
         # 网格密度足以处理典型非球面矢高曲线；对非单调极值采用保守处理。
         # ------------------------------------------------------------------

@@ -1,4 +1,4 @@
-"""deeplens/optics/loss.py 测试——PSFLoss 和 PSFStrehlLoss。"""
+"""`deeplens/loss.py` 测试——`PSFLoss` 和 `PSFStrehlLoss`。"""
 
 import pytest
 import torch

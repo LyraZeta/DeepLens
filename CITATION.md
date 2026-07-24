@@ -1,6 +1,6 @@
-## Cite DeepLens papers
+## 引用 DeepLens 论文
 
-**Differentiable optics** was developed by the KAUST Computational Imaging Group (https://vccimaging.org/). The first version of differentiable ray tracer was implemented by [Dr. Congli Wang](https://congliwang.github.io/) on [Mitsuba2](https://github.com/mitsuba-renderer/mitsuba2) in the following paper:
+**可微光学**由 KAUST 计算成像研究组 (https://vccimaging.org/) 开发。首个可微光线追迹器版本由 [Congli Wang 博士](https://congliwang.github.io/)基于 [Mitsuba2](https://github.com/mitsuba-renderer/mitsuba2) 实现，相关论文如下：
 
 ```bibtex
 @article{sun2021end,
@@ -14,7 +14,7 @@
 }
 ```
 
-Later, Dr. Congli Wang implemented the first PyTorch version of differentiable ray tracer ([**dO**](https://github.com/vccimaging/DiffOptics)) in the following paper:
+随后，Congli Wang 博士实现了首个 PyTorch 版本的可微光线追迹器（[**dO**](https://github.com/vccimaging/DiffOptics)），相关论文如下：
 
 ```bibtex
 @article{wang2022differentiable,
@@ -28,7 +28,7 @@ Later, Dr. Congli Wang implemented the first PyTorch version of differentiable r
 }
 ```
 
-Currently, [Xinge Yang](https://singer-yang.github.io/) is building and maintaining [**DeepLens**](https://github.com/singer-yang/DeepLens/). The automated lens design work demonstrates the outstanding capability of differentiable optics compared to classical optical design in the following paper:
+目前，[Xinge Yang](https://singer-yang.github.io/) 正在开发和维护 [**DeepLens**](https://github.com/singer-yang/DeepLens/)。以下论文中的自动化镜头设计工作展示了可微光学相较于经典光学设计的突出能力：
 
 ```bibtex
 @article{yang2024curriculum,
@@ -43,7 +43,7 @@ Currently, [Xinge Yang](https://singer-yang.github.io/) is building and maintain
 }
 ```
 
-A differentiable **ray-wave model** is introduced for simulating and optimizing hybrid refractive-diffractive lenses in the following paper:
+以下论文提出了一种可微的**光线—波动模型**，用于仿真和优化折射—衍射混合镜头：
 
 ```bibtex
 @inproceedings{yang2024end,
@@ -55,7 +55,7 @@ A differentiable **ray-wave model** is introduced for simulating and optimizing 
 }
 ```
 
-Differentiable **non-sequential** ray tracing and **polarization tracing** are developed in the following paper:
+以下论文开发了可微的**非序列**光线追迹和**偏振追迹**方法：
 
 ```bibtex
 @article{yang2026waveguide,

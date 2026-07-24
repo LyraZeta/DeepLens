@@ -1,4 +1,4 @@
-"""deeplens/optics/diffractive_surface/ 测试——Fresnel、Binary2、Pixel2D、Zernike、Grating 和 DiffractiveSurface 基类。"""
+"""`deeplens/diffractive_surface/` 测试——`Fresnel`、`Binary2`、`Pixel2D`、`Zernike`、`Grating` 和 `DiffractiveSurface` 基类。"""
 
 import pytest
 import torch

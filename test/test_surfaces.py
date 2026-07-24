@@ -1,5 +1,5 @@
 """
-deeplens/optics/geometric_surface/ 测试——几何表面类。
+`deeplens/geometric_surface/` 测试——几何表面类。
 """
 
 import pytest

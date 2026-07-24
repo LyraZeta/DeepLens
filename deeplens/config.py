@@ -39,7 +39,7 @@ EPSILON = 1e-12  # 数值零保护（在除法/平方根中替代 0）
 WAVE_RGB = [0.656, 0.587, 0.486]
 
 # Fraunhofer 参考谱线 [µm]——用于 V 数和色差的标准谱线
-#（Abbe number = (nd-1)/(nF-nC)）。
+#（阿贝数 = (nd-1)/(nF-nC)）。
 WVLN_d = 0.5876  # 黄色 He-d 线（主要）
 WVLN_F = 0.4861  # 蓝色 H-F 线
 WVLN_C = 0.6563  # 红色 H-C 线

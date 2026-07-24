@@ -1,31 +1,30 @@
-# Geometric Surface
+# 几何面
 
-This folder contains the definition of various geometric surfaces used in optical systems. These surfaces can be used to build complex optical elements for ray tracing simulations.
+本文件夹包含光学系统中使用的各种几何面的定义。这些表面可用于构建复杂的光学元件，以进行光线追迹仿真。
 
-Common manufacturing methods for geometric surfaces include:
+几何面的常见制造方法包括：
 
-- **Grinding and Polishing**: The traditional method for manufacturing spherical and flat surfaces.
-- **Single Point Diamond Turning (SPDT)**: Used for high-precision aspheric and freeform surfaces, especially on metals and plastics.
-- **Glass Molding**: Suitable for mass production of aspheric lenses.
-- **Magnetorheological Finishing (MRF)**: A high-precision polishing method used to correct surface errors.
+- **研磨与抛光**：制造球面和平面的传统方法。
+- **单点金刚石车削（SPDT）**：用于制造高精度非球面和自由曲面，尤其适用于金属和塑料材料。
+- **玻璃模压成型**：适合批量生产非球面镜头。
+- **磁流变抛光（MRF）**：用于修正表面误差的高精度抛光方法。
 
-The core of this module is the `Surface` base class in `base.py`, which defines the common interface for all surfaces. It handles ray intersection, refraction, and reflection.
+本模块的核心是 `base.py` 中的 `Surface` 基类，它定义了所有表面的通用接口，并处理光线求交、折射和反射。
 
-## Available Surfaces
+## 可用表面
 
-The following surfaces are available, all inheriting from the `Surface` base class:
+当前提供以下表面，它们均继承自 `Surface` 基类：
 
--   `Surface`: The basic surface.
-    -   `Aspheric`: An aspheric surface, defined by a polynomial expansion.
-    -   `Cubic`: A surface with a cubic shape.
-    -   `QTypeFreeform`: A Q-type (Forbes Qbfs polynomial) freeform surface, using orthogonal polynomials for optimal representation of rotationally symmetric departures.
-    -   `Spheric`: A spherical surface, a common element in lenses.
-    -   `Spiral`: A surface with a spiral phase profile.
-    -   `Plane`: A simple plane surface.
-        -   `Aperture`: Defines an aperture stop, which limits the passage of rays.
-        -   `ThinLens`: A paraxial approximation of a lens, useful for simplifying optical systems.
-        -   `Mirror`: A reflective surface.
+-   `Surface`：基础表面。
+    -   `Aspheric`：由多项式展开定义的非球面。
+    -   `Cubic`：具有三次形状的表面。
+    -   `QTypeFreeform`：Q 型（Forbes Qbfs 多项式）自由曲面，使用正交多项式对旋转对称偏离量进行优化表示。
+    -   `Spheric`：球面，是镜头中的常用表面。
+    -   `Spiral`：具有螺旋相位轮廓的表面。
+    -   `Prism`：由入射平面、内部反射镜和出射平面组成的顺序追迹棱镜。
+    -   `Plane`：简单平面。
+        -   `Aperture`：定义限制光线通过的孔径光阑。
+        -   `ThinLens`：镜头的近轴近似，可用于简化光学系统。
+        -   `Mirror`：反射表面。
 
-
-
-Each of these classes implements the `sag` method to define its specific shape and may have other specific parameters. They are all designed to be differentiable and can be used in gradient-based optimization of optical systems.
+对于由单一面形表示的表面，具体子类通常通过 `_sag()` 定义矢高，基类的 `sag()` 则提供公共计算接口。`Prism` 是由三个子表面构成的组合面，通过专用追迹流程工作。这些表面采用可微设计，可用于基于梯度的光学系统优化。

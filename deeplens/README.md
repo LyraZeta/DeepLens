@@ -1,46 +1,46 @@
-# `deeplens` Package Structure
+# `deeplens` 包结构
 
-This document outlines the file structure of the `deeplens` package.
+本文概述 `deeplens` 包的文件结构。
 
-## Top-Level
+## 顶层文件
 
--   **`__init__.py`**: Package entry point. Exports `init_device()` and the public classes (`DeepObj`, `Material`, `Ray`, `ComplexWave`, propagation helpers, and all lens types).
+-   **`__init__.py`**：包入口。导出 `init_device()`、公共类（`DeepObj`、`Material`、`Ray`、`ComplexWave`）、传播辅助函数以及所有镜头类型。
 
--   **`base.py`**: Defines `DeepObj`, the base class providing `to(device)`, `astype(dtype)`, and `clone()` via tensor introspection.
+-   **`base.py`**：定义基类 `DeepObj`，通过张量属性检查提供 `to(device)`、`astype(dtype)` 和 `clone()`。
 
--   **`config.py`**: Optics configuration constants (DEPTH, SPP_*, PSF_KS, WAVE_RGB, EPSILON, etc.).
+-   **`config.py`**：光学配置常量（`DEPTH`、`SPP_*`、`PSF_KS`、`WAVE_RGB`、`EPSILON` 等）。
 
--   **`loss.py`**: PSF-related loss functions for optical optimization.
+-   **`loss.py`**：用于光学优化的 PSF 相关损失函数。
 
--   **`utils.py`**: General-purpose utilities (image I/O, batch metrics like PSNR/SSIM, normalization, video creation, logging, seeding, and optics helpers such as `interp1d`, `grid_sample_xy`, `foc_dist_balanced`, `wave_rgb`, `diff_float`, `diff_quantize`).
+-   **`utils.py`**：通用工具（图像 I/O、PSNR/SSIM 等批量指标、归一化、视频创建、日志记录、随机种子设置，以及 `interp1d`、`grid_sample_xy`、`foc_dist_balanced`、`diff_float`、`diff_quantize` 等光学辅助函数）。
 
-## Lens Classes
+## 镜头类
 
--   **`lens.py`**: Base class `Lens` for all lens systems.
--   **`geolens.py`**: `GeoLens` — refractive lens systems (differentiable ray tracing).
--   **`diffraclens.py`**: `DiffractiveLens` — paraxial diffractive lens systems.
--   **`hybridlens.py`**: `HybridLens` — hybrid refractive-diffractive systems.
--   **`defocuslens.py`**: `DefocusLens` — defocus (circle-of-confusion) model.
--   **`psfnetlens.py`**: `PSFNetLens` — neural surrogate for PSF prediction.
+-   **`lens.py`**：所有镜头系统的基类 `Lens`。
+-   **`geolens.py`**：`GeoLens`——折射镜头系统（可微光线追迹）。
+-   **`diffraclens.py`**：`DiffractiveLens`——近轴衍射镜头系统。
+-   **`hybridlens.py`**：`HybridLens`——折射—衍射混合系统。
+-   **`defocuslens.py`**：`DefocusLens`——散焦（弥散圆）模型。
+-   **`psfnetlens.py`**：`PSFNetLens`——用于 PSF 预测的神经网络代理模型。
 
-## Subpackages
+## 子包
 
--   **`light/`**: Ray tracing and wave optics.
-    -   `ray.py`: `Ray` class for geometric ray tracing.
-    -   `wave.py`: `ComplexWave` and propagation methods (ASM, Fresnel, Fraunhofer, Rayleigh-Sommerfeld).
+-   **`light/`**：光线追迹与波动光学。
+    -   `ray.py`：用于几何光线追迹的 `Ray` 类。
+    -   `wave.py`：`ComplexWave` 及传播方法（ASM、Fresnel、Fraunhofer、Rayleigh-Sommerfeld）。
 
--   **`material/`**: Material properties and dispersion models (CDGM, SCHOTT, PLASTIC2022, MISC catalogs).
+-   **`material/`**：材料属性与色散模型（CDGM、SCHOTT、PLASTIC2022、MISC 目录）。
 
--   **`geometric_surface/`**: Geometric surfaces for refractive lenses (Spheric, Aspheric, Aperture, Plane, Cubic, Mirror, Prism, QType, Spiral, ThinLens).
+-   **`geometric_surface/`**：用于折射镜头的几何面（`Spheric`、`Aspheric`、`Aperture`、`Plane`、`Cubic`、`Mirror`、`Prism`、`QTypeFreeform`、`Spiral`、`ThinLens`）。
 
--   **`diffractive_surface/`**: Diffractive optical elements and metasurfaces (Binary2, Fresnel, Grating, Pixel2D, Zernike, ThinLens).
+-   **`diffractive_surface/`**：衍射光学元件与超表面（`Binary2`、`Fresnel`、`Grating`、`Pixel2D`、`Zernike`、`ThinLens`）。
 
--   **`phase_surface/`**: Phase-only surfaces (Binary2, Cubic, Fresnel, Grating, NURBS, Poly, QPhase, Zernike).
+-   **`phase_surface/`**：纯相位面（`Binary2Phase`、`CubicPhase`、`FresnelPhase`、`GratingPhase`、`NURBSPhase`、`PolyPhase`、`VortexPhase`、`ZernikePhase`，以及在 `qphase.py` 中定义但尚未从包入口导出的 `QuarticPhase`）。
 
--   **`imgsim/`**: Image simulation.
-    -   `monte_carlo.py`: `forward_integral()` for differentiable PSF accumulation.
-    -   `psf.py`: PSF convolution variants (single, spatially-varying, depth-varying, per-pixel).
+-   **`imgsim/`**：图像仿真。
+    -   `monte_carlo.py`：用于可微 PSF 累积的 `forward_integral()`。
+    -   `psf.py`：多种 PSF 卷积方式（单一、空间变化、深度变化、逐像素）。
 
--   **`geolens_pkg/`**: `GeoLens` mixins (PSF compute, evaluation, optimization, I/O, 2D/3D visualization).
+-   **`geolens_pkg/`**：`GeoLens` 混入模块（PSF 计算、评估、优化、I/O、2D/3D 可视化）。
 
--   **`surrogate/`**: Neural surrogate networks (MLP, MLPConv, Siren, ModulateSiren, PSFNetMLPConv).
+-   **`surrogate/`**：神经网络代理模型（`MLP`、`MLPConv`、`Siren`、`ModulateSiren`、`PSFNet_MLPConv`）。

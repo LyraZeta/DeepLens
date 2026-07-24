@@ -1,4 +1,4 @@
-"""deeplens/optics/phase_surface/ 测试——FresnelPhase、Binary2Phase、ZernikePhase、GratingPhase、PolyPhase 和 Phase 基类。"""
+"""`deeplens/phase_surface/` 测试——`FresnelPhase`、`Binary2Phase`、`ZernikePhase`、`GratingPhase`、`PolyPhase` 和 `Phase` 基类。"""
 
 import pytest
 import torch

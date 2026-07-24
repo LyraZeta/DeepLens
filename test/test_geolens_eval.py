@@ -1,6 +1,6 @@
-"""deeplens/optics/geolens_pkg/eval.py 测试——GeoLensEval mixin。
+"""`deeplens/geolens_pkg/eval.py` 测试——`GeoLensEval` 混入类。
 
-所有方法均通过 GeoLens 实例测试（mixin 架构）。
+所有方法均通过 `GeoLens` 实例测试（混入类架构）。
 """
 
 import os

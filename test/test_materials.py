@@ -1,5 +1,5 @@
 """
-deeplens/optics/material/materials.py 测试——玻璃和塑料材料。
+`deeplens/material/materials.py` 测试——玻璃和塑料材料。
 """
 
 import pytest

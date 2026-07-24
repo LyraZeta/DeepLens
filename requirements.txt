@@ -1,18 +1,18 @@
-# DeepLens Requirements
-# Install with: pip install -r requirements.txt
+# DeepLens 依赖
+# 安装命令：pip install -r requirements.txt
 
-# Computer Vision & Image Processing
+# 计算机视觉与图像处理
 opencv-python>=4.8.0
 scikit-image>=0.20.0
 
-# Visualization
+# 可视化
 matplotlib>=3.7.0
 
-# Deep Learning Utilities
+# 深度学习工具
 lpips>=0.1.4
 einops>=0.7.0
 
-# Utilities
+# 通用工具
 tqdm>=4.65.0
 
 # Jupyter Notebook

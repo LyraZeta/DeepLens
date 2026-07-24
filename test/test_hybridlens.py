@@ -1,4 +1,4 @@
-"""deeplens/optics/hybridlens.py 测试——HybridLens。"""
+"""`deeplens/hybridlens.py` 测试——`HybridLens`。"""
 
 import os
 

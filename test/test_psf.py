@@ -1,5 +1,5 @@
 """
-deeplens/optics/imgsim/psf.py 测试——PSF 卷积函数。
+`deeplens/imgsim/psf.py` 测试——PSF 卷积函数。
 """
 
 import pytest
@@ -20,7 +20,7 @@ class TestConvPSF:
     """测试单个 PSF 卷积。"""
 
     def test_conv_psf_shape(self, device_auto):
-        """输出应与输入具有相同 shape。"""
+        """输出应与输入具有相同形状。"""
         img = torch.rand(1, 3, 64, 64, device=device_auto)
         psf = torch.rand(3, 11, 11, device=device_auto)
         psf = psf / psf.sum(dim=(-1, -2), keepdim=True)  # 归一化
@@ -43,10 +43,10 @@ class TestConvPSF:
         assert torch.allclose(energy_in, energy_out, rtol=0.1)
 
     def test_conv_psf_delta(self, device_auto):
-        """delta 函数 PSF 应返回原始图像。"""
+        """冲激函数 PSF 应返回原始图像。"""
         img = torch.rand(1, 3, 64, 64, device=device_auto)
         
-        # 创建 delta PSF
+        # 创建冲激 PSF
         psf = torch.zeros(3, 11, 11, device=device_auto)
         psf[:, 5, 5] = 1.0
         
@@ -86,7 +86,7 @@ class TestConvPSF:
         assert torch.allclose(result_fft, result_conv, atol=1e-5)
 
     def test_conv_psf_fft_delta(self, device_auto):
-        """FFT 后端的 delta PSF 应返回原始图像。"""
+        """FFT 后端的冲激 PSF 应返回原始图像。"""
         img = torch.rand(1, 3, 64, 64, device=device_auto)
         psf = torch.zeros(3, 11, 11, device=device_auto)
         psf[:, 5, 5] = 1.0

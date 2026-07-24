@@ -1,18 +1,18 @@
-# Surrogate Package
+# 代理模型包
 
-The `surrogate` package provides neural network architectures that serve as surrogate models for complex optical phenomena. These networks serve as simple examples for enabling faster simulation and end-to-end optimization of optical systems by learning to approximate computationally expensive optical processes.
+`surrogate` 包提供用于构建复杂光学现象代理模型的神经网络架构。这些网络是一些简单示例，通过学习近似计算成本高昂的光学过程，实现更快速的光学系统仿真和端到端优化。
 
-This package is essential for:
--   Modeling spatially varying Point Spread Functions (PSF) of optical systems.
--   Accelerating optical simulations during training and optimization.
--   Enabling differentiable approximations of wave propagation and diffraction.
--   Supporting joint optimization of optics and computational processing.
+本包可用于：
+-   对光学系统中空间变化的点扩散函数（PSF）建模。
+-   加速训练和优化期间的光学仿真。
+-   实现波传播和衍射的可微近似。
+-   支持光学系统与计算处理的联合优化。
 
-## Network Architectures
+## 网络架构
 
--   `mlp.py`: Multi-Layer Perceptron for low-resolution intensity/amplitude PSF function prediction.
--   `mlpconv.py`: MLP encoder with convolutional decoder for high-resolution PSF function prediction.
--   `siren.py`: Sinusoidal Representation Network (SIREN) for implicit neural representations.
--   `modulate_siren.py`: Modulated SIREN with adaptive frequency modulation.
--   `psfnet_mplconv.py`: MLP-Conv network architecture for spatially varying PSF representation.
+-   `mlp.py`：用于低分辨率强度/振幅 PSF 函数预测的多层感知机。
+-   `mlpconv.py`：用于高分辨率 PSF 函数预测、配有卷积解码器的 MLP 编码器。
+-   `siren.py`：用于隐式神经表示的正弦表示网络（SIREN）。
+-   `modulate_siren.py`：采用自适应频率调制的调制型 SIREN。
+-   `psfnet_mplconv.py`：用于表示空间变化 PSF 的 MLP-Conv 网络架构。
 

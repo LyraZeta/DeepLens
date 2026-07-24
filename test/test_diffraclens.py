@@ -1,4 +1,4 @@
-"""deeplens/optics/diffraclens.py 测试——DiffractiveLens。"""
+"""`deeplens/diffraclens.py` 测试——`DiffractiveLens`。"""
 
 import builtins
 import json

@@ -394,7 +394,7 @@ def interp1d(query, key, value, mode="linear"):
         query_flat = query.flatten()  # [N]
         key_flat = key.flatten()  # [M]
 
-        # 获取原始 value shape，以保留额外维度
+        # 获取 `value` 的原始形状，以保留额外维度
         value_shape = value.shape  # [M, ...]
         M = value_shape[0]
         extra_dims = value_shape[1:]
