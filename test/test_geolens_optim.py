@@ -26,6 +26,82 @@ class TestOptimizerHelpers:
         optimizer = lens.get_optimizer()
         assert isinstance(optimizer, torch.optim.Adam)
 
+    def test_gradient_clipping_is_independent_between_parameter_groups(
+        self, sample_singlet_lens
+    ):
+        """一个参数组的极大梯度不应缩放其他参数组。"""
+        large = torch.nn.Parameter(torch.tensor([0.0]))
+        moderate = torch.nn.Parameter(torch.tensor([0.0]))
+        optimizer = torch.optim.Adam(
+            [{"params": [large]}, {"params": [moderate]}], lr=1e-3
+        )
+        large.grad = torch.tensor([1000.0])
+        moderate.grad = torch.tensor([3.0])
+
+        params, nonfinite = sample_singlet_lens._sanitize_and_clip_gradients(
+            optimizer, max_norm=10.0
+        )
+
+        assert len(params) == 2
+        assert params[0] is large
+        assert params[1] is moderate
+        assert nonfinite == 0
+        assert large.grad.norm().item() == pytest.approx(10.0, rel=1e-5)
+        assert moderate.grad.item() == pytest.approx(3.0)
+
+    def test_gradient_sanitizer_replaces_nonfinite_values(self, sample_singlet_lens):
+        """NaN/Inf 梯度应在交给 Adam 前替换为零。"""
+        parameter = torch.nn.Parameter(torch.zeros(3))
+        optimizer = torch.optim.Adam([parameter], lr=1e-3)
+        parameter.grad = torch.tensor([float("nan"), float("inf"), 2.0])
+
+        _, nonfinite = sample_singlet_lens._sanitize_and_clip_gradients(optimizer)
+
+        assert nonfinite == 2
+        assert torch.isfinite(parameter.grad).all()
+        assert torch.equal(parameter.grad, torch.tensor([0.0, 0.0, 2.0]))
+
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            ({"iterations": 0}, "iterations"),
+            ({"iterations": 1, "test_per_iter": 0}, "test_per_iter"),
+        ],
+    )
+    def test_optimize_rejects_nonpositive_loop_counts(
+        self, sample_singlet_lens, kwargs, message
+    ):
+        """训练次数和检查点间隔必须为正，避免隐藏的额外更新或除零。"""
+
+        with pytest.raises(ValueError, match=message):
+            sample_singlet_lens.optimize(**kwargs)
+
+    @pytest.mark.parametrize(
+        ("iterations", "expected"),
+        [(1, 0), (9, 0), (10, 1), (250, 25), (2000, 100)],
+    )
+    def test_short_optimization_does_not_spend_only_step_in_warmup(
+        self, sample_singlet_lens, iterations, expected
+    ):
+        """短烟雾测试必须有非零学习率，长训练预热最多 100 步。"""
+
+        assert (
+            sample_singlet_lens._optimization_warmup_steps(iterations) == expected
+        )
+
+    @pytest.mark.parametrize(
+        "name",
+        ["w_rms", "w_valid", "w_field", "w_reg", "field_mapping_max_weight"],
+    )
+    @pytest.mark.parametrize("value", [-1.0, float("nan"), float("inf")])
+    def test_optimize_rejects_invalid_loss_weights(
+        self, sample_singlet_lens, name, value
+    ):
+        """各损失权重必须非负且有限，不能让总损失静默污染。"""
+
+        with pytest.raises(ValueError, match=name):
+            sample_singlet_lens.optimize(iterations=1, **{name: value})
+
 
 class TestConstraints:
     """测试约束初始化。"""
@@ -50,6 +126,22 @@ class TestConstraints:
         sample_camera_lens.init_constraints()
         # 手机镜头的约束更严格
         assert sample_cellphone_lens.air_edge_min < sample_camera_lens.air_edge_min
+
+    def test_constraint_overrides_survive_post_computation(self, sample_camera_lens):
+        """任务专用约束应在重新计算一阶量后继续生效。"""
+
+        lens = sample_camera_lens
+        lens.init_constraints({"ttl_max": 1234.0, "distortion_max": 0.005})
+        lens.post_computation()
+
+        assert lens.ttl_max == 1234.0
+        assert lens.distortion_max == 0.005
+
+    def test_unknown_constraint_override_is_rejected(self, sample_camera_lens):
+        """拼错的约束名不应静默创建无效属性。"""
+
+        with pytest.raises(ValueError, match="未知镜头约束参数"):
+            sample_camera_lens.init_constraints({"ttl_mx": 1234.0})
 
 
 class TestLossFunctions:
@@ -132,6 +224,194 @@ class TestLossFunctions:
         assert loss.dim() == 0
         assert loss.item() >= 0
 
+    def test_loss_rms_reports_proxy_when_every_ray_is_invalid(
+        self, sample_singlet_lens, monkeypatch
+    ):
+        """所有光线失效时，公开 RMS 指标也不应返回近零值。"""
+        lens = sample_singlet_lens
+
+        def invalidate_all(ray):
+            ray.is_valid.zero_()
+            return ray
+
+        monkeypatch.setattr(lens, "trace2sensor", invalidate_all)
+        loss = lens.loss_rms(num_grid=(2, 2), num_rays=16)
+
+        expected_proxy = max(2.0 * lens.r_sensor, 1.0)
+        assert loss.item() == pytest.approx(expected_proxy, rel=1e-5)
+
+    def test_ray_validity_loss_ignores_fields_above_threshold(
+        self, sample_singlet_lens
+    ):
+        """有效率达到阈值时不应产生挡光惩罚。"""
+        ray_valid = torch.tensor([[1, 1, 1, 1], [1, 1, 0, 0]])
+
+        loss, valid_ratio = sample_singlet_lens._ray_validity_loss(
+            ray_valid, min_valid_ratio=0.5
+        )
+
+        assert loss.item() == pytest.approx(0.0)
+        assert torch.equal(valid_ratio, torch.tensor([1.0, 0.5]))
+
+    def test_ray_validity_loss_penalizes_partial_and_total_blocking(
+        self, sample_singlet_lens
+    ):
+        """部分挡光和全挡光视场都必须增加总损失。"""
+        ray_valid = torch.tensor([[1, 0, 0, 0], [0, 0, 0, 0]])
+
+        loss, valid_ratio = sample_singlet_lens._ray_validity_loss(
+            ray_valid, min_valid_ratio=0.5
+        )
+
+        # 短缺分别为 50% 和 100%，平方后平均：(0.25 + 1) / 2。
+        assert loss.item() == pytest.approx(0.625)
+        assert torch.equal(valid_ratio, torch.tensor([0.25, 0.0]))
+
+    def test_full_invalid_field_uses_nonzero_rms_proxy(self, sample_singlet_lens):
+        """全失效视场的 RMS 代理值不应再接近零。"""
+        ray_err = torch.tensor(
+            [
+                [[3.0, 4.0], [float("inf"), float("inf")]],
+                [[float("inf"), 0.0], [0.0, float("inf")]],
+            ]
+        )
+        ray_valid = torch.tensor([[1, 0], [0, 0]])
+
+        mse = sample_singlet_lens._masked_field_mse(
+            ray_err, ray_valid, invalid_rms=3.0
+        )
+
+        assert torch.allclose(mse, torch.tensor([25.0, 9.0]))
+        assert mse[1].sqrt().item() == pytest.approx(3.0)
+
+    def test_target_field_mapping_loss_ignores_axis_and_uses_tolerance(
+        self, sample_singlet_lens
+    ):
+        """轴上场点应被排除，容差内零损失，超差部分独立计入。"""
+
+        target = torch.tensor([[[0.0, 0.0]], [[10.0, 0.0]]])
+        inside = torch.tensor([[[2.0, -3.0]], [[10.04, 0.0]]])
+        outside = torch.tensor([[[2.0, -3.0]], [[10.20, 0.0]]])
+
+        inside_loss = sample_singlet_lens._target_field_mapping_loss(
+            inside, target, tolerance=0.005
+        )
+        outside_loss = sample_singlet_lens._target_field_mapping_loss(
+            outside, target, tolerance=0.005
+        )
+
+        assert inside_loss.item() == pytest.approx(0.0)
+        # 2% 相对误差相对 0.5% 容差的超差量为 2%/0.5%-1 = 3。
+        assert outside_loss.item() == pytest.approx(3.0, rel=1e-5)
+
+    def test_target_field_mapping_loss_rejects_nonpositive_tolerance(
+        self, sample_singlet_lens
+    ):
+        """像高映射容差必须为正数。"""
+
+        points = torch.zeros((1, 1, 2))
+        with pytest.raises(ValueError, match="tolerance"):
+            sample_singlet_lens._target_field_mapping_loss(
+                points, points, tolerance=0.0
+            )
+
+    def test_target_field_mapping_loss_has_finite_gradient(self, sample_singlet_lens):
+        """超差像高损失应向质心位置提供有限、非零的恢复梯度。"""
+
+        centroid = torch.tensor([[[0.0, 0.0]], [[10.2, 0.0]]], requires_grad=True)
+        target = torch.tensor([[[0.0, 0.0]], [[10.0, 0.0]]])
+
+        loss = sample_singlet_lens._target_field_mapping_loss(
+            centroid, target, tolerance=0.005
+        )
+        loss.backward()
+
+        assert torch.isfinite(centroid.grad).all()
+        assert centroid.grad[1].abs().sum().item() > 0.0
+
+    def test_target_field_mapping_loss_can_emphasize_worst_field(
+        self, sample_singlet_lens
+    ):
+        """最坏场附加项应在平均超差之外显式惩罚最大超差。"""
+
+        target = torch.tensor(
+            [[[0.0, 0.0]], [[10.0, 0.0]], [[10.0, 0.0]]]
+        )
+        centroid = torch.tensor(
+            [[[0.0, 0.0]], [[10.20, 0.0]], [[10.10, 0.0]]]
+        )
+
+        loss = sample_singlet_lens._target_field_mapping_loss(
+            centroid,
+            target,
+            tolerance=0.005,
+            max_weight=1.0,
+        )
+
+        # 两个离轴场超差分别为 3 和 1：平均 2，再加最坏场 3，合计 5。
+        assert loss.item() == pytest.approx(5.0, rel=1e-5)
+
+    def test_checkpoint_can_skip_expensive_analysis(
+        self, sample_singlet_lens, monkeypatch, tmp_path
+    ):
+        """关闭检查点分析时仍应保存 JSON，但不能调用完整 analysis。"""
+
+        calls = []
+        monkeypatch.setattr(
+            sample_singlet_lens,
+            "write_lens_json",
+            lambda path: calls.append(("json", path)),
+        )
+        monkeypatch.setattr(
+            sample_singlet_lens,
+            "analysis",
+            lambda path: calls.append(("analysis", path)),
+        )
+
+        sample_singlet_lens._save_optimization_checkpoint(
+            tmp_path, iteration=3, run_analysis=False
+        )
+        assert calls == [("json", f"{tmp_path}/iter3.json")]
+
+        sample_singlet_lens._save_optimization_checkpoint(
+            tmp_path, iteration=4, run_analysis=True
+        )
+        assert calls[-2:] == [
+            ("json", f"{tmp_path}/iter4.json"),
+            ("analysis", f"{tmp_path}/iter4"),
+        ]
+
+    @pytest.mark.parametrize(
+        ("before", "after", "expected"),
+        [
+            (0.80, 0.70, True),
+            (0.80, 0.69, False),
+            (0.688, 0.700, True),
+            (0.688, 0.688, True),
+            (0.688, 0.625, False),
+            (0.0, 0.0, True),
+        ],
+    )
+    def test_validity_update_guard_uses_temporary_floor_below_target(
+        self, sample_singlet_lens, before, after, expected
+    ):
+        """未达标初始结构可继续改善，但不允许有效率进一步下降。"""
+        accepted = sample_singlet_lens._validity_update_is_acceptable(
+            before, after, min_valid_ratio=0.7
+        )
+
+        assert accepted is expected
+
+    @pytest.mark.parametrize("min_valid_ratio", [0.0, 1.01])
+    def test_ray_validity_loss_rejects_invalid_threshold(
+        self, sample_singlet_lens, min_valid_ratio
+    ):
+        """有效率阈值必须位于合法范围。"""
+        with pytest.raises(ValueError, match="min_valid_ratio"):
+            sample_singlet_lens._ray_validity_loss(
+                torch.ones(1, 4), min_valid_ratio=min_valid_ratio
+            )
+
 
 class TestSampleRays:
     """测试 sample_ring_arm_rays。"""
@@ -146,6 +426,27 @@ class TestSampleRays:
         # shape 应为 [num_ring, num_arm, spp, 3]
         assert ray.o.shape[-1] == 3
         assert ray.d.shape[-1] == 3
+
+    def test_sample_ring_arm_rays_accepts_explicit_target_field(
+        self, sample_singlet_lens
+    ):
+        """显式目标半视场不应依赖镜头当前缓存的 rfov。"""
+
+        target_rfov = 0.08
+        ray = sample_singlet_lens.sample_ring_arm_rays(
+            num_ring=2,
+            num_arm=1,
+            spp=8,
+            depth=-1000.0,
+            sample_more_off_axis=False,
+            max_fov_rad=target_rfov,
+        )
+        edge_origin = ray.o[-1, 0, 0]
+        recovered = torch.atan2(
+            torch.linalg.vector_norm(edge_origin[:2]), edge_origin[2].abs()
+        )
+
+        assert recovered.item() == pytest.approx(target_rfov, rel=1e-5)
 
 
 class TestGradientFlow:

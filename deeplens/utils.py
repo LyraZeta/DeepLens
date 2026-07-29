@@ -350,11 +350,11 @@ def set_logger(dir="./"):
     chlr.setFormatter(formatter)
     chlr.setLevel("INFO")
 
-    fhlr = logging.FileHandler(f"{dir}/output.log")
+    fhlr = logging.FileHandler(f"{dir}/output.log", encoding="utf-8")
     fhlr.setFormatter(formatter)
     fhlr.setLevel("INFO")
 
-    # fhlr2 = logging.FileHandler(f"{dir}/error.log")
+    # fhlr2 = logging.FileHandler(f"{dir}/error.log", encoding="utf-8")
     # fhlr2.setFormatter(formatter)
     # fhlr2.setLevel('WARNING')
 

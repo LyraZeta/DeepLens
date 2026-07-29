@@ -767,6 +767,16 @@ SURF 0
         self.materials = []
         with open(filename, "r", encoding="utf-8") as f:
             data = json.load(f)
+            # 新版原生 JSON 同时保存设计光谱和默认物距。旧文件缺少这些键时
+            # 保留构造 GeoLens 时传入的值，确保向后兼容。
+            self.primary_wvln = float(
+                data.get("primary_wvln", self.primary_wvln)
+            )
+            self.wvln_rgb = [
+                float(value)
+                for value in data.get("wvln_rgb", self.wvln_rgb)
+            ]
+            self.obj_depth = float(data.get("obj_depth", self.obj_depth))
             d = 0.0
             for idx, surf_dict in enumerate(data["surfaces"]):
                 surf_dict["d"] = d
@@ -834,15 +844,18 @@ SURF 0
     def write_lens_json(self, filename="./test.json"):
         """将透镜写入 DeepLens 原生 JSON 文件。
 
-        保存透镜信息、焦距 [mm]、F 数、入瞳直径、传感器半径/尺寸 [mm]
-        与分辨率，以及所有表面（各自通过 `surf_dict`）及其逐表面间距
-        `d_next` [mm]。数值保留 4 位小数。
+        保存透镜信息、设计波长 [µm]、默认物距 [mm]、焦距 [mm]、F 数、
+        入瞳直径、传感器半径/尺寸 [mm] 与分辨率，以及所有表面（各自通过
+        `surf_dict`）及其逐表面间距 `d_next` [mm]。几何摘要保留 4 位小数。
 
         参数：
             filename (str, optional)：输出 JSON 文件路径。默认值为 './test.json'。
         """
         data = {}
         data["info"] = self.lens_info if hasattr(self, "lens_info") else "None"
+        data["primary_wvln"] = float(self.primary_wvln)
+        data["wvln_rgb"] = [float(value) for value in self.wvln_rgb]
+        data["obj_depth"] = float(self.obj_depth)
         data["foclen"] = round(self.foclen, 4)
         data["fnum"] = round(self.fnum, 4)
         if self.float_enpd is False:

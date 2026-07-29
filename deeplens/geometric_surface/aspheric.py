@@ -194,11 +194,15 @@ class Aspheric(Surface):
         if self.ai2 is not None:
             total_surface = total_surface + self.ai2 * r2
 
-        # 非球面多项式：ai4*r⁴ + ai6*r⁶ + ai8*r⁸ + ……
-        r_pow = r2 * r2  # 从 r^4 开始
-        for i in range(self.ai_degree):
-            total_surface = total_surface + getattr(self, f"ai{2 * (i + 2)}") * r_pow
-            r_pow = r_pow * r2
+        # 非球面多项式使用 Horner 形式计算。直接生成 r^18 等高次幂时，
+        # 140 mm 级口径会在 float32 中先溢出，再与很小的系数相乘得到 inf。
+        # Horner 形式与原多项式完全等价，但中间量保持在实际矢高数量级。
+        if self.ai_degree > 0:
+            highest_order = self.ai_degree + 1
+            polynomial = getattr(self, f"ai{2 * highest_order}")
+            for order in range(highest_order - 1, 1, -1):
+                polynomial = polynomial * r2 + getattr(self, f"ai{2 * order}")
+            total_surface = total_surface + polynomial * r2 * r2
 
         return total_surface
 
@@ -229,12 +233,19 @@ class Aspheric(Surface):
         if self.ai2 is not None:
             dsdr2 = dsdr2 + self.ai2
 
-        # 非球面多项式关于 r² 的导数：2*ai4*r² + 3*ai6*r⁴ + ……
-        r_pow = r2
-        for i in range(self.ai_degree):
-            order = i + 2  # 2, 3, 4, ...
-            dsdr2 = dsdr2 + order * getattr(self, f"ai{2 * order}") * r_pow
-            r_pow = r_pow * r2
+        # 非球面多项式关于 r² 的导数同样使用 Horner 形式：
+        # r² * (2*a4 + 3*a6*r² + 4*a8*r⁴ + ...)。
+        if self.ai_degree > 0:
+            highest_order = self.ai_degree + 1
+            polynomial_derivative = highest_order * getattr(
+                self, f"ai{2 * highest_order}"
+            )
+            for order in range(highest_order - 1, 1, -1):
+                polynomial_derivative = (
+                    polynomial_derivative * r2
+                    + order * getattr(self, f"ai{2 * order}")
+                )
+            dsdr2 = dsdr2 + polynomial_derivative * r2
 
         return dsdr2 * 2 * x, dsdr2 * 2 * y
 
@@ -287,8 +298,9 @@ class Aspheric(Surface):
 
         每个非球面系数 $a_{2n}$ 的学习率按 $1 / \\max(r, 1)^{2n}$ 缩放，
         从而无论表面半直径如何，每个 Adam 步骤造成的有效矢高扰动都近似恒定
-        （约为 lr_base mm）。若不进行这种归一化，梯度会按 $O(r^{2n})$ 缩放，
-        对相机尺寸表面可达 $10^5$，并在数十次迭代内产生 NaN。
+        （约为 lr_base mm）。若某阶基函数 $r^{2n}$ 已超出参数 dtype 的动态范围，
+        则保留该系数用于前向计算，但不将其交给优化器；否则物理系数的反向梯度
+        会在学习率缩放生效前先溢出为 Inf。
 
         参数：
             lrs (list[float], optional): `[d, c, k, ai]` 的学习率。
@@ -324,9 +336,16 @@ class Aspheric(Surface):
                 for i in range(self.ai_degree):
                     p_name = f"ai{2 * (i + 2)}"
                     p = getattr(self, p_name)
-                    p.requires_grad_(True)
                     order = 2 * (i + 2)  # 4、6、8、10、……
-                    lr_ai = lr_base / r_norm**order
+                    basis_scale = r_norm**order
+                    if basis_scale >= torch.finfo(p.dtype).max:
+                        # 例如 float32、140 mm 半口径的 a18：r^18 已超过
+                        # 3.4e38。Horner 可保持前向矢高有限，但 d(sag)/da18
+                        # 仍等于 r^18，因此冻结该物理参数。
+                        p.requires_grad_(False)
+                        continue
+                    p.requires_grad_(True)
+                    lr_ai = lr_base / basis_scale
                     params.append({"params": [p], "lr": lr_ai})
 
         # 优化材料参数

@@ -101,12 +101,15 @@ class GeoLensOptim:
         传播到每个表面。
 
         参数：
-            constraint_params (dict, optional)：约束参数。当前未使用
-                （预留用于未来覆盖）。默认值为 None。
+            constraint_params (dict, optional)：覆盖预设约束的键值。显式传入时
+                会保存在镜头对象中，后续 ``post_computation()`` 调用将继续沿用；
+                传入空字典可恢复预设。默认值为 None。
         """
-        # 未来计划使用 constraint_params 设置约束。
         if constraint_params is None:
-            constraint_params = {}
+            constraint_params = dict(getattr(self, "constraint_params", {}))
+        else:
+            constraint_params = dict(constraint_params)
+            self.constraint_params = constraint_params
 
         if self.r_sensor < 12.0:
             self.is_cellphone = True
@@ -171,6 +174,13 @@ class GeoLensOptim:
 
             # 畸变约束
             self.distortion_max = 0.02  # 2 % 相对畸变
+
+        # 应用任务专用覆盖。只允许覆盖已经由预设定义的约束字段，避免拼写错误
+        # 静默创建无效属性。
+        for name, value in constraint_params.items():
+            if not hasattr(self, name):
+                raise ValueError(f"未知镜头约束参数：{name}")
+            setattr(self, name, value)
 
         # 将弯折角限制传播到每个表面，供 refract() 读取。
         for s in self.surfaces:
@@ -469,6 +479,123 @@ class GeoLensOptim:
     # ================================================================
     # 图像质量损失函数
     # ================================================================
+    @staticmethod
+    def _ray_validity_loss(ray_valid, min_valid_ratio=0.5):
+        """计算逐视场有效光线比例不足的惩罚。
+
+        ``ray_valid`` 的最后一维必须是同一视场内的光线维。惩罚先计算每个
+        视场的有效光线比例，再对低于 ``min_valid_ratio`` 的短缺量归一化并
+        平方，最后在全部视场上求平均。这样全挡光视场会得到 1，而达到阈值
+        的视场不受惩罚。
+
+        需要注意，``is_valid`` 是由求交、孔径和全反射判断产生的硬掩码，
+        因此该项主要用于阻止优化目标把挡光误判为低 RMS，而不是平滑的渐晕
+        梯度。几何轮廓和弯折损失仍负责提供可微的恢复方向。
+
+        参数：
+            ray_valid (torch.Tensor)：有效性掩码，shape 为 ``[..., num_rays]``。
+            min_valid_ratio (float, optional)：每个视场允许的最低有效光线比例，
+                范围为 ``(0, 1]``。默认值为 0.5。
+
+        返回：
+            loss (torch.Tensor)：有效率短缺的标量损失，范围为 ``[0, 1]``。
+            valid_ratio (torch.Tensor)：逐视场有效光线比例，shape 为 ``[...]``。
+        """
+        if not 0.0 < min_valid_ratio <= 1.0:
+            raise ValueError("min_valid_ratio 必须位于 (0, 1] 范围内。")
+        if ray_valid.ndim < 1 or ray_valid.shape[-1] < 1:
+            raise ValueError("ray_valid 的最后一维必须包含至少一条光线。")
+
+        valid_ratio = ray_valid.float().clamp(0.0, 1.0).mean(dim=-1)
+        shortfall = relu(min_valid_ratio - valid_ratio) / min_valid_ratio
+        return shortfall.square().mean(), valid_ratio
+
+    @staticmethod
+    def _masked_field_mse(ray_err, ray_valid, invalid_rms):
+        """计算逐视场 MSE，并为全失效视场给出固定代理值。
+
+        无效光线在平方前置零，避免 ``Inf * 0``。若某个视场没有任何有效
+        光线，则使用 ``invalid_rms ** 2``，避免该视场在 RMS 日志和自适应
+        权重中被误报为接近零。该代理分支由硬掩码选择，本身不提供梯度；真正
+        的挡光约束由更新后的有效率复追迹与回滚负责。
+        """
+        if invalid_rms <= 0.0:
+            raise ValueError("invalid_rms 必须大于 0。")
+        if ray_err.shape[:-1] != ray_valid.shape:
+            raise ValueError("ray_err 与 ray_valid 的光线维 shape 不匹配。")
+
+        valid_mask = ray_valid.bool()
+        safe_err = torch.where(
+            valid_mask.unsqueeze(-1), ray_err, torch.zeros_like(ray_err)
+        )
+        valid_count = ray_valid.float().clamp(0.0, 1.0).sum(dim=-1)
+        mse = (safe_err**2).sum(dim=-1).sum(dim=-1) / (valid_count + EPSILON)
+        invalid_mse = torch.as_tensor(
+            invalid_rms**2, dtype=mse.dtype, device=mse.device
+        )
+        return torch.where(valid_count > 0, mse, invalid_mse)
+
+    @staticmethod
+    def _target_field_mapping_loss(
+        actual_xy, target_xy, tolerance, max_weight=0.0
+    ):
+        """惩罚离轴实际像点相对目标针孔像高超出容差的部分。
+
+        轴上场点的目标像高为零，不能用于相对误差，因此会被自动排除。其余
+        场点使用二维像点位置误差除以目标像高；容差内损失为零，超出部分按
+        容差归一化后线性增长。``max_weight`` 可额外强调全部场点中的最坏超差，
+        使训练目标更接近最大畸变/像高验收。该项同时约束目标焦距对应的像高
+        尺度和场内映射，不应再混入通用机械/曲面正则项。
+        """
+        if tolerance <= 0.0:
+            raise ValueError("tolerance 必须大于 0。")
+        if not math.isfinite(max_weight) or max_weight < 0.0:
+            raise ValueError("max_weight 必须为大于或等于 0 的有限值。")
+        if actual_xy.shape != target_xy.shape or actual_xy.shape[-1] != 2:
+            raise ValueError("actual_xy 与 target_xy 必须具有相同的 [..., 2] shape。")
+
+        target_height = target_xy.norm(dim=-1)
+        field_mask = target_height > EPSILON
+        relative_error = (actual_xy - target_xy).norm(dim=-1)
+        relative_error = relative_error / target_height.clamp_min(EPSILON)
+        violation = relu(relative_error / tolerance - 1.0)
+        field_count = field_mask.sum().clamp_min(1)
+        masked_violation = violation * field_mask.float()
+        mean_violation = masked_violation.sum() / field_count
+        worst_violation = masked_violation.max()
+        return mean_violation + max_weight * worst_violation
+
+    @staticmethod
+    def _validity_update_is_acceptable(
+        valid_ratio_before, valid_ratio_after, min_valid_ratio
+    ):
+        """判断参数更新后的最低有效光线比例是否可接受。
+
+        当更新前已经达到目标阈值时，更新后不得跌破阈值；当初始结构尚未
+        达标时，当前有效率作为临时底线，只接受持平或改善的更新。该“棘轮”
+        规则允许略低于目标的初始处方继续优化，同时阻止优化通过进一步挡光
+        降低 RMS。
+        """
+        if not 0.0 < min_valid_ratio <= 1.0:
+            raise ValueError("min_valid_ratio 必须位于 (0, 1] 范围内。")
+
+        before = float(valid_ratio_before)
+        after = float(valid_ratio_after)
+        if not math.isfinite(before) or not math.isfinite(after):
+            return False
+        temporary_floor = min_valid_ratio if before >= min_valid_ratio else before
+        return after + EPSILON >= temporary_floor
+
+    def _trace_min_valid_ratio(self, rays):
+        """用既有采样光线快速复追迹，返回所有波长和视场中的最低有效率。"""
+        ratios = []
+        with torch.no_grad():
+            for sampled_ray in rays:
+                traced_ray = self.trace2sensor(sampled_ray.clone())
+                ratio = traced_ray.is_valid.float().clamp(0.0, 1.0).mean(dim=-1)
+                ratios.append(ratio.min())
+        return torch.stack(ratios).min()
+
     def loss_rms(
         self,
         num_grid=GEO_GRID,
@@ -495,6 +622,7 @@ class GeoLensOptim:
                 RMS 光斑误差，单位为 mm。
         """
         depth = self.obj_depth if depth is None else depth
+        invalid_rms_proxy = max(2.0 * float(self.r_sensor), 1.0)
         # 先迭代绿色，使误差自适应权重掩码以参考（绿色）波长为基准。
         loss_rms_ls = []
         w_mask = None
@@ -519,15 +647,14 @@ class GeoLensOptim:
 
             ray = self.trace2sensor(ray)
 
-            # 逐 FoV 将 MSE 转为 RMS；平方前将无效光线置零，
-            # 以避免 Inf*0 = NaN。
+            # 逐 FoV 将 MSE 转为 RMS；全失效视场使用像面直径级代理值，
+            # 避免挡光被误报为近零 RMS。
             ray_xy = ray.o[..., :2]
             ray_valid = ray.is_valid
             ray_err = ray_xy - center_ref
-            ray_err = torch.where(
-                ray_valid.bool().unsqueeze(-1), ray_err, torch.zeros_like(ray_err)
+            mse = self._masked_field_mse(
+                ray_err, ray_valid, invalid_rms=invalid_rms_proxy
             )
-            mse = (ray_err**2).sum(-1).sum(-1) / (ray_valid.sum(-1) + EPSILON)
             l_rms = (mse + EPSILON).sqrt()
 
             # 第一个波长（绿色）定义分离梯度的权重掩码。
@@ -553,6 +680,7 @@ class GeoLensOptim:
         wvln=None,
         scale_pupil=1.0,
         sample_more_off_axis=True,
+        max_fov_rad=None,
     ):
         """使用环臂模式从物方采样光线。
 
@@ -574,6 +702,9 @@ class GeoLensOptim:
             scale_pupil (float, optional)：入瞳半径缩放因子。默认值为 1.0。
             sample_more_off_axis (bool, optional)：为 True 时以平方根曲线扭曲
                 圆环视场角，使样本集中到视场边缘。默认值为 True。
+            max_fov_rad (float or None, optional)：径向半视场上限 [rad]。为 None
+                时使用镜头当前缓存的 ``self.rfov``；从任务指标优化时应显式
+                传入目标半视场，避免实际处方 FoV 漂移后连带改变训练目标。
 
         返回：
             rays (Ray)：视场点按 [num_ring, num_arm] 排列、每点含 `spp`
@@ -582,7 +713,9 @@ class GeoLensOptim:
         wvln = self.primary_wvln if wvln is None else wvln
         depth = self.obj_depth if depth is None else depth
         # 在圆环和采样臂上创建点
-        max_fov_rad = self.rfov
+        max_fov_rad = self.rfov if max_fov_rad is None else float(max_fov_rad)
+        if not math.isfinite(max_fov_rad) or max_fov_rad <= 0.0:
+            raise ValueError("max_fov_rad 必须为正的有限弧度值。")
         if sample_more_off_axis:
             beta_values = torch.linspace(0.0, 1.0, num_ring, device=self.device)
             beta_transformed = beta_values**0.5
@@ -616,6 +749,22 @@ class GeoLensOptim:
         shape_control=True,
         sample_more_off_axis=False,
         result_dir=None,
+        *,
+        num_ring=32,
+        num_arm=8,
+        spp=2048,
+        min_valid_ratio=0.5,
+        w_rms=1.0,
+        w_valid=2.0,
+        target_focal_length=None,
+        target_rfov=None,
+        w_field=0.1,
+        w_reg=0.1,
+        field_mapping_all_wavelengths=False,
+        field_mapping_max_weight=0.0,
+        field_mapping_use_chief_ray=False,
+        field_mapping_num_points=0,
+        checkpoint_analysis=True,
     ):
         """通过最小化 RGB RMS 光斑误差优化透镜。
 
@@ -636,6 +785,41 @@ class GeoLensOptim:
                 默认值为 False。
             result_dir (str, optional)：结果保存目录。为 None 时自动生成带
                 时间戳的目录。默认值为 None。
+            num_ring (int, optional)：径向视场采样环数。默认值为 32。
+            num_arm (int, optional)：每个采样环的方位臂数。默认值为 8。
+            spp (int, optional)：每个视场、每个波长的光线数。默认值为 2048。
+                CPU 冒烟测试可使用较小值，最终优化应逐步提高采样密度。
+            min_valid_ratio (float, optional)：每个视场的最低有效光线比例。
+                低于该值会产生独立于 RMS 的挡光惩罚。默认值为 0.5。
+            w_rms (float, optional)：RMS 光斑损失权重。默认值为 1.0。
+                分阶段优化时可先降低该值，让像高/场映射约束优先稳定，随后
+                再恢复为 1.0 改善像质。
+            w_valid (float, optional)：挡光惩罚权重。该无量纲权重会乘以像面
+                半径，使惩罚与毫米制 RMS 处于相近量级。默认值为 2.0。
+            target_focal_length (float or None, optional)：理想针孔映射使用的目标
+                有效焦距 [mm]。为 None 时使用当前 ``self.foclen``。显式传入后，
+                优化不会通过修改或伪造镜头的一阶缓存来表达任务目标。
+            target_rfov (float or None, optional)：训练采样使用的目标径向半视场
+                [rad]。为 None 时使用当前 ``self.rfov``。
+            w_field (float, optional)：目标焦距针孔映射的像高/场映射约束权重。
+                该项独立于通用正则项；默认值 0.1 保持旧版优化量级，任务脚本可
+                显式提高。默认值为 0.1。
+            w_reg (float, optional)：机械间隙、曲面轮廓、主光线角等通用正则项
+                的权重。默认值为 0.1。
+            field_mapping_all_wavelengths (bool, optional)：为 True 时使用全部训练
+                波长的质心计算目标场映射；为 False 时保持旧行为，只使用主波长。
+                默认值为 False。
+            field_mapping_max_weight (float, optional)：最坏场映射超差相对平均超差
+                的附加权重。默认值为 0，不改变旧版平均损失。
+            field_mapping_use_chief_ray (bool, optional)：为 True 时用瞄准入瞳中心
+                的单条光线像点约束场映射；适用于前置光阑，并比光束质心更贴近
+                主光线畸变验收。为 False 时保持旧版质心语义。默认值为 False。
+            field_mapping_num_points (int, optional)：主光线场映射使用的等角场点数，
+                包含轴上与边缘。为 0 时复用训练环臂场；启用独立网格时至少为 2。
+                默认值为 0。
+            checkpoint_analysis (bool, optional)：为 True 时在每个检查点除 JSON
+                外还生成完整 ``analysis`` 图。大型 CPU 任务可设为 False，正式
+                长优化再开启。默认值为 True，以保持通用接口的既有行为。
 
         说明：
             调试提示：
@@ -647,9 +831,36 @@ class GeoLensOptim:
         """
         # 实验设置
         depth = self.obj_depth
-        num_ring = 32
-        num_arm = 8
-        spp = 2048
+        invalid_rms_proxy = max(2.0 * float(self.r_sensor), 1.0)
+        if iterations < 1:
+            raise ValueError("iterations 必须为正整数。")
+        if test_per_iter < 1:
+            raise ValueError("test_per_iter 必须为正整数。")
+        if num_ring < 1 or num_arm < 1 or spp < 1:
+            raise ValueError("num_ring、num_arm 和 spp 必须为正整数。")
+        if field_mapping_num_points < 0 or field_mapping_num_points == 1:
+            raise ValueError("field_mapping_num_points 必须为 0 或不小于 2 的整数。")
+        if not 0.0 < min_valid_ratio <= 1.0:
+            raise ValueError("min_valid_ratio 必须位于 (0, 1] 范围内。")
+        for name, weight in (
+            ("w_rms", w_rms),
+            ("w_valid", w_valid),
+            ("w_field", w_field),
+            ("w_reg", w_reg),
+            ("field_mapping_max_weight", field_mapping_max_weight),
+        ):
+            if not math.isfinite(weight) or weight < 0.0:
+                raise ValueError(f"{name} 必须为大于或等于 0 的有限值。")
+        target_focal_length = (
+            float(self.foclen)
+            if target_focal_length is None
+            else float(target_focal_length)
+        )
+        target_rfov = self.rfov if target_rfov is None else float(target_rfov)
+        if not math.isfinite(target_focal_length) or target_focal_length <= 0.0:
+            raise ValueError("target_focal_length 必须为正的有限值。")
+        if not math.isfinite(target_rfov) or target_rfov <= 0.0:
+            raise ValueError("target_rfov 必须为正的有限弧度值。")
 
         # 结果目录和日志记录器
         if result_dir is None:
@@ -667,7 +878,7 @@ class GeoLensOptim:
             sh = logging.StreamHandler()
             sh.setFormatter(fmt)
             sh.setLevel("INFO")
-            fh = logging.FileHandler(f"{result_dir}/output.log")
+            fh = logging.FileHandler(f"{result_dir}/output.log", encoding="utf-8")
             fh.setFormatter(fmt)
             fh.setLevel("INFO")
             logger.addHandler(sh)
@@ -676,30 +887,45 @@ class GeoLensOptim:
             f"lr:{lrs}, iterations:{iterations}, num_ring:{num_ring}, num_arm:{num_arm}, rays_per_fov:{spp}."
         )
         logging.info(
+            "损失权重：RMS=%g，有效率=%g，场映射=%g，正则=%g，最坏场附加=%g。",
+            w_rms,
+            w_valid,
+            w_field,
+            w_reg,
+            field_mapping_max_weight,
+        )
+        logging.info(
             "If Out-of-Memory, try to reduce num_ring, num_arm, and rays_per_fov."
         )
 
         # 优化器与调度器
         optimizer = self.get_optimizer(lrs, optim_mat=optim_mat)
+        warmup_steps = self._optimization_warmup_steps(iterations)
         scheduler = get_cosine_schedule_with_warmup(
-            optimizer, num_warmup_steps=100, num_training_steps=iterations
+            optimizer,
+            num_warmup_steps=warmup_steps,
+            num_training_steps=iterations,
         )
+        logging.info("学习率预热步数：%d。", warmup_steps)
 
         # 训练循环
         pbar = tqdm(
-            total=iterations + 1,
+            total=iterations,
             desc="Progress",
             postfix={"loss_rms": 0},
         )
-        for i in range(iterations + 1):
+        for i in range(iterations):
             # ===> 评估透镜
             if i % test_per_iter == 0:
                 with torch.no_grad():
                     if shape_control and i > 0:
                         self.correct_shape()
 
-                    self.write_lens_json(f"{result_dir}/iter{i}.json")
-                    self.analysis(f"{result_dir}/iter{i}")
+                    self._save_optimization_checkpoint(
+                        result_dir,
+                        iteration=i,
+                        run_analysis=checkpoint_analysis,
+                    )
 
                     # 采样光线
                     self.calc_pupil()
@@ -713,19 +939,84 @@ class GeoLensOptim:
                             wvln=wv,
                             scale_pupil=1.05,
                             sample_more_off_axis=sample_more_off_axis,
+                            max_fov_rad=target_rfov,
                         )
                         rays_backup.append(ray)
 
-                    # 以无畸变的理想针孔投影作为畸变参考。
-                    pinhole_ref = -self.psf_center(
-                        points_obj=ray.o[:, :, 0, :], method="pinhole"
+                    # 以任务目标焦距的理想针孔投影作为像高/畸变参考。不要调用
+                    # psf_center(method="pinhole")，因为它读取的是处方实测焦距；
+                    # 否则焦距漂移会同步移动目标，错误焦距仍可能得到低畸变。
+                    points_obj = ray.o[:, :, 0, :]
+                    pinhole_ref = target_focal_length * (
+                        points_obj[..., :2] / points_obj[..., 2:].clamp_max(-EPSILON)
                     )
+                    chief_rays_backup = None
+                    chief_mapping_target = None
+                    if field_mapping_use_chief_ray:
+                        if self.aper_idx != 0:
+                            raise ValueError(
+                                "field_mapping_use_chief_ray 当前只支持前置光阑（aper_idx=0）。"
+                            )
+                        if field_mapping_num_points >= 2:
+                            half_field_deg = target_rfov * 180.0 / math.pi
+                            field_angles = torch.linspace(
+                                0.0,
+                                half_field_deg,
+                                field_mapping_num_points,
+                                device=self.device,
+                            )
+                            field_angle_values = field_angles.detach().cpu().tolist()
+                            chief_rays_backup = [
+                                (
+                                    self.sample_from_fov(
+                                        fov_x=field_angle_values,
+                                        fov_y=0.0,
+                                        depth=float("inf"),
+                                        num_rays=1,
+                                        wvln=wv,
+                                        scale_pupil=0.0,
+                                    ),
+                                    self.sample_from_fov(
+                                        fov_x=0.0,
+                                        fov_y=field_angle_values,
+                                        depth=float("inf"),
+                                        num_rays=1,
+                                        wvln=wv,
+                                        scale_pupil=0.0,
+                                    ),
+                                )
+                                for wv in self.wvln_rgb
+                            ]
+                            target_height = target_focal_length * torch.tan(
+                                field_angles * math.pi / 180.0
+                            )
+                            zeros = torch.zeros_like(target_height)
+                            chief_mapping_target = torch.stack(
+                                [
+                                    torch.stack([target_height, zeros], dim=-1),
+                                    torch.stack([zeros, target_height], dim=-1),
+                                ],
+                                dim=0,
+                            )
+                        else:
+                            chief_rays_backup = [
+                                self.sample_from_points(
+                                    points=points_obj,
+                                    num_rays=1,
+                                    wvln=wv,
+                                    scale_pupil=0.0,
+                                )
+                                for wv in self.wvln_rgb
+                            ]
 
             # ===> 通过最小化 RMS 优化透镜
             # 先追迹绿色：其质心设置 center_ref 并驱动畸变惩罚；
             # 红色和蓝色复用同一个 center_ref。
             loss_rms_ls = []
-            loss_distortion = torch.tensor(0.0, device=self.device)
+            loss_valid_ls = []
+            valid_ratio_ls = []
+            loss_field_mapping = torch.tensor(0.0, device=self.device)
+            field_mapping_positions = []
             w_mask = None
             center_ref = None
             wvln_order = [1, 0, 2]  # 绿色、红色、蓝色
@@ -733,35 +1024,47 @@ class GeoLensOptim:
                 # 将光线追迹到传感器，[num_ring, num_arm, num_rays, 3]
                 ray = rays_backup[wv_idx].clone()
                 ray = self.trace2sensor(ray)
+                centroid_xy = ray.centroid()[..., :2]
+                if field_mapping_use_chief_ray:
+                    if chief_mapping_target is not None:
+                        sagittal_ray, meridional_ray = chief_rays_backup[wv_idx]
+                        sagittal_ray = self.trace2sensor(sagittal_ray.clone())
+                        meridional_ray = self.trace2sensor(meridional_ray.clone())
+                        mapping_xy = torch.stack(
+                            [
+                                sagittal_ray.o[..., 0, :2].abs(),
+                                meridional_ray.o[..., 0, :2].abs(),
+                            ],
+                            dim=0,
+                        )
+                    else:
+                        chief_ray = self.trace2sensor(chief_rays_backup[wv_idx].clone())
+                        mapping_xy = chief_ray.o[..., 0, :2]
+                else:
+                    mapping_xy = centroid_xy
 
                 if center_ref is None:
                     # 传感器处的绿色质心，shape [num_ring, num_arm, 2]。
-                    centroid_xy = ray.centroid()[..., :2]
-
-                    # 畸变：绿色质心相对理想针孔位置的位移，
-                    # 在所有离轴视场上等权平均。
-                    ideal_height = pinhole_ref.norm(dim=-1)
-                    field_mask = ideal_height > EPSILON
-                    distortion = (centroid_xy - pinhole_ref).norm(dim=-1)
-                    distortion = distortion / ideal_height.clamp_min(EPSILON)
-                    violation = distortion - self.distortion_max
-                    penalty = relu(violation / self.distortion_max)
-                    n_fields = field_mask.sum().clamp_min(1)
-                    loss_distortion = (penalty * field_mask.float()).sum() / n_fields
-
                     # 分离梯度，使 RMS 梯度改变光斑形状而非位置；
-                    # 光斑位置由畸变损失处理。
+                    # 光斑位置由目标场映射损失处理。
                     center_ref = centroid_xy.detach().unsqueeze(-2)
+
+                if field_mapping_all_wavelengths or not field_mapping_positions:
+                    field_mapping_positions.append(mapping_xy)
 
                 # 光线相对中心的误差及有效掩码
                 ray_valid = ray.is_valid
-                ray_err = ray.o[..., :2] - center_ref
-                ray_err = torch.where(
-                    ray_valid.bool().unsqueeze(-1), ray_err, torch.zeros_like(ray_err)
+                loss_valid, valid_ratio = self._ray_validity_loss(
+                    ray_valid, min_valid_ratio=min_valid_ratio
                 )
+                loss_valid_ls.append(loss_valid)
+                valid_ratio_ls.append(valid_ratio)
+                ray_err = ray.o[..., :2] - center_ref
 
                 # 每个视场点的 MSE，shape [num_ring, num_arm]
-                mse = (ray_err**2).sum(-1).sum(-1) / (ray_valid.sum(-1) + EPSILON)
+                mse = self._masked_field_mse(
+                    ray_err, ray_valid, invalid_rms=invalid_rms_proxy
+                )
 
                 # 权重掩码
                 if w_mask is None:
@@ -774,32 +1077,192 @@ class GeoLensOptim:
                 l_rms_weighted = (l_rms * w_mask).sum() / (w_mask.sum() + EPSILON)
                 loss_rms_ls.append(l_rms_weighted)
 
+            mapping_positions = torch.stack(field_mapping_positions, dim=0)
+            if chief_mapping_target is None:
+                mapping_targets = pinhole_ref.unsqueeze(0).expand_as(mapping_positions)
+            else:
+                mapping_targets = chief_mapping_target.unsqueeze(0).expand_as(
+                    mapping_positions
+                )
+            loss_field_mapping = self._target_field_mapping_loss(
+                mapping_positions,
+                mapping_targets,
+                tolerance=self.distortion_max,
+                max_weight=field_mapping_max_weight,
+            )
+
             # 所有波长的 RMS 损失
             loss_rms = sum(loss_rms_ls) / len(loss_rms_ls)
+            loss_valid = sum(loss_valid_ls) / len(loss_valid_ls)
+            valid_ratio_min = torch.stack(
+                [valid_ratio.min() for valid_ratio in valid_ratio_ls]
+            ).min()
 
             # 总损失
-            w_reg = 0.1
             loss_reg, loss_dict = self.loss_reg()
-            L_total = loss_rms + w_reg * (loss_reg + loss_distortion)
+            valid_penalty_scale = max(float(self.r_sensor), 1.0)
+            L_total = (
+                w_rms * loss_rms
+                + w_valid * valid_penalty_scale * loss_valid
+                + w_field * loss_field_mapping
+                + w_reg * loss_reg
+            )
 
             # 反向传播
             optimizer.zero_grad()
-            L_total.backward()
-            optimizer.step()
+            if valid_ratio_min <= 0.0:
+                logging.warning(
+                    "第 %d 次迭代至少有一个视场完全没有有效光线；"
+                    "挡光惩罚已加入总损失。",
+                    i,
+                )
+            if not torch.isfinite(L_total):
+                logging.warning(
+                    "第 %d 次迭代产生非有限总损失，已跳过本次参数更新。",
+                    i,
+                )
+            else:
+                L_total.backward()
+
+                # 大口径、多项式非球面起点可能让少量无效光线产生 NaN/Inf
+                # 梯度。若直接交给 Adam，一个坏梯度会永久污染动量状态并使
+                # 整个处方退化。将这些局部坏梯度置零，并按参数组独立裁剪；
+                # 这样高阶非球面系数不会压低曲率、间距等其他参数组的梯度。
+                trainable_params, nonfinite_gradients = (
+                    self._sanitize_and_clip_gradients(optimizer, max_norm=100.0)
+                )
+                if nonfinite_gradients:
+                    logging.warning(
+                        "第 %d 次迭代忽略了 %d 个非有限梯度分量。",
+                        i,
+                        nonfinite_gradients,
+                    )
+
+                # 参数更新前保存快照。若后端数值异常仍产生非有限参数，则恢复
+                # 当前步并清空 Adam 状态，避免后续迭代持续传播污染。
+                snapshots = [parameter.detach().clone() for parameter in trainable_params]
+                optimizer.step()
+                if any(not torch.isfinite(parameter).all() for parameter in trainable_params):
+                    logging.warning(
+                        "第 %d 次迭代产生非有限参数，已回滚本次更新。",
+                        i,
+                    )
+                    with torch.no_grad():
+                        for parameter, snapshot in zip(trainable_params, snapshots):
+                            parameter.copy_(snapshot)
+                    optimizer.state.clear()
+                else:
+                    # 用同一批采样光线快速复追迹更新后的处方。硬有效性掩码没有
+                    # 可用梯度，因此采用接受/回滚规则真正执行最低有效率约束。
+                    # 初始有效率低于目标时只禁止继续恶化，不会将处方永久冻结。
+                    try:
+                        valid_ratio_after = self._trace_min_valid_ratio(rays_backup)
+                    except Exception as error:
+                        valid_ratio_after = torch.tensor(
+                            float("nan"), device=self.device
+                        )
+                        logging.warning(
+                            "第 %d 次迭代的更新后有效率复追迹失败：%s",
+                            i,
+                            error,
+                        )
+
+                    if not self._validity_update_is_acceptable(
+                        valid_ratio_min,
+                        valid_ratio_after,
+                        min_valid_ratio=min_valid_ratio,
+                    ):
+                        logging.warning(
+                            "第 %d 次迭代使最低有效率从 %.3f 变为 %.3f，"
+                            "已回滚本次更新（目标下限 %.3f）。",
+                            i,
+                            valid_ratio_min.item(),
+                            valid_ratio_after.item(),
+                            min_valid_ratio,
+                        )
+                        with torch.no_grad():
+                            for parameter, snapshot in zip(
+                                trainable_params, snapshots
+                            ):
+                                parameter.copy_(snapshot)
+                        optimizer.state.clear()
             scheduler.step()
 
             pbar.set_postfix(
+                loss_total=L_total.item(),
                 loss_rms=loss_rms.item(),
-                loss_dist=loss_distortion.item(),
+                weighted_rms=(w_rms * loss_rms).item(),
+                loss_valid=loss_valid.item(),
+                valid_min=valid_ratio_min.item(),
+                loss_field=loss_field_mapping.item(),
+                weighted_field=(w_field * loss_field_mapping).item(),
+                weighted_reg=(w_reg * loss_reg).item(),
                 **loss_dict,
             )
             pbar.update(1)
 
         pbar.close()
+        # ``iterations`` 表示真实参数更新次数；循环结束后额外保存最终状态，但
+        # 不再执行一次隐藏的优化更新。这样 ``iterations=1`` 就确实只更新一次。
+        with torch.no_grad():
+            self._save_optimization_checkpoint(
+                result_dir,
+                iteration=iterations,
+                run_analysis=checkpoint_analysis,
+            )
 
     # ====================================================================================
     # 优化器辅助方法
     # ====================================================================================
+    def _save_optimization_checkpoint(self, result_dir, iteration, run_analysis=True):
+        """保存优化检查点，并按需生成耗时的完整分析图。"""
+
+        checkpoint_base = f"{result_dir}/iter{iteration}"
+        self.write_lens_json(f"{checkpoint_base}.json")
+        if run_analysis:
+            self.analysis(checkpoint_base)
+
+    @staticmethod
+    def _optimization_warmup_steps(iterations, max_warmup=100):
+        """返回约 10% 的预热步数，并保证短烟雾测试具有非零学习率。"""
+
+        if iterations < 1:
+            raise ValueError("iterations 必须为正整数。")
+        if max_warmup < 0:
+            raise ValueError("max_warmup 必须大于或等于 0。")
+        return min(max_warmup, iterations // 10)
+
+    @staticmethod
+    def _sanitize_and_clip_gradients(optimizer, max_norm=100.0):
+        """清理非有限梯度，并对每个优化器参数组独立裁剪范数。
+
+        返回参与本次更新的参数列表和被替换的非有限梯度分量数量。按组裁剪可
+        避免单个高阶非球面参数组的极大梯度缩小其他组的有效更新。
+        """
+        if max_norm <= 0.0:
+            raise ValueError("max_norm 必须大于 0。")
+
+        trainable_params = []
+        nonfinite_gradients = 0
+        for group in optimizer.param_groups:
+            group_params = []
+            for parameter in group["params"]:
+                if parameter.grad is None:
+                    continue
+                trainable_params.append(parameter)
+                group_params.append(parameter)
+                invalid = ~torch.isfinite(parameter.grad)
+                if invalid.any():
+                    nonfinite_gradients += int(invalid.sum().item())
+                    parameter.grad = torch.nan_to_num(
+                        parameter.grad, nan=0.0, posinf=0.0, neginf=0.0
+                    )
+
+            if group_params:
+                torch.nn.utils.clip_grad_norm_(group_params, max_norm=max_norm)
+
+        return trainable_params, nonfinite_gradients
+
     def find_diff_surf(self):
         """获取可微/可优化的表面索引。
 

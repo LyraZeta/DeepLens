@@ -126,6 +126,182 @@ Run the demo code:
 python 0_hello_geolens.py
 ```
 
+## MWIR telescope design entry point
+
+The repository includes a first-order specification checker and a GeoLens initializer for
+transmissive 2.7–4.3 µm systems:
+
+```powershell
+conda activate deeplens_env
+python mwir_spec.py
+python mwir_spec.py --json
+python mwir_telescope_design.py --check-only
+python mwir_telescope_design.py --device cpu --iterations 0 --output results\mwir-initial
+```
+
+The default configuration no longer enables the 42 µrad two-pixel constraint. It follows the
+Zemax summary: a Y-direction full field from -4.8° to +4.8° (9.6° total), a 47.1454 mm
+half-image-height, and a 280 mm entrance pupil. The focal length is derived as approximately
+561.44 mm (F/2.005). The detector format is intentionally left unspecified; the default
+`transmission_baseline` uses a circular-equivalent virtual sensor only for initial numerical
+design, not as a final detector requirement. It is approximately 66.67 × 66.67 mm, with a
+94.2908 mm diagonal corresponding to the full Y-image-height envelope.
+
+Use the design entry point to check overridden field, image-height, and pupil values:
+
+```powershell
+python mwir_telescope_design.py --check-only `
+  --field-y-deg 9.6 `
+  --image-height-mm 47.1454 `
+  --entrance-pupil-mm 280
+```
+
+### Initial prescription, optimization, and evaluation
+
+Generate only the initial prescription:
+
+```powershell
+python mwir_telescope_design.py --device cpu --iterations 0 `
+  --output results\mwir-initial
+```
+
+The initializer calibrates the combined paraxial power from the measured focal length and then
+refocuses at infinity. Gradient optimization uses a 100 km finite conjugate as an infinity
+approximation; formal MTF and image-height/distortion evaluation trace parallel rays at infinity.
+A low-sampling numerical check is available:
+
+```powershell
+python mwir_telescope_design.py --device cpu --iterations 0 `
+  --evaluate --eval-spp 64 `
+  --output results\mwir-initial-eval
+```
+
+A minimal CPU optimization smoke test should explicitly reduce sampling. `--iterations N` now
+performs exactly N parameter updates:
+
+```powershell
+python mwir_telescope_design.py --device cpu --iterations 1 `
+  --num-ring 2 --num-arm 2 --spp 32 `
+  --evaluate --eval-spp 64 `
+  --output results\mwir-opt-smoke
+```
+
+Use `--input-lens` to start a new stage from an existing JSON prescription. This restores only
+the optical prescription: it does not recalibrate power, refocus, or restore the previous Adam
+state. Wavelengths, object distance, front stop, 280 mm entrance pupil, sensor radius,
+resolution, and lens count are validated again, and MWIR mechanical constraints are reapplied.
+The new output directory must be empty and separate from the source stage so old metadata,
+checkpoints, and final prescriptions cannot be overwritten. The companion
+`mwir_design_metadata.json` is also checked; changing the original field, image height, or target
+focal length is rejected unless `--allow-retarget` is explicitly supplied. A practical curriculum
+first stabilizes field mapping, then improves spot RMS:
+
+```powershell
+# Stage 1: freeze curvature and prioritize focal-length/image-height stability
+python mwir_telescope_design.py `
+  --input-lens results\mwir-initial\mwir_initial.json `
+  --device cpu --iterations 20 `
+  --lrs 2e-3 0 2e-4 2e-6 `
+  --rms-weight 0.3 `
+  --field-weight 1.5 --field-max-weight 2 `
+  --num-ring 8 --num-arm 4 --spp 128 `
+  --output results\mwir-stage-field --evaluate
+
+# Stage 2: continue from the previous final prescription and improve image quality
+python mwir_telescope_design.py `
+  --input-lens results\mwir-stage-field\mwir_final.json `
+  --device cpu --iterations 100 `
+  --lrs 1e-3 1e-7 5e-4 2e-6 `
+  --rms-weight 1 `
+  --field-weight 1.5 --field-max-weight 2 `
+  --num-ring 8 --num-arm 4 --spp 512 `
+  --output results\mwir-stage-rms --evaluate
+```
+
+The first-stage default learning rates are `[2e-3, 2e-7, 2e-4, 2e-6]` for spacing,
+curvature, conic constant, and aspheric coefficients. On CPU, first check a 1–5-step trend with
+small `spp`; change to `--device cuda` only when CUDA is available in the active environment.
+
+MWIR checkpoints save only `optimization/iter*.json` by default. Add
+`--checkpoint-analysis` only when full checkpoint plots are needed. Surface-shape correction and
+aperture pruning remain disabled during the first stage; enable `--shape-control` after the
+prescription stabilizes, and use `--prune-surfaces` last. The target image-height/field-mapping
+loss is independent of generic regularization and traces a differentiable chief ray through the
+center of the front stop at all three training wavelengths, at infinity, in two meridional planes,
+and on nine equally spaced field angles by default. This aligns training with the formal chief-ray
+distortion check. Its default weight is 1.0; tune it with `--field-weight`.
+`--field-max-weight` additionally emphasizes the worst field, while `--regularization-weight`
+controls mechanical/profile regularization.
+
+The current gradient objective includes spot RMS, valid-ray ratio, target field mapping, and
+prescription regularization. MTF 0.3 is an `--evaluate` acceptance threshold, not a directly
+differentiated MTF loss. The optimizer sanitizes local NaN/Inf gradients, clips each parameter
+group independently, and rolls back non-finite or valid-ray-degrading updates. If a high-order
+aspheric basis exceeds the float32 dynamic range on a large aperture, its coefficient is retained
+but frozen; for this system, a18 is excluded from Adam while a4–a16 remain trainable.
+
+### Numerical evaluation definition
+
+`--evaluate` samples 2.7, 3.5, and 4.3 µm at Y fields 0°, 3.36°, and 4.8°. The early-stage
+system-MTF estimate is:
+
+```text
+geometric ray-intercept OTF × ideal unobscured circular-aperture diffraction MTF ×
+100%-fill rectangular-pixel MTF
+```
+
+This is not a rigorous wave-aberration/Huygens MTF, so a validated physical-optics model is still
+required for final acceptance. Overall acceptance requires EFL and F/# errors no greater than
+1%, target field-mapping error and conventional distortion no greater than 0.5%, system MTF at
+least 0.3, minimum valid-ray ratio at least 0.7, entrance-pupil error no greater than 1%, and no
+more than seven lenses. The current vignetting metric is only a valid-ray ratio; it excludes
+cos⁴ falloff, material absorption, and coating losses.
+
+First-order evaluation deliberately separates three quantities. Strict EFL is obtained by first
+extrapolating the Gaussian paraxial focal plane from small-pupil-height axial rays, then
+extrapolating symmetric small-field chief-ray plate scale at that plane. F/# and diffraction MTF
+use this strict EFL. Conventional distortion uses a wavelength- and plane-specific local chief-ray
+plate scale at the current sensor plane. Target field mapping always uses the fixed task focal
+length of 561.4396 mm. `lens.foclen/lens.fnum` remain in `mwir_metrics.json` as cached DeepLens
+diagnostics, but sensor defocus is no longer misreported as conventional distortion and sensor
+plate scale cannot hide a true EFL drift. Acceptance uses the worse of the two meridional planes.
+The current prescription contains only centered rotationally symmetric surfaces, so the sampled
+0-to-+4.8° half field represents the negative half as well. Any future decenter or tilt support
+must extend acceptance to both field signs.
+
+Output files are conditional on the requested stage:
+
+- `mwir_design_metadata.json` and `mwir_initial.json` are always written.
+- `--iterations > 0` also writes `mwir_final.json` and `optimization/iter*.json`; checkpoint
+  plots are produced only with `--checkpoint-analysis`.
+- `--evaluate` writes `mwir_metrics.json`.
+- `--analyze` produces a full analysis of the initial prescription before optimization.
+
+### Detector and historical scenarios
+
+Until the detector pitch is confirmed, the Nyquist frequency and system MTF in
+`mwir_metrics.json` are marked as provisional virtual-sensor values; the array format may be
+confirmed independently later. The 47.1454 mm value is the Y-direction half image height, not a
+detector half-diagonal. The full active detector
+height must therefore be 94.2908 mm; once an aspect ratio is known, its width is derived from
+that height. Horizontal field, diagonal field, and the final detector model remain unspecified.
+
+To reproduce the former 42 µrad scenario, enable it explicitly; this path is historical only:
+
+```powershell
+python mwir_telescope_design.py --scheme large_fpa `
+  --two-pixel-resolution-urad 42 `
+  --simulation-pixel-pitch-um 30 `
+  --device cpu --iterations 0 `
+  --output results\mwir-history-42urad
+```
+
+`cassegrain_equivalent` is currently only a transmissive-baseline alias that inherits the
+Cassegrain first-order requirements. It does not import mirror curvatures, separations, central
+obscuration, or mechanical length, and it is not an automatic reflective-to-transmissive
+prescription converter. The recorded 20°C condition does not yet model thermo-optic coefficients,
+thermal expansion, material absorption, coatings, or tolerances.
+
 DeepLens repo structure:
 
 ```
@@ -149,6 +325,8 @@ DeepLens/
 │   └── surrogate/          (MLP, Siren neural surrogates)
 │
 ├── 0_hello_geolens.py     (introductory tutorial)
+├── mwir_spec.py            (MWIR first-order specification checker)
+├── mwir_telescope_design.py (MWIR initializer and optimization entry point)
 ├── ...
 └── 9_diffractive_surfaces.py (diffractive-surface examples)
 ```

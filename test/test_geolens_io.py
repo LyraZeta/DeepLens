@@ -41,6 +41,26 @@ class TestJSONIO:
         lens2 = GeoLens(filename=out_path)
         assert len(lens2.surfaces) == original_num_surfs
 
+    def test_json_roundtrip_preserves_spectrum_and_object_depth(
+        self, sample_singlet_lens, test_output_dir
+    ):
+        """红外设计波长和默认物距不能在 JSON 重载后退回可见光默认值。"""
+
+        from deeplens import GeoLens
+
+        lens = sample_singlet_lens
+        lens.primary_wvln = 3.5
+        lens.wvln_rgb = [2.7, 3.5, 4.3]
+        lens.obj_depth = -10_000_000.0
+        out_path = os.path.join(test_output_dir, "test_mwir_spectrum_roundtrip.json")
+
+        lens.write_lens_json(out_path)
+        lens2 = GeoLens(filename=out_path)
+
+        assert lens2.primary_wvln == pytest.approx(3.5)
+        assert lens2.wvln_rgb == pytest.approx([2.7, 3.5, 4.3])
+        assert lens2.obj_depth == pytest.approx(-10_000_000.0)
+
 
 class TestZMXIO:
     """测试 Zemax .zmx 镜头文件 I/O。"""
