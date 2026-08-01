@@ -3,6 +3,8 @@
 所有方法均通过 `GeoLens` 实例测试（混入类架构）。
 """
 
+import math
+
 import pytest
 import torch
 
@@ -91,7 +93,15 @@ class TestOptimizerHelpers:
 
     @pytest.mark.parametrize(
         "name",
-        ["w_rms", "w_valid", "w_field", "w_reg", "field_mapping_max_weight"],
+        [
+            "w_rms",
+            "w_mtf",
+            "w_valid",
+            "w_field",
+            "w_reg",
+            "mtf_max_weight",
+            "field_mapping_max_weight",
+        ],
     )
     @pytest.mark.parametrize("value", [-1.0, float("nan"), float("inf")])
     def test_optimize_rejects_invalid_loss_weights(
@@ -101,6 +111,56 @@ class TestOptimizerHelpers:
 
         with pytest.raises(ValueError, match=name):
             sample_singlet_lens.optimize(iterations=1, **{name: value})
+
+    def test_optimize_requires_complete_first_order_guard_configuration(
+        self, sample_singlet_lens
+    ):
+        """一阶硬门控的目标和两个误差门限必须成组提供。"""
+
+        with pytest.raises(ValueError, match="同时提供"):
+            sample_singlet_lens.optimize(
+                iterations=1,
+                target_f_number=2.0,
+                first_order_preferred_relative_error=0.008,
+            )
+
+    def test_optimize_rejects_initial_state_outside_first_order_hard_limit(
+        self, sample_singlet_lens, monkeypatch
+    ):
+        """初始 EFL 或 F 数超过硬上限时不应进入训练循环。"""
+
+        monkeypatch.setattr(
+            sample_singlet_lens,
+            "_measure_first_order_state",
+            lambda: (102.0, 2.0),
+        )
+        with pytest.raises(ValueError, match="初始处方超出一阶硬上限"):
+            sample_singlet_lens.optimize(
+                iterations=1,
+                target_focal_length=100.0,
+                target_f_number=2.0,
+                first_order_preferred_relative_error=0.008,
+                first_order_hard_relative_error=0.01,
+            )
+
+    def test_optimize_requires_frequency_when_mtf_surrogate_is_enabled(
+        self, sample_singlet_lens
+    ):
+        """启用 MTF 代理时不能静默缺失目标频率。"""
+
+        with pytest.raises(ValueError, match="mtf_frequency_cy_mm"):
+            sample_singlet_lens.optimize(iterations=1, w_mtf=0.1)
+
+    @pytest.mark.parametrize("interval", [-1, 0.5])
+    def test_optimize_rejects_invalid_resample_interval(
+        self, sample_singlet_lens, interval
+    ):
+        """训练光线重采样间隔必须为非负整数。"""
+
+        with pytest.raises(ValueError, match="ray_resample_interval"):
+            sample_singlet_lens.optimize(
+                iterations=1, ray_resample_interval=interval
+            )
 
 
 class TestConstraints:
@@ -284,6 +344,78 @@ class TestLossFunctions:
         assert torch.allclose(mse, torch.tensor([25.0, 9.0]))
         assert mse[1].sqrt().item() == pytest.approx(3.0)
 
+    def test_fixed_frequency_geometric_mtf_is_translation_invariant_and_directional(
+        self, sample_singlet_lens
+    ):
+        """固定频率几何 MTF 应忽略像点平移，并区分切向与弧矢方向。"""
+
+        intercepts = torch.tensor([[[-0.01, 0.0], [0.01, 0.0]]])
+        valid = torch.ones((1, 2))
+        shifted = intercepts + torch.tensor([50.0, -30.0])
+
+        mtf = sample_singlet_lens._fixed_frequency_geometric_mtf(
+            intercepts, valid, frequency_cy_mm=25.0
+        )
+        shifted_mtf = sample_singlet_lens._fixed_frequency_geometric_mtf(
+            shifted, valid, frequency_cy_mm=25.0
+        )
+
+        # Y 截距相同，因此切向 MTF 为 1；X 相位相差 pi，弧矢 MTF 接近 0。
+        assert mtf[0, 0].item() == pytest.approx(1.0, rel=1e-6)
+        assert mtf[0, 1].item() < 1e-4
+        # 50 mm 大像高叠加 10 微米光斑时，float32 坐标量化会留下约 1e-4
+        # 的相位幅值误差；质心化后仍应保持在该数值精度量级。
+        assert torch.allclose(mtf, shifted_mtf, rtol=5e-4, atol=5e-4)
+
+    def test_fixed_frequency_mtf_surrogate_uses_target_and_has_finite_gradient(
+        self, sample_singlet_lens
+    ):
+        """相位方差代理在目标内为零，超差时提供稳定的恢复梯度。"""
+
+        frequency = 10.0
+        target_mtf = 0.5
+        target_sigma = (
+            (-2.0 * torch.log(torch.tensor(target_mtf))).sqrt()
+            / (2.0 * torch.pi * frequency)
+        )
+        at_target = torch.tensor(
+            [
+                [-target_sigma, -target_sigma],
+                [-target_sigma, target_sigma],
+                [target_sigma, -target_sigma],
+                [target_sigma, target_sigma],
+            ]
+        ).unsqueeze(0)
+        valid = torch.ones((1, 4))
+
+        inside = sample_singlet_lens._fixed_frequency_mtf_surrogate_violation(
+            at_target * 0.9,
+            valid,
+            frequency_cy_mm=frequency,
+            target_mtf=target_mtf,
+            invalid_rms=1.0,
+        )
+        outside_points = (at_target * 2.0).detach().requires_grad_(True)
+        outside = sample_singlet_lens._fixed_frequency_mtf_surrogate_violation(
+            outside_points,
+            valid,
+            frequency_cy_mm=frequency,
+            target_mtf=target_mtf,
+            invalid_rms=1.0,
+        )
+        loss = outside.mean() + outside.max()
+        loss.backward()
+
+        assert torch.equal(inside, torch.zeros_like(inside))
+        assert torch.allclose(
+            outside,
+            torch.full_like(outside, torch.log(torch.tensor(2.0))),
+            rtol=1e-5,
+            atol=1e-6,
+        )
+        assert torch.isfinite(outside_points.grad).all()
+        assert outside_points.grad.abs().sum().item() > 0.0
+
     def test_target_field_mapping_loss_ignores_axis_and_uses_tolerance(
         self, sample_singlet_lens
     ):
@@ -401,6 +533,84 @@ class TestLossFunctions:
         )
 
         assert accepted is expected
+
+    @pytest.mark.parametrize(
+        (
+            "focal_before",
+            "fnum_before",
+            "focal_after",
+            "fnum_after",
+            "expected",
+        ),
+        [
+            (100.6, 2.012, 100.79, 2.0158, True),
+            (100.6, 2.012, 100.81, 2.012, False),
+            (100.9, 2.018, 100.85, 2.017, True),
+            (100.9, 2.018, 100.91, 2.018, False),
+            (100.9, 2.018, 101.01, 2.018, False),
+            (100.6, 2.012, float("nan"), 2.012, False),
+        ],
+    )
+    def test_first_order_guard_enforces_preferred_band_and_hard_limit(
+        self,
+        sample_singlet_lens,
+        focal_before,
+        fnum_before,
+        focal_after,
+        fnum_after,
+        expected,
+    ):
+        """EFL/F 数在首选带内不得外逃，带外只能改善且不能越过硬上限。"""
+
+        accepted = sample_singlet_lens._first_order_update_is_acceptable(
+            focal_length_before=focal_before,
+            f_number_before=fnum_before,
+            focal_length_after=focal_after,
+            f_number_after=fnum_after,
+            target_focal_length=100.0,
+            target_f_number=2.0,
+            preferred_relative_error=0.008,
+            hard_relative_error=0.01,
+        )
+
+        assert accepted is expected
+
+    @pytest.mark.parametrize(
+        ("preferred", "hard"),
+        [(0.0, 0.01), (0.01, 0.008), (float("nan"), 0.01)],
+    )
+    def test_first_order_guard_rejects_invalid_limits(
+        self, sample_singlet_lens, preferred, hard
+    ):
+        """首选门限必须为正且不能大于一阶硬上限。"""
+
+        with pytest.raises(ValueError, match="preferred"):
+            sample_singlet_lens._first_order_update_is_acceptable(
+                100.0,
+                2.0,
+                100.0,
+                2.0,
+                target_focal_length=100.0,
+                target_f_number=2.0,
+                preferred_relative_error=preferred,
+                hard_relative_error=hard,
+            )
+
+    def test_first_order_measurement_preserves_training_rng(
+        self, sample_singlet_lens
+    ):
+        """逐步一阶测量不得消耗后续训练光线使用的随机序列。"""
+
+        torch.manual_seed(1234)
+        rng_before = torch.random.get_rng_state().clone()
+
+        focal_length, f_number = (
+            sample_singlet_lens._measure_first_order_state()
+        )
+
+        assert math.isfinite(focal_length)
+        assert math.isfinite(f_number)
+        assert torch.equal(torch.random.get_rng_state(), rng_before)
 
     @pytest.mark.parametrize("min_valid_ratio", [0.0, 1.01])
     def test_ray_validity_loss_rejects_invalid_threshold(

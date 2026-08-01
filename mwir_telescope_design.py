@@ -42,6 +42,61 @@ MWIR_SURFACE_LIST = [
     ["Spheric", "Spheric"],
 ]
 
+# 独立的六片消色差概念起点。它刻意把每片的功率集中到单面，只适合检查
+# 一阶功率和色差配平，不应作为已经完成像差优化的最终处方。
+MWIR_BALANCED_SURFACE_LIST = [
+    ["Aperture"],
+    ["Aspheric", "Spheric"],
+    ["Spheric", "Aspheric"],
+    ["Aspheric", "Spheric"],
+    ["Spheric", "Aspheric"],
+    ["Aspheric", "Spheric"],
+    ["Spheric", "Aspheric"],
+]
+
+MWIR_BALANCED_ACHROMAT_GROUPS = (
+    ("si", "mgf2", 0.50),
+    ("znse", "caf2", 0.30),
+    ("si", "mgf2", 0.20),
+)
+MWIR_BALANCED_FRONT_POSITIONS_MM = (12.0, 39.0, 130.0, 157.0, 450.0, 477.0)
+MWIR_BALANCED_CENTER_THICKNESSES_MM = (22.0, 14.0, 20.0, 14.0, 18.0, 12.0)
+MWIR_BALANCED_SEMI_APERTURES_MM = (150.0, 150.0, 155.0, 155.0, 165.0, 165.0)
+MWIR_BALANCED_POSITIVE_CONIC = -5.0
+MWIR_BALANCED_NEGATIVE_CONIC = 5.0
+
+# 七片强弯曲透射母型。它采用“前正组—中负组—后正组—弯月场平镜”的
+# 功率分配，14 个折射面均具有非零曲率。这里的半径和间距只定义一个可优化
+# 母型；它们不是最终像质已经达标的处方。
+MWIR_POWER_BENT7_SURFACE_LIST = [
+    ["Aperture"],
+    ["Aspheric", "Spheric"],
+    ["Spheric", "Spheric"],
+    ["Spheric", "Aspheric"],
+    ["Spheric", "Spheric"],
+    ["Aspheric", "Aspheric"],
+    ["Spheric", "Spheric"],
+    ["Aspheric", "Spheric"],
+]
+MWIR_POWER_BENT7_FRONT_POSITIONS_MM = (12.0, 44.0, 105.0, 139.0, 240.0, 282.0, 413.0)
+MWIR_POWER_BENT7_CENTER_THICKNESSES_MM = (24.0, 16.0, 24.0, 26.0, 30.0, 16.0, 12.0)
+MWIR_POWER_BENT7_SEMI_APERTURES_MM = (150.0, 150.0, 155.0, 155.0, 160.0, 160.0, 110.0)
+MWIR_POWER_BENT7_MATERIALS = ("si", "mgf2", "si", "mgf2", "znse", "caf2", "si")
+MWIR_POWER_BENT7_RADII_MM = (
+    (502.254, 2176.433),
+    (2693.126, 621.491),
+    (-1126.607, 1126.607),
+    (1397.089, -1397.089),
+    (-3539.058, -589.843),
+    (-1044.589, -6267.531),
+    (-1428.571, -1437.071),
+)
+# 元素序号从 0 开始，side=0/1 分别表示前/后表面。首轮球面优化保持
+# k=A4=A6=...=0；只有进入非球面阶段后才放开这些预留面。
+MWIR_POWER_BENT7_ASPHERIC_SIDES = frozenset(
+    {(0, 0), (2, 1), (4, 0), (4, 1), (6, 0)}
+)
+
 # 这些材料的折射率数据覆盖 2.7–4.3 µm；实际透过率、吸收和镀膜仍需单独核验。
 MWIR_MATERIALS = ["znse", "caf2", "mgf2", "ge", "si", "krs5"]
 
@@ -50,10 +105,297 @@ MWIR_MATERIALS = ["znse", "caf2", "mgf2", "ge", "si", "krs5"]
 DEFAULT_MWIR_LRS = (2e-3, 2e-7, 2e-4, 2e-6)
 
 
+def _mwir_dispersion_number(
+    material_name: str,
+    wavelengths_um: tuple[float, float, float] = (2.7, 3.5, 4.3),
+) -> float:
+    """计算用于 2.7–4.3 µm 配对的一阶等效色散数。
+
+    这里采用 ``V_IR = (n_mid - 1) / (n_short - n_long)``。它不是可见光
+    d/F/C 线阿贝数，只用于本项目三条 MWIR 设计波长下的薄透镜色差配平。
+    """
+
+    from deeplens.material import Material
+
+    if len(wavelengths_um) != 3:
+        raise ValueError("MWIR 等效色散数需要短、中、长三个波长。")
+    material = Material(material_name)
+    n_short, n_primary, n_long = (
+        float(material.refractive_index(float(wavelength)))
+        for wavelength in wavelengths_um
+    )
+    dispersion = n_short - n_long
+    if not math.isfinite(dispersion) or abs(dispersion) < 1e-12:
+        raise ValueError(f"材料 {material_name} 在目标波段的色散过小或无效。")
+    value = (n_primary - 1.0) / dispersion
+    if not math.isfinite(value) or value <= 0.0:
+        raise ValueError(f"材料 {material_name} 的 MWIR 等效色散数无效：{value}。")
+    return float(value)
+
+
+def _balanced_power_design(spec: MWIRDesignSpec) -> dict[str, Any]:
+    """求解三组正负薄透镜的目标光焦度及一阶色差配平量。"""
+
+    target_total_power = 1.0 / spec.effective_focal_length_mm
+    wavelengths = tuple(float(value) for value in spec.wavelengths_um)
+    element_materials: list[str] = []
+    element_powers: list[float] = []
+    groups: list[dict[str, Any]] = []
+    dispersion_numbers: dict[str, float] = {}
+
+    for positive_material, negative_material, net_fraction in (
+        MWIR_BALANCED_ACHROMAT_GROUPS
+    ):
+        positive_v = dispersion_numbers.setdefault(
+            positive_material,
+            _mwir_dispersion_number(positive_material, wavelengths),
+        )
+        negative_v = dispersion_numbers.setdefault(
+            negative_material,
+            _mwir_dispersion_number(negative_material, wavelengths),
+        )
+        if math.isclose(positive_v, negative_v, rel_tol=0.0, abs_tol=1e-12):
+            raise ValueError(
+                f"材料对 {positive_material}/{negative_material} 的等效色散数相同，"
+                "无法配平一阶色差。"
+            )
+
+        net_power = target_total_power * net_fraction
+        positive_power = net_power * positive_v / (positive_v - negative_v)
+        negative_power = -net_power * negative_v / (positive_v - negative_v)
+        color_sum = positive_power / positive_v + negative_power / negative_v
+
+        element_materials.extend((positive_material, negative_material))
+        element_powers.extend((positive_power, negative_power))
+        groups.append(
+            {
+                "positive_material": positive_material,
+                "negative_material": negative_material,
+                "net_power_fraction": float(net_fraction),
+                "net_power_1_per_mm": float(net_power),
+                "positive_power_1_per_mm": float(positive_power),
+                "negative_power_1_per_mm": float(negative_power),
+                "positive_dispersion_number": float(positive_v),
+                "negative_dispersion_number": float(negative_v),
+                "first_order_color_sum_1_per_mm": float(color_sum),
+            }
+        )
+
+    return {
+        "method": (
+            "三组薄透镜分别满足 φ+ + φ- = φ组、"
+            "φ+/V+ + φ-/V- = 0；组净功率占总目标光焦度 50%/30%/20%。"
+        ),
+        "dispersion_number_definition": "(n_3.5um - 1) / (n_2.7um - n_4.3um)",
+        "wavelengths_um": list(wavelengths),
+        "target_total_power_1_per_mm": float(target_total_power),
+        "dispersion_numbers": dispersion_numbers,
+        "element_materials": element_materials,
+        "element_powers_1_per_mm": element_powers,
+        "groups": groups,
+        "summed_element_power_1_per_mm": float(sum(element_powers)),
+    }
+
+
+def _build_balanced_transmission_lens(
+    spec: MWIRDesignSpec,
+    params: dict[str, Any],
+    torch_device,
+    power_design: dict[str, Any],
+):
+    """按确定性的六片三组消色差处方构建 ``transmission_balanced``。"""
+
+    import torch
+
+    from deeplens import GeoLens
+    from deeplens.geometric_surface import Aperture, Aspheric, Spheric
+    from deeplens.material import Material
+
+    materials = list(power_design["element_materials"])
+    powers = [float(value) for value in power_design["element_powers_1_per_mm"]]
+    if len(materials) != 6 or len(powers) != 6:
+        raise ValueError("transmission_balanced 必须包含 6 片确定性透镜。")
+
+    lens = GeoLens(
+        primary_wvln=3.5,
+        wvln_rgb=list(spec.wavelengths_um),
+        obj_depth=spec.object_distance_mm,
+    )
+    surfaces = [
+        Aperture(r=spec.entrance_pupil_diameter_mm / 2.0, d=0.0)
+    ]
+    primary_wavelength = float(spec.wavelengths_um[1])
+
+    for material_name, target_power, front_z, center_thickness, semi_aperture in zip(
+        materials,
+        powers,
+        MWIR_BALANCED_FRONT_POSITIONS_MM,
+        MWIR_BALANCED_CENTER_THICKNESSES_MM,
+        MWIR_BALANCED_SEMI_APERTURES_MM,
+    ):
+        refractive_index = float(
+            Material(material_name).refractive_index(primary_wavelength)
+        )
+        if target_power > 0.0:
+            front_curvature = target_power / (refractive_index - 1.0)
+            surfaces.append(
+                Aspheric(
+                    r=semi_aperture,
+                    d=front_z,
+                    c=front_curvature,
+                    k=MWIR_BALANCED_POSITIVE_CONIC,
+                    ai=[0.0] * 7,
+                    mat2=material_name,
+                )
+            )
+            surfaces.append(
+                Spheric(
+                    r=semi_aperture,
+                    d=front_z + center_thickness,
+                    c=0.0,
+                    mat2="air",
+                )
+            )
+        else:
+            rear_curvature = -target_power / (refractive_index - 1.0)
+            surfaces.append(
+                Spheric(
+                    r=semi_aperture,
+                    d=front_z,
+                    c=0.0,
+                    mat2=material_name,
+                )
+            )
+            surfaces.append(
+                Aspheric(
+                    r=semi_aperture,
+                    d=front_z + center_thickness,
+                    c=rear_curvature,
+                    k=MWIR_BALANCED_NEGATIVE_CONIC,
+                    ai=[0.0] * 7,
+                    mat2="air",
+                )
+            )
+
+    lens.surfaces = surfaces
+    lens.lens_info = "MWIR 六片三组正负光焦度消色差透射起点"
+    lens.d_sensor = torch.tensor(
+        MWIR_BALANCED_FRONT_POSITIONS_MM[-1]
+        + MWIR_BALANCED_CENTER_THICKNESSES_MM[-1]
+        + params["bfl_mm"]
+    )
+    lens.r_sensor = float(params["optimization_radial_image_height_mm"])
+    lens.float_enpd = True
+    lens.float_foclen = False
+    lens.float_rfov = False
+    lens.set_sensor(
+        tuple(params["sensor_size_mm"]), tuple(params["sensor_res"])
+    )
+    lens = lens.to(torch_device)
+    lens.post_computation()
+    return lens
+
+
+def _build_power_bent7_lens(
+    spec: MWIRDesignSpec,
+    params: dict[str, Any],
+    torch_device,
+):
+    """构建双面均有真实光焦度的七片强弯曲 MWIR 母型。
+
+    该母型用确定性的材料、顶点位置、厚度和两面曲率取代旧六片概念处方的
+    “单曲面 + 平面”结构。五个曲面预留为偶次非球面，但初值仍严格等价于
+    球面，便于先完成球面全局筛选，再逐级放开圆锥常数和低阶非球面系数。
+    """
+
+    import torch
+
+    from deeplens import GeoLens
+    from deeplens.geometric_surface import Aperture, Aspheric, Spheric
+
+    lengths = {
+        len(MWIR_POWER_BENT7_FRONT_POSITIONS_MM),
+        len(MWIR_POWER_BENT7_CENTER_THICKNESSES_MM),
+        len(MWIR_POWER_BENT7_SEMI_APERTURES_MM),
+        len(MWIR_POWER_BENT7_MATERIALS),
+        len(MWIR_POWER_BENT7_RADII_MM),
+    }
+    if lengths != {7}:
+        raise ValueError("七片强弯曲母型的材料、位置、厚度、口径和半径数量必须一致。")
+
+    lens = GeoLens(
+        primary_wvln=3.5,
+        wvln_rgb=list(spec.wavelengths_um),
+        obj_depth=spec.object_distance_mm,
+    )
+    surfaces = [
+        Aperture(r=spec.entrance_pupil_diameter_mm / 2.0, d=0.0)
+    ]
+    for element_index, (
+        material_name,
+        front_z,
+        center_thickness,
+        semi_aperture,
+        radii,
+    ) in enumerate(
+        zip(
+            MWIR_POWER_BENT7_MATERIALS,
+            MWIR_POWER_BENT7_FRONT_POSITIONS_MM,
+            MWIR_POWER_BENT7_CENTER_THICKNESSES_MM,
+            MWIR_POWER_BENT7_SEMI_APERTURES_MM,
+            MWIR_POWER_BENT7_RADII_MM,
+        )
+    ):
+        for side, (radius, z_position, material_after) in enumerate(
+            (
+                (radii[0], front_z, material_name),
+                (radii[1], front_z + center_thickness, "air"),
+            )
+        ):
+            surface_kwargs = {
+                "r": semi_aperture,
+                "d": z_position,
+                "c": 1.0 / radius,
+                "mat2": material_after,
+            }
+            if (element_index, side) in MWIR_POWER_BENT7_ASPHERIC_SIDES:
+                surfaces.append(
+                    Aspheric(
+                        **surface_kwargs,
+                        k=0.0,
+                        # 只预留 A4/A6/A8/A10；避免在球面起点直接引入高阶自由度。
+                        ai=[0.0] * 4,
+                    )
+                )
+            else:
+                surfaces.append(Spheric(**surface_kwargs))
+
+    lens.surfaces = surfaces
+    lens.lens_info = "MWIR 七片强弯曲正负功率抵消透射母型"
+    last_rear_z = (
+        MWIR_POWER_BENT7_FRONT_POSITIONS_MM[-1]
+        + MWIR_POWER_BENT7_CENTER_THICKNESSES_MM[-1]
+    )
+    lens.d_sensor = torch.tensor(last_rear_z + params["bfl_mm"])
+    lens.r_sensor = float(params["optimization_radial_image_height_mm"])
+    lens.float_enpd = True
+    lens.float_foclen = False
+    lens.float_rfov = False
+    lens.set_sensor(tuple(params["sensor_size_mm"]), tuple(params["sensor_res"]))
+    lens = lens.to(torch_device)
+    lens.post_computation()
+    return lens
+
+
 def _scheme_parameters(spec: MWIRDesignSpec, scheme: str) -> dict[str, Any]:
     """根据方案名称返回焦距、Y 向视场、虚拟焦面和 F 数。"""
 
-    if scheme in {"transmission_baseline", "cassegrain_equivalent"}:
+    if scheme in {
+        "transmission_baseline",
+        "transmission_balanced",
+        "transmission_power_bent7",
+        "cassegrain_equivalent",
+    }:
         # 这是当前正式设计基线。焦距由 Zemax 的半像高和 Y 向全视场推导，
         # 而不是由一个尚未确认的探测器格式反推。
         focal_length = spec.effective_focal_length_mm
@@ -63,11 +405,28 @@ def _scheme_parameters(spec: MWIRDesignSpec, scheme: str) -> dict[str, Any]:
         sensor_size = spec.virtual_sensor_size_mm
         image_height = spec.image_height_mm
         sensor_is_virtual = True
-        explanation = (
-            f"正式基线：Y 向全视场 {field_y:.4f}°、半像高 {image_height:.4f} mm、"
-            f"{spec.entrance_pupil_diameter_mm:.3f} mm 入瞳；"
-            "探测器使用圆形等效虚拟焦面。"
-        )
+        if scheme == "transmission_power_bent7":
+            explanation = (
+                f"七片强弯曲透射母型：Y 向全视场 {field_y:.4f}°、"
+                f"半像高 {image_height:.4f} mm、"
+                f"{spec.entrance_pupil_diameter_mm:.3f} mm 入瞳；"
+                "采用前正组—中负组—后正组—弯月场平镜，14 面均有非零曲率。"
+            )
+        elif scheme == "transmission_balanced":
+            explanation = (
+                f"六片消色差概念起点：Y 向全视场 {field_y:.4f}°、"
+                f"半像高 {image_height:.4f} mm、"
+                f"{spec.entrance_pupil_diameter_mm:.3f} mm 入瞳；"
+                "采用 Si/MgF2、ZnSe/CaF2、Si/MgF2 三组正负光焦度配对；"
+                "仅用于一阶检查，不代表像差优化完成。"
+            )
+        else:
+            explanation = (
+                f"正式基线：Y 向全视场 {field_y:.4f}°、"
+                f"半像高 {image_height:.4f} mm、"
+                f"{spec.entrance_pupil_diameter_mm:.3f} mm 入瞳；"
+                "探测器使用圆形等效虚拟焦面。"
+            )
     elif scheme == "large_fpa":
         if not spec.resolution_constraint_active:
             raise ValueError(
@@ -146,9 +505,13 @@ def _scheme_parameters(spec: MWIRDesignSpec, scheme: str) -> dict[str, Any]:
         "sensor_res": list(sensor_res),
         "sensor_size_mm": list(sensor_size),
         "sensor_is_virtual": sensor_is_virtual,
-        "element_count": 6,
-        "surface_count": 13,
-        "bfl_mm": 80.0 if focal_length > 500.0 else 25.0,
+        "element_count": 7 if scheme == "transmission_power_bent7" else 6,
+        "surface_count": 15 if scheme == "transmission_power_bent7" else 13,
+        "bfl_mm": (
+            160.0
+            if scheme == "transmission_power_bent7"
+            else (80.0 if focal_length > 500.0 else 25.0)
+        ),
         "thickness_mm": 300.0 if focal_length > 500.0 else 160.0,
         "total_track_constraint_mm": None,
     }
@@ -362,7 +725,15 @@ def _detached_float(value: Any) -> float:
     return float(value)
 
 
-def _calibrate_initial_power(lens, target_focal_length_mm: float) -> float:
+def _calibrate_initial_power(
+    lens,
+    target_focal_length_mm: float,
+    *,
+    max_iterations: int = 5,
+    logarithmic_tolerance: float = 0.01,
+    minimum_factor: float = 0.5,
+    maximum_factor: float = 2.0,
+) -> float:
     """按实际近轴焦距缩放起点曲率，避免长焦起点退化成短焦或超长焦。
 
     ``create_lens`` 的随机曲率只是拓扑初始化，不保证组合后的有效焦距。
@@ -373,16 +744,28 @@ def _calibrate_initial_power(lens, target_focal_length_mm: float) -> float:
     import math
     import torch
 
-    for _ in range(5):
+    if max_iterations <= 0:
+        raise ValueError("max_iterations 必须为正整数。")
+    if not math.isfinite(logarithmic_tolerance) or logarithmic_tolerance <= 0.0:
+        raise ValueError("logarithmic_tolerance 必须为正的有限值。")
+    if (
+        not math.isfinite(minimum_factor)
+        or not math.isfinite(maximum_factor)
+        or minimum_factor <= 0.0
+        or maximum_factor < minimum_factor
+    ):
+        raise ValueError("曲率校准倍率范围必须满足 0 < minimum_factor <= maximum_factor。")
+
+    for _ in range(max_iterations):
         lens.post_computation()
         actual = abs(float(lens.foclen))
         if not math.isfinite(actual) or actual <= 0.0:
             break
         ratio = actual / target_focal_length_mm
-        if abs(math.log(ratio)) < 0.01:
+        if abs(math.log(ratio)) < logarithmic_tolerance:
             break
-        # 每次最多放大/缩小两倍，避免一次修正把表面推入强非线性区域。
-        factor = min(max(ratio, 0.5), 2.0)
+        # 限制单次倍率，避免一次修正把表面推入强非线性区域。
+        factor = min(max(ratio, minimum_factor), maximum_factor)
         with torch.no_grad():
             for surface in lens.surfaces:
                 if hasattr(surface, "c"):
@@ -429,38 +812,91 @@ def build_initial_lens(
             params["f_number"],
         )
 
-    # 让随机起点的总近轴光焦度大致落在目标焦距附近。
-    # 原始可见光示例的 1e-3 曲率尺度会把本长焦系统初始化成短焦镜头。
-    material_deltas = [
-        float(Material(name).refractive_index(3.5)) - 1.0 for name in MWIR_MATERIALS
-    ]
-    curvature_scale = 1.0 / (
-        params["focal_length_mm"] * max(sum(material_deltas), 1e-6)
-    )
-    curvature_scale = min(max(curvature_scale, 1e-6), 1e-3)
-    logging.info("初始曲率尺度：%.3e 1/mm", curvature_scale)
+    balanced_power_design: dict[str, Any] | None = None
+    power_bent7_design: dict[str, Any] | None = None
+    active_surface_list = MWIR_SURFACE_LIST
+    if scheme == "transmission_power_bent7":
+        active_surface_list = MWIR_POWER_BENT7_SURFACE_LIST
+        lens = _build_power_bent7_lens(spec, params, torch_device)
+        curvature_scale = max(
+            abs(_detached_float(surface.c))
+            for surface in lens.surfaces
+            if hasattr(surface, "c")
+        )
+        power_bent7_design = {
+            "architecture": "前正组—中负组—后正组—弯月场平镜",
+            "status": "非退化球面优化母型；不是最终验收处方。",
+            "front_positions_mm": list(MWIR_POWER_BENT7_FRONT_POSITIONS_MM),
+            "center_thicknesses_mm": list(
+                MWIR_POWER_BENT7_CENTER_THICKNESSES_MM
+            ),
+            "semi_apertures_mm": list(MWIR_POWER_BENT7_SEMI_APERTURES_MM),
+            "element_materials": list(MWIR_POWER_BENT7_MATERIALS),
+            "surface_radii_mm_before_power_calibration": [
+                list(pair) for pair in MWIR_POWER_BENT7_RADII_MM
+            ],
+            "reserved_aspheric_element_sides": sorted(
+                [list(value) for value in MWIR_POWER_BENT7_ASPHERIC_SIDES]
+            ),
+            "reserved_even_asphere_orders": [4, 6, 8, 10],
+        }
+        logging.info("七片强弯曲母型最大初始曲率：%.3e 1/mm", curvature_scale)
+    elif scheme == "transmission_balanced":
+        balanced_power_design = _balanced_power_design(spec)
+        active_surface_list = MWIR_BALANCED_SURFACE_LIST
+        lens = _build_balanced_transmission_lens(
+            spec,
+            params,
+            torch_device,
+            balanced_power_design,
+        )
+        curvature_scale = max(
+            abs(_detached_float(surface.c))
+            for surface in lens.surfaces
+            if hasattr(surface, "c")
+        )
+        logging.info(
+            "六片目标光焦度 [1/mm]：%s",
+            [
+                f"{value:+.6e}"
+                for value in balanced_power_design["element_powers_1_per_mm"]
+            ],
+        )
+        logging.info("最大初始曲率：%.3e 1/mm", curvature_scale)
+    else:
+        # 让随机起点的总近轴光焦度大致落在目标焦距附近。
+        # 原始可见光示例的 1e-3 曲率尺度会把本长焦系统初始化成短焦镜头。
+        material_deltas = [
+            float(Material(name).refractive_index(3.5)) - 1.0
+            for name in MWIR_MATERIALS
+        ]
+        curvature_scale = 1.0 / (
+            params["focal_length_mm"] * max(sum(material_deltas), 1e-6)
+        )
+        curvature_scale = min(max(curvature_scale, 1e-6), 1e-3)
+        logging.info("初始曲率尺度：%.3e 1/mm", curvature_scale)
 
-    lens = create_lens(
-        # create_lens/GeoLens 的像高和视场是径向（半对角）定义。显式传入
-        # 目标焦距和由焦面半对角推导的径向视场，避免把 Y 半像高误当成
-        # 矩形探测器半对角后改变有效焦距。
-        foclen=params["focal_length_mm"],
-        fov=params["optimization_radial_fov_deg"],
-        fnum=params["f_number"],
-        bfl=params["bfl_mm"],
-        thickness=params["thickness_mm"],
-        surf_list=MWIR_SURFACE_LIST,
-        save_dir=str(result_path),
-        primary_wvln=3.5,
-        wvln_rgb=list(spec.wavelengths_um),
-        obj_depth=spec.object_distance_mm,
-        material_names=MWIR_MATERIALS,
-        sensor_res=tuple(params["sensor_res"]),
-        analyze=False,
-        curvature_scale=curvature_scale,
-    )
-    lens = lens.to(torch_device)
-    lens.set_sensor(tuple(params["sensor_size_mm"]), tuple(params["sensor_res"]))
+        lens = create_lens(
+            # create_lens/GeoLens 的像高和视场是径向（半对角）定义。显式传入
+            # 目标焦距和由焦面半对角推导的径向视场，避免把 Y 半像高误当成
+            # 矩形探测器半对角后改变有效焦距。
+            foclen=params["focal_length_mm"],
+            fov=params["optimization_radial_fov_deg"],
+            fnum=params["f_number"],
+            bfl=params["bfl_mm"],
+            thickness=params["thickness_mm"],
+            surf_list=MWIR_SURFACE_LIST,
+            save_dir=str(result_path),
+            primary_wvln=3.5,
+            wvln_rgb=list(spec.wavelengths_um),
+            obj_depth=spec.object_distance_mm,
+            material_names=MWIR_MATERIALS,
+            sensor_res=tuple(params["sensor_res"]),
+            analyze=False,
+            curvature_scale=curvature_scale,
+        )
+        lens = lens.to(torch_device)
+        lens.set_sensor(tuple(params["sensor_size_mm"]), tuple(params["sensor_res"]))
     # 固定前置光阑半径，使真实入瞳直径等于任务指标。随后按实测近轴焦距
     # 对全部曲率做小步比例校准，让随机拓扑从目标光焦度附近开始；这只校准
     # 一阶光焦度，不代表像差、畸变或 MTF 已经满足要求。
@@ -469,9 +905,19 @@ def build_initial_lens(
     )
     lens.post_computation()
     uncalibrated_focal_length = float(lens.foclen)
-    calibrated_focal_length = _calibrate_initial_power(
-        lens, target_focal_length_mm=params["focal_length_mm"]
-    )
+    if scheme == "transmission_power_bent7":
+        calibrated_focal_length = _calibrate_initial_power(
+            lens,
+            target_focal_length_mm=params["focal_length_mm"],
+            max_iterations=12,
+            logarithmic_tolerance=1e-6,
+            minimum_factor=0.8,
+            maximum_factor=1.2,
+        )
+    else:
+        calibrated_focal_length = _calibrate_initial_power(
+            lens, target_focal_length_mm=params["focal_length_mm"]
+        )
     logging.info(
         "初始光焦度校准：%.4f mm -> %.4f mm（目标 %.4f mm）。",
         uncalibrated_focal_length,
@@ -496,10 +942,13 @@ def build_initial_lens(
         "material_pool": MWIR_MATERIALS,
         "materials": sorted(set(_element_material_names(lens))),
         "element_materials": _element_material_names(lens),
-        "surface_list": MWIR_SURFACE_LIST,
+        "surface_list": active_surface_list,
         "curvature_scale_1_per_mm": curvature_scale,
         "initial_power_calibration": {
-            "method": "按实测近轴焦距比例缩放全部可曲面曲率，最多迭代 5 次。",
+            "method": (
+                "按实测近轴焦距比例缩放全部可曲面曲率；七片强弯曲母型使用"
+                "更严格的 12 次/1e-6 对数误差校准，其他方案保持原快速校准。"
+            ),
             "before_focal_length_mm": uncalibrated_focal_length,
             "after_focal_length_mm": measured_focal_length,
             "target_focal_length_mm": params["focal_length_mm"],
@@ -532,6 +981,20 @@ def build_initial_lens(
             else None
         ),
     }
+    if balanced_power_design is not None:
+        metadata["balanced_achromat"] = {
+            **balanced_power_design,
+            "front_positions_mm": list(MWIR_BALANCED_FRONT_POSITIONS_MM),
+            "center_thicknesses_mm": list(
+                MWIR_BALANCED_CENTER_THICKNESSES_MM
+            ),
+            "semi_apertures_mm": list(MWIR_BALANCED_SEMI_APERTURES_MM),
+            "positive_power_conic": MWIR_BALANCED_POSITIVE_CONIC,
+            "negative_power_conic": MWIR_BALANCED_NEGATIVE_CONIC,
+            "asphere_orders": [4, 6, 8, 10, 12, 14, 16],
+        }
+    if power_bent7_design is not None:
+        metadata["power_bent7"] = power_bent7_design
     with open(result_path / "mwir_design_metadata.json", "w", encoding="utf-8") as file:
         json.dump(metadata, file, ensure_ascii=False, indent=2)
     lens.write_lens_json(str(result_path / "mwir_initial.json"))
@@ -1270,6 +1733,11 @@ def optimize_lens(
     field_mapping_points: int = 9,
     regularization_weight: float = 0.1,
     rms_weight: float = 1.0,
+    mtf_surrogate_weight: float = 0.0,
+    mtf_max_weight: float = 1.0,
+    ray_resample_interval: int = 1,
+    first_order_preferred_error: float = 0.008,
+    first_order_hard_error: float = 0.01,
     lrs: tuple[float, float, float, float] = DEFAULT_MWIR_LRS,
     checkpoint_analysis: bool = False,
 ) -> None:
@@ -1279,7 +1747,10 @@ def optimize_lens(
     完整分析，避免在处方尚未稳定时误裁口径或让绘图占据绝大部分 CPU 时间。
     目标像高/场映射使用独立于通用正则项的较高权重，防止 RMS 改善时焦距与
     边缘像高反而漂移。``rms_weight`` 与 ``lrs`` 支持把优化拆成“先稳定板尺、
-    后改善像质”的多个阶段；每个阶段都会重新创建 Adam。
+    后改善像质”的多个阶段；每个阶段都会重新创建 Adam。可选 MTF 代理项在
+    正式验收的 0、0.7、1.0 相对 Y 视场上使用固定频率方向方差，避免初始
+    MTF 接近有限光线噪声底时直接优化经验 OTF 幅值。训练光线可按固定间隔
+    重采样，降低对单一 Monte-Carlo 瞳样本的过拟合。
     """
 
     if iterations <= 0:
@@ -1290,6 +1761,22 @@ def optimize_lens(
         raise ValueError("lrs 必须包含 4 个非负有限值：[间距, 曲率, 圆锥常数, 非球面]。")
     if not math.isfinite(rms_weight) or rms_weight < 0.0:
         raise ValueError("rms_weight 必须为非负有限值。")
+    if not math.isfinite(mtf_surrogate_weight) or mtf_surrogate_weight < 0.0:
+        raise ValueError("mtf_surrogate_weight 必须为非负有限值。")
+    if not math.isfinite(mtf_max_weight) or mtf_max_weight < 0.0:
+        raise ValueError("mtf_max_weight 必须为非负有限值。")
+    if ray_resample_interval < 0:
+        raise ValueError("ray_resample_interval 必须为非负整数。")
+    if (
+        not math.isfinite(first_order_preferred_error)
+        or not math.isfinite(first_order_hard_error)
+        or first_order_preferred_error <= 0.0
+        or first_order_hard_error < first_order_preferred_error
+    ):
+        raise ValueError(
+            "一阶误差门限必须满足 0 < first_order_preferred_error "
+            "<= first_order_hard_error。"
+        )
 
     if design_params is None:
         target_focal_length = spec.required_focal_length_mm
@@ -1300,6 +1787,22 @@ def optimize_lens(
             float(design_params["optimization_radial_fov_deg"]) / 2.0
         )
     test_interval = max(1, min(100, iterations, max(10, iterations // 10)))
+    mtf_frequency = spec.analysis_nyquist_frequency_cy_mm
+    worst_ideal_factor = min(
+        _circular_diffraction_mtf(
+            mtf_frequency, wavelength, spec.required_f_number
+        )
+        * _rectangular_pixel_mtf(mtf_frequency, spec.pixel_pitch_mm)
+        for wavelength in spec.wavelengths_um
+    )
+    if worst_ideal_factor <= 0.0:
+        raise ValueError("目标频率已超出衍射截止频率，无法设置 MTF 优化目标。")
+    geometric_mtf_target = max(
+        spec.optical_mtf_target,
+        spec.system_mtf_threshold / worst_ideal_factor,
+    )
+    if geometric_mtf_target >= 1.0:
+        raise ValueError("系统 MTF 指标要求的几何 MTF 不小于 1，当前规格不可行。")
 
     lens.optimize(
         # 曲率本身约为 1e-4 1/mm，沿用手机镜头的 1e-4 学习率会在一步内
@@ -1315,6 +1818,15 @@ def optimize_lens(
         spp=spp,
         min_valid_ratio=spec.vignetting_floor,
         w_rms=rms_weight,
+        w_mtf=mtf_surrogate_weight,
+        mtf_frequency_cy_mm=mtf_frequency,
+        mtf_target=geometric_mtf_target,
+        mtf_max_weight=mtf_max_weight,
+        mtf_field_fractions=(0.0, 0.7, 1.0),
+        ray_resample_interval=ray_resample_interval,
+        target_f_number=spec.required_f_number,
+        first_order_preferred_relative_error=first_order_preferred_error,
+        first_order_hard_relative_error=first_order_hard_error,
         w_field=field_weight,
         w_reg=regularization_weight,
         field_mapping_all_wavelengths=True,
@@ -1341,6 +1853,8 @@ def main() -> None:
         "--scheme",
         choices=(
             "transmission_baseline",
+            "transmission_balanced",
+            "transmission_power_bent7",
             "cassegrain_equivalent",
             "large_fpa",
             "existing_fpa_narrow",
@@ -1348,7 +1862,9 @@ def main() -> None:
         ),
         default="transmission_baseline",
         help=(
-            "选择透射系统方案，默认使用 Y 向 9.6°/47.1454 mm 像高基线；"
+            "选择透射系统方案；transmission_power_bent7 使用七片、14面均有"
+            "真实曲率的强弯曲优化母型；transmission_balanced 仅保留为六片"
+            "一阶消色差概念对照，默认仍为原 transmission_baseline；"
             "cassegrain_equivalent 只继承一阶指标，不导入反射镜处方。"
         ),
     )
@@ -1380,6 +1896,41 @@ def main() -> None:
         type=float,
         default=1.0,
         help="RMS 光斑损失权重；场映射阶段可降至 0.2–0.5，默认 1.0。",
+    )
+    parser.add_argument(
+        "--mtf-surrogate-weight",
+        type=float,
+        default=0.0,
+        help=(
+            "固定频率 MTF 相位方差代理权重；默认 0（关闭）。像质阶段可从 "
+            "0.05–0.2 开始，避免直接 OTF 在噪声底附近产生不稳定梯度。"
+        ),
+    )
+    parser.add_argument(
+        "--mtf-max-weight",
+        type=float,
+        default=1.0,
+        help="MTF 代理最坏波长/场/方向相对平均超差的附加权重，默认 1.0。",
+    )
+    parser.add_argument(
+        "--ray-resample-interval",
+        type=int,
+        default=1,
+        help=(
+            "每隔多少步重采样训练瞳光线；默认每步重采样，0 表示只在检查点重采样。"
+        ),
+    )
+    parser.add_argument(
+        "--first-order-preferred-error",
+        type=float,
+        default=0.008,
+        help="EFL/F 数首选相对误差带，默认 0.008（0.8%%）。",
+    )
+    parser.add_argument(
+        "--first-order-hard-error",
+        type=float,
+        default=0.01,
+        help="EFL/F 数相对误差硬上限，默认 0.01（1%%）。",
     )
     parser.add_argument("--num-ring", type=int, default=8, help="径向视场采样环数。")
     parser.add_argument("--num-arm", type=int, default=4, help="每个采样环的方位臂数。")
@@ -1514,6 +2065,11 @@ def main() -> None:
             "iterations": args.iterations,
             "lrs": list(args.lrs),
             "rms_weight": args.rms_weight,
+            "mtf_surrogate_weight": args.mtf_surrogate_weight,
+            "mtf_max_weight": args.mtf_max_weight,
+            "ray_resample_interval": args.ray_resample_interval,
+            "first_order_preferred_error": args.first_order_preferred_error,
+            "first_order_hard_error": args.first_order_hard_error,
             "field_weight": args.field_weight,
             "field_max_weight": args.field_max_weight,
             "regularization_weight": args.regularization_weight,
@@ -1547,6 +2103,11 @@ def main() -> None:
         field_mapping_points=args.field_mapping_points,
         regularization_weight=args.regularization_weight,
         rms_weight=args.rms_weight,
+        mtf_surrogate_weight=args.mtf_surrogate_weight,
+        mtf_max_weight=args.mtf_max_weight,
+        ray_resample_interval=args.ray_resample_interval,
+        first_order_preferred_error=args.first_order_preferred_error,
+        first_order_hard_error=args.first_order_hard_error,
         lrs=tuple(args.lrs),
         checkpoint_analysis=args.checkpoint_analysis,
     )

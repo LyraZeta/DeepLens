@@ -12,13 +12,19 @@ import mwir_telescope_design as mwir_design
 from mwir_spec import MWIRDesignSpec
 from mwir_telescope_design import (
     DEFAULT_MWIR_LRS,
+    MWIR_BALANCED_ACHROMAT_GROUPS,
+    MWIR_BALANCED_SURFACE_LIST,
+    MWIR_POWER_BENT7_MATERIALS,
+    MWIR_POWER_BENT7_SURFACE_LIST,
     MWIR_SURFACE_LIST,
+    _balanced_power_design,
     _chief_ray_effective_focal_length,
     _chief_ray_sensor_plate_scale,
     _circular_diffraction_mtf,
     _detached_float,
     _geometric_mtf_from_intercepts,
     _linear_intercept,
+    _mwir_dispersion_number,
     _rectangular_pixel_mtf,
     _scheme_parameters,
     _validate_loaded_mwir_lens,
@@ -29,6 +35,11 @@ from mwir_telescope_design import (
     optimize_lens,
 )
 from deeplens.geolens_pkg.optim_init import create_surface
+from mwir_power_bent7_optimize import (
+    _curved_surfaces,
+    constrained_curvatures,
+    paraxial_state,
+)
 
 
 def test_mwir_default_uses_zemax_y_field_and_image_height():
@@ -117,6 +128,178 @@ def test_mwir_default_scheme_uses_six_lenses_and_front_stop():
         == "transmission_baseline"
     )
     assert inspect.signature(optimize_lens).parameters["lrs"].default == DEFAULT_MWIR_LRS
+
+
+def test_balanced_scheme_uses_three_explicit_achromat_pairs():
+    """新方案应保持六片限制，并明确三组正负光焦度材料与曲面拓扑。"""
+
+    spec = MWIRDesignSpec()
+    params = _scheme_parameters(spec, "transmission_balanced")
+    lens_elements = [
+        item for item in MWIR_BALANCED_SURFACE_LIST if item != ["Aperture"]
+    ]
+
+    assert MWIR_BALANCED_SURFACE_LIST[0] == ["Aperture"]
+    assert len(lens_elements) == params["element_count"] == 6
+    assert lens_elements == [
+        ["Aspheric", "Spheric"],
+        ["Spheric", "Aspheric"],
+        ["Aspheric", "Spheric"],
+        ["Spheric", "Aspheric"],
+        ["Aspheric", "Spheric"],
+        ["Spheric", "Aspheric"],
+    ]
+    assert MWIR_BALANCED_ACHROMAT_GROUPS == (
+        ("si", "mgf2", 0.50),
+        ("znse", "caf2", 0.30),
+        ("si", "mgf2", 0.20),
+    )
+    assert params["focal_length_mm"] == pytest.approx(
+        spec.effective_focal_length_mm
+    )
+
+
+def test_power_bent7_scheme_uses_seven_fully_curved_elements():
+    """新母型应使用七片、14 个非零曲面，并保留五个低阶非球面位置。"""
+
+    spec = MWIRDesignSpec()
+    params = _scheme_parameters(spec, "transmission_power_bent7")
+    lens_elements = [
+        item for item in MWIR_POWER_BENT7_SURFACE_LIST if item != ["Aperture"]
+    ]
+
+    assert MWIR_POWER_BENT7_SURFACE_LIST[0] == ["Aperture"]
+    assert len(lens_elements) == params["element_count"] == 7
+    assert params["surface_count"] == 15
+    assert list(MWIR_POWER_BENT7_MATERIALS) == [
+        "si",
+        "mgf2",
+        "si",
+        "mgf2",
+        "znse",
+        "caf2",
+        "si",
+    ]
+    assert sum(element.count("Aspheric") for element in lens_elements) == 5
+
+
+def test_power_bent7_paraxial_parameterization_holds_target_efl(tmp_path):
+    """相对曲率扰动后，共同倍率校准仍应把近轴 EFL 固定到任务目标。"""
+
+    spec = MWIRDesignSpec()
+    lens, params, _ = build_initial_lens(
+        spec,
+        scheme="transmission_power_bent7",
+        result_dir=tmp_path / "power-bent7",
+        device="cpu",
+        analyze=False,
+    )
+    surfaces = _curved_surfaces(lens)
+    base = torch.stack([surface.c.detach().clone() for surface in surfaces])
+    raw = torch.linspace(-0.25, 0.25, len(surfaces), dtype=base.dtype)
+    curvatures, state, relative = constrained_curvatures(
+        lens, base, raw, spec.effective_focal_length_mm
+    )
+
+    assert len(surfaces) == 14
+    assert all(abs(_detached_float(surface.c)) > 1e-6 for surface in surfaces)
+    assert sum(getattr(surface, "ai_degree", 0) == 4 for surface in surfaces) == 5
+    assert float(relative.min()) >= 1.0 / 1.35 - 1e-5
+    assert float(relative.max()) <= 1.35 + 1e-5
+    assert float(state.effective_focal_length_mm) == pytest.approx(
+        spec.effective_focal_length_mm, rel=2e-6
+    )
+    direct_state = paraxial_state(lens, curvatures)
+    assert float(direct_state.effective_focal_length_mm) == pytest.approx(
+        float(state.effective_focal_length_mm), rel=1e-7
+    )
+    assert params["element_count"] == 7
+
+
+def test_balanced_power_design_contains_negative_power_and_cancels_color():
+    """每组都应含负光焦度元件，且薄透镜一阶色差和接近零。"""
+
+    spec = MWIRDesignSpec()
+    design = _balanced_power_design(spec)
+    powers = design["element_powers_1_per_mm"]
+
+    assert design["element_materials"] == [
+        "si",
+        "mgf2",
+        "znse",
+        "caf2",
+        "si",
+        "mgf2",
+    ]
+    assert len(powers) == 6
+    assert powers[0::2] == pytest.approx(
+        [1.009222e-3, 6.374769e-4, 4.036889e-4], rel=2e-5
+    )
+    assert powers[1::2] == pytest.approx(
+        [-1.186543e-4, -1.031362e-4, -4.746173e-5], rel=2e-5
+    )
+    assert all(value > 0.0 for value in powers[0::2])
+    assert all(value < 0.0 for value in powers[1::2])
+    assert sum(powers) == pytest.approx(
+        1.0 / spec.effective_focal_length_mm, rel=1e-12, abs=1e-15
+    )
+    for group in design["groups"]:
+        assert group["positive_power_1_per_mm"] > 0.0
+        assert group["negative_power_1_per_mm"] < 0.0
+        assert group["first_order_color_sum_1_per_mm"] == pytest.approx(
+            0.0, abs=1e-18
+        )
+
+    assert _mwir_dispersion_number("si") == pytest.approx(202.02, rel=2e-4)
+    assert _mwir_dispersion_number("mgf2") == pytest.approx(23.75, rel=2e-4)
+    assert _mwir_dispersion_number("znse") == pytest.approx(194.45, rel=2e-4)
+    assert _mwir_dispersion_number("caf2") == pytest.approx(31.46, rel=2e-4)
+
+
+def test_balanced_builder_creates_real_cpu_prescription(tmp_path):
+    """CPU 实建处方应具有固定材料顺序、正负功率和七个可优化非球面阶次。"""
+
+    spec = MWIRDesignSpec()
+    lens, params, result_path = build_initial_lens(
+        spec,
+        scheme="transmission_balanced",
+        result_dir=tmp_path / "balanced",
+        device="cpu",
+        analyze=False,
+    )
+
+    entry_indices = range(1, 13, 2)
+    material_names = [lens.surfaces[index].mat2.name for index in entry_indices]
+    thin_powers = []
+    for index in entry_indices:
+        front = lens.surfaces[index]
+        rear = lens.surfaces[index + 1]
+        n_primary = float(front.mat2.refractive_index(3.5))
+        thin_powers.append(
+            (n_primary - 1.0)
+            * (_detached_float(front.c) - _detached_float(rear.c))
+        )
+
+    assert material_names == ["si", "mgf2", "znse", "caf2", "si", "mgf2"]
+    target_powers = _balanced_power_design(spec)["element_powers_1_per_mm"]
+    calibration_scales = [
+        actual / target for actual, target in zip(thin_powers, target_powers)
+    ]
+    assert calibration_scales == pytest.approx(
+        [calibration_scales[0]] * 6, rel=2e-5
+    )
+    assert 1.0 < calibration_scales[0] < 1.3
+    assert all(value > 0.0 for value in thin_powers[0::2])
+    assert all(value < 0.0 for value in thin_powers[1::2])
+    assert all(
+        getattr(lens.surfaces[index], "ai_degree", 0) == 7
+        for index in (1, 4, 5, 8, 9, 12)
+    )
+    assert abs(float(lens.foclen) - params["focal_length_mm"]) / params[
+        "focal_length_mm"
+    ] < 0.01
+    assert (result_path / "mwir_initial.json").is_file()
+    assert (result_path / "mwir_design_metadata.json").is_file()
 
 
 def test_confirmed_detector_is_reported_without_changing_baseline_geometry():
@@ -652,6 +835,21 @@ def test_mwir_optimization_prioritizes_field_mapping_and_controls_checkpoints(
 
     assert lens.kwargs["lrs"] == pytest.approx([2e-3, 0.0, 2e-4, 2e-6])
     assert lens.kwargs["w_rms"] == pytest.approx(0.3)
+    assert lens.kwargs["w_mtf"] == pytest.approx(0.0)
+    assert lens.kwargs["mtf_frequency_cy_mm"] == pytest.approx(
+        spec.analysis_nyquist_frequency_cy_mm
+    )
+    assert 0.5 < lens.kwargs["mtf_target"] < 1.0
+    assert lens.kwargs["mtf_max_weight"] == pytest.approx(1.0)
+    assert lens.kwargs["mtf_field_fractions"] == pytest.approx((0.0, 0.7, 1.0))
+    assert lens.kwargs["ray_resample_interval"] == 1
+    assert lens.kwargs["target_f_number"] == pytest.approx(
+        spec.required_f_number
+    )
+    assert lens.kwargs["first_order_preferred_relative_error"] == pytest.approx(
+        0.008
+    )
+    assert lens.kwargs["first_order_hard_relative_error"] == pytest.approx(0.01)
     assert lens.kwargs["w_field"] == pytest.approx(1.0)
     assert lens.kwargs["w_reg"] == pytest.approx(0.1)
     assert lens.kwargs["field_mapping_all_wavelengths"] is True
